@@ -210,7 +210,7 @@ DevFlow is **not** hard-wired to Claude Code. It is split into a platform-agnost
 - **Claude Code adapter** — lives at the plugin root (`.claude-plugin/`, `commands/`, `hooks/devflow-hook.*`, `agents/`). It glues Claude Code's extension points (slash commands, PreToolUse/PostToolUse hooks, Task-tool subagents) to `core/`.
 - **`adapters/`** — holds the [adapter contract](adapters/README.md) and, in the future, Codex / Cursor / Trae adapters.
 
-The hook scripts self-locate `core/` via `__file__` and also honor `CLAUDE_PLUGIN_ROOT`, so the same scripts run unchanged under any platform that can pipe JSON to them. See [adapters/README.md](adapters/README.md) for the porting contract and hard/soft capability tiers, and [docs/delivery-report.md](docs/delivery-report.md) for the consolidated cross-platform architecture, adapter status, and verification report.
+The hook scripts self-locate `core/` via `__file__` and also honor `CLAUDE_PLUGIN_ROOT`, so the same scripts run unchanged under any platform that can pipe JSON to them. See [adapters/README.md](adapters/README.md) for the porting contract and hard/soft capability tiers.
 
 ## What's Bundled
 
@@ -252,9 +252,6 @@ devflow/
 │   └── devflow_hook.py
 ├── adapters/
 │   └── README.md               # adapter contract + capability tiers (hard/soft)
-├── docs/
-│   ├── architecture.md         # cross-platform technical design
-│   └── delivery-report.md      # consolidated delivery report (architecture + contract + status)
 ├── install.sh
 └── README.md
 ```

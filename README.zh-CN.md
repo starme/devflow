@@ -289,7 +289,7 @@ DevFlow **没有**把逻辑写死在 Claude Code 上，而是拆成两层：
 - **Claude Code 适配层**——位于插件根目录（`.claude-plugin/`、`commands/`、`hooks/devflow-hook.*`、`agents/`），把 Claude 的斜杠命令、PreToolUse/PostToolUse 钩子、Task 子 Agent 机制桥接到 `core/`。
 - **`adapters/`**——存放[适配契约](adapters/README.md)，未来在此新增 Codex / Cursor / Trae 适配。
 
-core 的 hook 脚本通过 `__file__` 自定位 `core/`，同时识别 `CLAUDE_PLUGIN_ROOT`，因此任何能向脚本管道传入 JSON 的平台都能原样复用。移植契约、hard/soft 能力分级见 [adapters/README.md](adapters/README.md)，整合架构设计、适配契约、适配状态与验证结果的完整交付报告见 [docs/delivery-report.md](docs/delivery-report.md)。
+core 的 hook 脚本通过 `__file__` 自定位 `core/`，同时识别 `CLAUDE_PLUGIN_ROOT`，因此任何能向脚本管道传入 JSON 的平台都能原样复用。适配契约和 hard/soft 能力分级见 [adapters/README.md](adapters/README.md)。
 
 > 现状：已完成核心解耦，Claude Code 是唯一可用适配。Codex/Cursor/Trae 适配待核心在真实项目端到端验证后再做。
 
@@ -333,9 +333,6 @@ devflow/
 │   └── devflow_hook.py
 ├── adapters/
 │   └── README.md               # 适配契约 + hard/soft 能力分级
-├── docs/
-│   ├── architecture.md         # 跨平台架构技术设计
-│   └── delivery-report.md      # 完整交付报告（架构+契约+状态+验证）
 ├── install.sh
 ├── README.md                   # English documentation
 └── README.zh-CN.md             # 中文文档
