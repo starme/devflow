@@ -1,0 +1,186 @@
+# DevFlow Project Manifest
+# DevFlow 自动维护此文件，不建议手动编辑。
+# 由 /devflow init 生成。
+
+project:
+  name: "{{PROJECT_NAME}}"
+  created_at: "{{CREATED_AT}}"
+  current_phase: "idle"
+  # idle | classify | product_qa | prd_writing | gate_prd
+  # | architecture | gate_arch | development | testing
+  # | acceptance | distill | done
+  work_type: null
+  # null | feature | bugfix | chore
+  initialized: true
+
+# ── 适配层信息 ──
+# 由 /devflow init 写入。记录当前平台适配层及红线防护能力等级。
+adapter:
+  name: "{{ADAPTER_NAME}}"             # claude-code | codex | cursor | trae
+  capability: "{{ADAPTER_CAPABILITY}}"  # hard = 支持 PreToolUse 前置硬拦截；soft = 仅软约束 + 事后审计
+
+# ── 工作区路径约定 ──
+# 前后端分属不同目录，各研发 Agent 只在自己的 path 内工作。
+workspace:
+  root: "{{PROJECT_ROOT}}"
+  backend:
+    path: "{{BACKEND_PATH}}"          # 例如 ./server，无后端则为 null
+    stack: "{{BACKEND_STACK}}"         # 例如 go/gin, python/fastapi, null
+  frontend:
+    path: "{{FRONTEND_PATH}}"          # 例如 ./web，无前端则为 null
+    stack: "{{FRONTEND_STACK}}"        # 例如 react/vite, vue3, null
+  contract:
+    path: ".devflow/contracts"         # API 契约目录（架构 Agent 写，研发只读）
+  docs:
+    path: "docs"
+  rules:
+    path: ".devflow/rules"             # 项目自定义规则目录
+
+# ── 阶段状态 ──
+phases:
+  classify:
+    status: "pending"
+    detected_type: null
+    task_description: null
+    user_confirmed: false
+
+  product_qa:
+    status: "pending"
+    requirement_summary: null
+
+  prd_writing:
+    status: "pending"
+    prd_path: null
+
+  gate_prd:
+    status: "pending"
+    approved: false
+    revisions: 0
+
+  architecture:
+    status: "pending"
+    scope_path: ".devflow/scope.yaml"
+    diagnosis_path: ".devflow/diagnosis.md"
+    api_contracts_path: ".devflow/contracts/"
+    architecture_doc_path: "docs/architecture.md"
+    component_spec_path: "docs/frontend-components.md"
+    adrs_path: "docs/adr/"
+
+  gate_arch:
+    status: "pending"
+    approved: false
+    revisions: 0
+
+  development:
+    status: "pending"
+    dispatched_agents: []
+    # ["devflow-backend-dev"] / ["devflow-frontend-dev"] / both
+    parallel: false
+    tasks: []
+    # Task schema:
+    # - id: be-1
+    #   title: "..."
+    #   track: backend | frontend
+    #   assigned_agent: devflow-backend-dev | devflow-frontend-dev
+    #   cwd: "./server"
+    #   status: pending | in_progress | completed | blocked
+    #   test_status: pending | passed | failed
+    #   retry_count: 0
+    #   depends_on: []
+    reports:
+      backend: null
+      frontend: null
+
+  testing:
+    status: "pending"
+    current_round: 0
+    max_rounds: 3
+    rounds: []
+    # - round: 1
+    #   report_path: .devflow/test-report.md
+    #   overall: passed | failed | blocked
+    #   failures_count: 0
+    #   dispatched_to: []
+
+  acceptance:
+    status: "pending"
+    scenarios_path: ".devflow/acceptance-scenarios.md"
+    report_path: ".devflow/acceptance-report.md"
+    signed_off: false
+
+  distill:
+    status: "pending"
+    memories_created: []
+    retrospective_path: "docs/retrospective.md"
+
+  done:
+    status: "pending"
+    completed_at: null
+
+# ── 产物索引 ──
+artifacts:
+  prd: null
+  scope: null
+  diagnosis: null
+  api_contracts: []
+  architecture_doc: null
+  component_spec: null
+  adrs: []
+  task_reports: []
+  test_reports: []
+  acceptance_scenarios: null
+  acceptance_report: null
+  retrospective: null
+
+# ── Memorant 记忆配置 ──
+memorant:
+  # auto = 自动检测 MCP 工具可用性；on = 强制启用；off = 完全禁用
+  enabled: auto
+  project_key: "{{PROJECT_NAME}}"
+
+  # 各 Agent 的记忆权限
+  agents:
+    product:
+      recall: true
+      write: true
+      write_types: [product_decision, scope_clarification]
+    architect:
+      recall: true
+      write: true
+      write_types: [adr, architecture_pattern]
+    backend-dev:
+      recall: true
+      write: true
+      write_types: [bug, snippet, backend_pattern]
+    frontend-dev:
+      recall: true
+      write: true
+      write_types: [bug, snippet, frontend_pattern]
+    tester:
+      recall: true
+      write: true
+      write_types: [test_experience, boundary_case, bug_pattern, product_contradiction]
+
+  # Manager 派发前预测式召回
+  pre_dispatch_recall:
+    enabled: true
+    max_results: 5
+    trust_tier: verified
+    # verified = 只注入已验证记忆
+    # provisional+verified = 也注入待验证记忆（会标注置信度）
+
+  # 写入设置
+  write:
+    default_trust_tier: provisional
+    require_evidence: true
+    dedup: true
+
+  # 蒸馏设置
+  distill:
+    enabled: true
+    auto_promote: true
+    merge_duplicates: true
+    deprecate_invalid: true
+
+  # Memorant 不可用时的降级文件
+  fallback_path: "docs/devflow-memories.md"

@@ -1,0 +1,28 @@
+{
+  "name": "devflow",
+  "version": "0.2.0",
+  "description": "DevFlow: 多 Agent 协作的全栈应用开发生命周期编排器。Manager 协调产品/架构/后端/前端/测试 5 个专职 Agent，支持新功能完整流程和 bug 修复精简流程，集成 Memorant 经验沉淀。",
+  "author": { "name": "tal" },
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/devflow-hook.sh" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/devflow-hook.sh" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/devflow-hook.sh" }] }],
+    "PreCompact": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/devflow-hook.sh" }] }],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Write|Edit|MultiEdit",
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/core/hooks/redline-guard.py", "timeout": 5 }]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/core/hooks/redline-guard.py", "timeout": 5 }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|Bash",
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/core/hooks/audit-log.py", "timeout": 3 }]
+      }
+    ]
+  }
+}

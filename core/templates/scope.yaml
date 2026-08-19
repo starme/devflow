@@ -1,0 +1,177 @@
+# Scope 判定文件 — 由架构 Agent 输出
+# Manager 读取此文件决定调度哪些研发 Agent、是否并行。
+# 此为 schema 示例，实际由架构 Agent 根据任务生成。
+
+work_type: feature
+# feature | bugfix | chore
+
+tracks:
+  - backend
+  - frontend
+# 涉及的技术栈。只改前端就只有 frontend，只改后端就只有 backend。
+
+affected:
+  backend:
+    files:
+      - path: server/internal/handler/example.go
+        reason: "新增 handler"
+    new_files:
+      - path: server/internal/repository/example.go
+        reason: "数据访问层"
+  frontend:
+    files:
+      - path: web/src/pages/Example.tsx
+        reason: "示例页面"
+    new_files:
+      - path: web/src/components/ExampleCard.tsx
+        reason: "示例卡片组件"
+
+contract_changes: true
+# 是否需要修改 API 契约。true 时前后端需串行（先后端再前端）。
+
+contract_files:
+  - .devflow/contracts/example.yaml
+
+risk_level: medium
+# low | medium | high
+
+parallelizable: true
+# 前后端是否可并行。contract_changes=true 时通常为 false。
+
+dependency_order:
+  - backend
+  - frontend
+# 不可并行时的执行顺序。
+
+# ── 任务分解（one-pass-ready） ──────────────────────────────
+# 每个 task 必须自包含：研发 Agent 拿到后无需二次探索即可开工。
+# 按依赖顺序排列，底层优先。
+tasks:
+  - id: be-1
+    title: "Example 数据模型与 migration"
+    track: backend
+    description: "创建 Example 表结构、model 定义和 repository 接口"
+    depends_on: []
+    affected_files:
+      - path: server/internal/model/example.go
+        action: create
+      - path: server/internal/repository/example.go
+        action: create
+    # 必读文件：开工前必须读取，理解现有模式
+    must_read:
+      - path: server/internal/model/base.go
+        why: "所有 model 嵌入 BaseModel，遵循相同的时间戳和软删除约定"
+      - path: server/internal/repository/base_repo.go
+        why: "repository 基类提供通用 CRUD，新 repository 应继承而非重写"
+    # 参考模式：从现有代码中提取的 pattern，带行号
+    pattern_ref:
+      - path: server/internal/repository/todo_repo.go
+        lines: "15-48"
+        note: "参考 TodoRepository 的结构：接口定义 → 结构体 → 构造函数 → CRUD 方法"
+    # 已知陷阱：架构阶段识别出的容易出错的点
+    gotcha:
+      - "migration 文件名必须按时间戳排序，格式 YYYYMMDDHHMMSS_example.sql"
+      - "软删除字段用 deleted_at TIMESTAMP NULL，不要用 boolean"
+    # task 级验证命令：完成此 task 后必须通过才能进入下一个
+    validate:
+      - cmd: "cd server && go test ./internal/repository/... -run Example -v"
+        expect: "新增的 repository 测试全部通过"
+      - cmd: "cd server && go vet ./internal/model/..."
+        expect: "无编译错误"
+    acceptance_criteria:
+      - "Example model 包含 ID、Name、CreatedAt、UpdatedAt、DeletedAt 字段"
+      - "ExampleRepository 实现 Create、GetByID、List、Update、Delete 方法"
+      - "migration 可正向执行"
+
+  - id: be-2
+    title: "Example Handler 与路由注册"
+    track: backend
+    description: "实现 CRUD HTTP handler 并注册路由"
+    depends_on: [be-1]
+    affected_files:
+      - path: server/internal/handler/example_handler.go
+        action: create
+      - path: server/internal/router/router.go
+        action: update
+    must_read:
+      - path: server/internal/handler/todo_handler.go
+        why: "handler 的请求解析、错误响应、JSON 序列化模式"
+      - path: server/internal/router/router.go
+        why: "路由注册位置和中间件挂载方式"
+    pattern_ref:
+      - path: server/internal/handler/todo_handler.go
+        lines: "20-65"
+        note: "参考 CreateTodo 的 handler 结构：Bind → Validate → Call service → Respond"
+    gotcha:
+      - "所有错误响应必须用 utils.RespondError，不要直接写 c.JSON"
+      - "分页参数 page 从 1 开始，不是 0"
+    validate:
+      - cmd: "cd server && go test ./internal/handler/... -run Example -v"
+        expect: "handler 单元测试通过"
+      - cmd: "cd server && go build ./..."
+        expect: "编译通过"
+    acceptance_criteria:
+      - "POST /api/examples 创建资源"
+      - "GET /api/examples 列表（分页）"
+      - "GET /api/examples/:id 详情"
+      - "PUT /api/examples/:id 更新"
+      - "DELETE /api/examples/:id 删除"
+
+  - id: fe-1
+    title: "Example 列表页与卡片组件"
+    track: frontend
+    description: "实现 Example 列表页面，包含卡片组件、API 调用、加载和错误状态"
+    depends_on: [be-2]
+    affected_files:
+      - path: web/src/pages/ExampleList.tsx
+        action: create
+      - path: web/src/components/ExampleCard.tsx
+        action: create
+      - path: web/src/api/example.ts
+        action: create
+    must_read:
+      - path: web/src/pages/TodoList.tsx
+        why: "现有列表页的完整模式：数据获取 → 状态管理 → 渲染 → 分页"
+      - path: web/src/api/todo.ts
+        why: "API 层的请求封装和类型定义方式"
+      - path: web/src/components/TodoCard.tsx
+        why: "卡片组件的 props 定义和样式约定"
+    pattern_ref:
+      - path: web/src/pages/TodoList.tsx
+        lines: "10-80"
+        note: "参考 useQuery + 列表渲染 + 分页组件的组合方式"
+    gotcha:
+      - "API 类型从 .devflow/contracts/ 生成，不要手写 interface"
+      - "加载状态用 Skeleton 组件，不要用全屏 spinner"
+    validate:
+      - cmd: "cd web && npx tsc --noEmit"
+        expect: "无类型错误"
+      - cmd: "cd web && npm test -- ExampleList"
+        expect: "组件测试通过"
+    acceptance_criteria:
+      - "页面加载时显示骨架屏"
+      - "列表展示 ExampleCard 组件"
+      - "分页可切换"
+      - "API 错误时显示错误提示"
+
+dispatch:
+  - agent: devflow-backend-dev
+    cwd: ./server
+    task_ids: [be-1, be-2]
+    boundary: "只允许修改 ./server/ 下的文件，禁止改动 ./web/ 和 .devflow/contracts/"
+  - agent: devflow-frontend-dev
+    cwd: ./web
+    task_ids: [fe-1]
+    boundary: "只允许修改 ./web/ 下的文件，禁止改动 ./server/ 和 .devflow/contracts/"
+
+memorant_recall_query:
+  - "相关模块关键词"
+  - "历史 bug 关键词"
+  - "代码模式关键词"
+# 建议 Manager 和研发 Agent 搜索的记忆关键词。
+
+# bugfix 模式额外字段：
+root_cause: null
+# 根因分析（bugfix 时填写）
+fix_summary: null
+# 修复要点（bugfix 时填写）

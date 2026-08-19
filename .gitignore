@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local environments and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.*
+credentials.*
+
+# Claude Code local state
+.claude/
+
+# DevFlow runtime artifacts created in user projects
+.devflow/
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,6 @@
+{
+  "name": "devflow-marketplace",
+  "description": "DevFlow: Full-stack application development lifecycle orchestrator",
+  "owner": { "name": "tal" },
+  "plugins": [{ "name": "devflow", "source": "." }]
+}

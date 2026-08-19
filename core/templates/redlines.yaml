@@ -1,0 +1,146 @@
+# DevFlow Redlines — 文件保护规则
+#
+# 三类保护级别：
+#   forbidden        — 任何 Agent 不得读取或修改（PreToolUse hook 直接拦截）
+#   protected        — 可读不可改（PreToolUse hook 拦截写入）
+#   approval_required — 可读，修改前需用户批准（PreToolUse hook 触发 ask）
+#
+# glob 语法：
+#   *    匹配单层路径（不含 /）
+#   **   匹配任意层级（含 /）
+#   !    前缀表示排除（如 !.env.example 表示 .env.example 不受限）
+#
+# 路径相对于项目根目录。修改后立即生效，无需重启。
+
+# ──────────────────────────────────────────────
+# 🔴 FORBIDDEN — 绝对禁止读写
+# ──────────────────────────────────────────────
+forbidden:
+  # 环境变量与密钥
+  - ".env"
+  - ".env.*"
+  - "!.env.example"
+  - "*.pem"
+  - "*.key"
+  - "*.crt"
+  - "*.cer"
+  - "*.p12"
+  - "*.pfx"
+
+  # 密钥/凭证文件
+  - "secrets.*"
+  - "credentials.*"
+  - "config/secrets.*"
+  - "**/secrets.*"
+  - "**/credentials.*"
+
+  # SSH 密钥
+  - "id_rsa"
+  - "id_rsa.*"
+  - "id_ed25519"
+  - "id_ed25519.*"
+
+  # 包管理凭证
+  - ".npmrc"
+  - ".pypirc"
+  - ".netrc"
+  - ".dockercfg"
+
+  # 云凭证
+  - ".aws/credentials"
+  - ".gcp/credentials"
+  - "**/.aws/credentials"
+  - "**/.gcp/credentials"
+
+  # 密钥库
+  - "*.kdbx"
+  - "*.keystore"
+  - "*.jks"
+
+# ──────────────────────────────────────────────
+# 🟡 PROTECTED — 可读不可改
+# ──────────────────────────────────────────────
+protected:
+  # CI/CD
+  - ".github/**"
+  - ".gitlab-ci.yml"
+  - "Jenkinsfile"
+
+  # 容器与基础设施
+  - "Dockerfile"
+  - "Dockerfile.*"
+  - "docker-compose*.yml"
+  - "docker-compose*.yaml"
+  - "*.tf"
+  - "terraform/**"
+  - "k8s/**"
+  - "kubernetes/**"
+  - "nginx*.conf"
+  - "Caddyfile"
+
+  # 版本控制
+  - ".git/**"
+  - ".gitignore"
+  - ".gitattributes"
+
+  # 锁文件
+  - "package-lock.json"
+  - "yarn.lock"
+  - "pnpm-lock.yaml"
+  - "go.sum"
+  - "poetry.lock"
+  - "composer.lock"
+  - "Gemfile.lock"
+
+  # 构建与部署
+  - "Makefile"
+  - "justfile"
+  - ".dockerignore"
+  - "vercel.json"
+  - "netlify.toml"
+  - "Procfile"
+
+  # DevFlow 配置（Agent 不得修改，Manager 负责）
+  - ".claude/**"
+
+# ──────────────────────────────────────────────
+# 🟠 APPROVAL_REQUIRED — 修改需人工批准
+# ──────────────────────────────────────────────
+approval_required:
+  # 依赖清单
+  - "package.json"
+  - "go.mod"
+  - "requirements.txt"
+  - "requirements/*.txt"
+  - "pyproject.toml"
+  - "composer.json"
+  - "Gemfile"
+  - "Cargo.toml"
+  - "pom.xml"
+
+  # 数据库迁移
+  - "migrations/**"
+  - "alembic/**"
+  - "**/migrations/**"
+  - "**/migration/**"
+
+  # 认证授权
+  - "**/auth/**"
+  - "**/authentication/**"
+  - "**/middleware/auth*"
+  - "**/permission*"
+  - "**/access_control*"
+  - "**/authorize*"
+
+  # 全局配置文件
+  - "**/config/*.yaml"
+  - "**/config/*.yml"
+  - "**/config/*.json"
+  - "**/config/*.toml"
+  - "**/config/*.ini"
+  - "**/settings/*.py"
+  - "**/settings/*.go"
+  - "**/settings/*.php"
+  - "**/conf/*.yaml"
+  - "**/conf/*.yml"
+  - "**/conf/*.json"
