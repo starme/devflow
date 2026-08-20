@@ -113,13 +113,21 @@ def memorant_available():
 
 
 def find_manifest():
-    """Walk up from CWD to find .devflow/manifest.yaml."""
+    """Walk up from CWD to find DevFlow state, migrating legacy metadata."""
     try:
         cwd = Path.cwd()
+        plugin_root = Path(__file__).resolve().parent.parent
+        core_dir = plugin_root / "core"
+        if str(core_dir) not in sys.path:
+            sys.path.insert(0, str(core_dir))
+        from orchestrator.migration import migrate_legacy_project
         for parent in [cwd] + list(cwd.parents):
-            manifest = parent / '.devflow' / 'manifest.yaml'
-            if manifest.exists():
-                return manifest, parent
+            devflow = parent / '.devflow'
+            if (devflow / 'manifest.yaml').is_file():
+                migrate_legacy_project(parent)
+                return devflow / 'manifest.yaml', parent
+            if (devflow / 'project.yaml').is_file():
+                return devflow / 'project.yaml', parent
     except Exception:
         pass
     return None, None

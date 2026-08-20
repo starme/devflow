@@ -5,15 +5,15 @@ description: Adaptive DevFlow lifecycle orchestration for applications, AI agent
 
 # DevFlow for Codex
 
-Read the repository's `.devflow/manifest.yaml` and `.devflow/context.json` before acting. If `.devflow/manifest.yaml` is missing, analyze the repository and initialize it before starting a lifecycle.
+Read the repository's `.devflow/project.yaml` and the current task's `.devflow/task.yaml`/`.devflow/context.json` before acting. If only `.devflow/manifest.yaml` exists, perform the idempotent legacy metadata migration: create `project.yaml`, `tasks/legacy/task.yaml`, and `migration.yaml` without modifying or deleting the manifest. New `start` and `fix` tasks must use isolated worktrees.
 
 ## Commands
 
 - `$devflow init`: analyze safe repository evidence and record category, capabilities, evidence, and selected tracks.
 - `$devflow start <request>`: start a feature lifecycle.
 - `$devflow fix <bug>`: run the reduced bugfix lifecycle.
-- `$devflow status`: report category, tracks, phase, artifacts, and next action.
-- `$devflow next`: resume the current phase.
+- `$devflow status`: report project configuration plus task/worktree status; use `--all` to list all tasks.
+- `$devflow next`: resume the selected task; use `--task <task-id>` when multiple tasks exist.
 
 ## Safety
 

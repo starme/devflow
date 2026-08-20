@@ -30,7 +30,13 @@ def find_project_root(cwd=None):
         if not start.is_absolute():
             start = start.resolve()
 
-        # In a worktree, the main workspace root is known directly.
+        # A DevFlow task worktree is itself an authoritative project root. Its
+        # task state must never fall back to another worktree's context.
+        for parent in [start] + list(start.parents):
+            if (parent / ".devflow" / "task.yaml").is_file():
+                return parent
+
+        # In a Claude subagent worktree, the main workspace root is known directly.
         wt_root, main_root = detect_worktree(str(start))
         if wt_root and main_root and (main_root / ".devflow").is_dir():
             return main_root
@@ -48,22 +54,25 @@ def find_project_root(cwd=None):
 # ---------------------------------------------------------------------------
 
 def detect_worktree(cwd):
-    """Detect whether *cwd* is inside a Claude Code isolated worktree.
+    """Detect a Claude subagent or DevFlow task worktree.
 
-    Claude Code Task subagents run in ``<project>/.claude/worktrees/agent-<id>/``.
-    The worktree is a full git checkout with the same tracked-file layout as
-    the main workspace, but ``.devflow/`` (gitignored) is absent unless the
-    agent creates it.
-
-    Returns ``(worktree_root, main_root)`` where both are :class:`Path`,
-    or ``(None, None)`` when not in a worktree.
+    Returns ``(worktree_root, main_root)`` or ``(None, None)``. DevFlow task
+    worktrees live outside the repository and are identified by ``task.yaml``;
+    Claude Task worktrees retain the existing ``.claude/worktrees/agent-*``
+    convention.
     """
     try:
         p = Path(cwd).resolve()
+        for parent in [p] + list(p.parents):
+            if (parent / ".devflow" / "task.yaml").is_file():
+                project_root = parent
+                while project_root.parent != project_root and project_root.name != ".devflow-worktrees":
+                    project_root = project_root.parent
+                if project_root.name == ".devflow-worktrees":
+                    return p if p == parent else parent, project_root.parent
         parts = p.parts
         for i in range(len(parts) - 1):
             if parts[i] == ".claude" and i + 1 < len(parts) and parts[i + 1] == "worktrees":
-                # agent-<id> is the segment after "worktrees"
                 if i + 2 < len(parts) and parts[i + 2].startswith("agent-"):
                     wt_root = Path(*parts[: i + 3])
                     main_root = Path(*parts[:i])

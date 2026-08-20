@@ -16,7 +16,7 @@ is never overwritten — those belong to the main workspace and are read by
 agents via the main workspace path.
 
 Usage:
-    python3 worktree_sync.py collect --root /path/to/project
+    python3 worktree_sync.py collect --root /path/to/project [--worktree /path/to/task-wt]
     python3 worktree_sync.py prepare --root /path/to/project --worktree /path/to/wt
 
 Commands:
@@ -71,19 +71,13 @@ def find_worktrees(main_root):
     return worktrees
 
 
-def collect_artifacts(main_root, dry_run=False):
-    """Collect .devflow/ artifacts from all worktrees into main workspace.
-
-    Returns a dict describing what was synced:
-        {
-          "synced": [{"worktree": "...", "files": ["rel/path", ...]}],
-          "errors": ["...", ...]
-        }
-    """
+def collect_artifacts(main_root, worktree=None, dry_run=False):
+    """Collect artifacts from one worktree, or legacy agent worktrees."""
     main_devflow = main_root / ".devflow"
     result = {"synced": [], "errors": []}
+    worktrees = [Path(worktree).resolve()] if worktree else find_worktrees(main_root)
 
-    for wt in find_worktrees(main_root):
+    for wt in worktrees:
         wt_devflow = wt / ".devflow"
         if not wt_devflow.is_dir():
             continue
@@ -165,6 +159,7 @@ def main():
 
     p_collect = sub.add_parser("collect", help="Collect artifacts from worktrees")
     p_collect.add_argument("--root", required=True, help="Main workspace root")
+    p_collect.add_argument("--worktree", help="Only collect from this task worktree")
     p_collect.add_argument("--dry-run", action="store_true")
 
     p_prep = sub.add_parser("prepare", help="Prepare a worktree with config")
@@ -180,7 +175,7 @@ def main():
         sys.exit(1)
 
     if args.command == "collect":
-        result = collect_artifacts(main_root, dry_run=args.dry_run)
+        result = collect_artifacts(main_root, worktree=args.worktree, dry_run=args.dry_run)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if result["errors"]:
             sys.exit(1)

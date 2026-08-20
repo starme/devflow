@@ -1,0 +1,14 @@
+{
+  "task_id": "{{TASK_ID}}",
+  "run_id": "{{RUN_ID}}",
+  "current_phase": "classify",
+  "current_agent": "manager",
+  "cwd": "{{WORKTREE}}",
+  "project_root": "{{PROJECT_ROOT}}",
+  "task_root": "{{WORKTREE}}/.devflow",
+  "branch": "{{BRANCH}}",
+  "adapter": {
+    "name": "{{ADAPTER_NAME}}",
+    "capability": "{{ADAPTER_CAPABILITY}}"
+  }
+}

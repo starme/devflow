@@ -21,6 +21,7 @@ class MarketplaceManifestTest(unittest.TestCase):
     def test_plugin_manifest_exposes_devflow_skill(self):
         plugin = json.loads(PLUGIN.read_text(encoding="utf-8"))
         self.assertEqual(plugin["name"], "devflow")
+        self.assertEqual(plugin["version"], "1.0.0")
         self.assertEqual(plugin["skills"], "./skills/")
         self.assertTrue(SKILL.is_file())
 

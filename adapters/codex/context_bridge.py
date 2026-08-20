@@ -16,9 +16,10 @@ SOFT_CAPABILITY_WARNING = (
 
 
 def write_context(project_root: Union[str, Path], context: Dict[str, object]) -> Path:
-    """Persist the runtime context consumed by core hooks."""
+    """Persist task-scoped runtime context consumed by core hooks."""
     root = Path(project_root).resolve()
-    context_path = root / ".devflow" / "context.json"
+    task_root = Path(str(context.get("task_root", root / ".devflow"))).resolve()
+    context_path = task_root / "context.json"
     context_path.parent.mkdir(parents=True, exist_ok=True)
     context_path.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return context_path

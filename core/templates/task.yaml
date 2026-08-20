@@ -1,0 +1,36 @@
+schema_version: 1
+
+# One requirement or standalone bugfix per task worktree.
+task:
+  id: "{{TASK_ID}}"
+  slug: "{{TASK_SLUG}}"
+  title: "{{TASK_TITLE}}"
+  kind: "{{TASK_KIND}}" # feature | bugfix | chore
+  description: "{{TASK_DESCRIPTION}}"
+  current_phase: "classify"
+  status: "active"
+
+git:
+  base_ref: "{{BASE_REF}}"
+  base_commit: "{{BASE_COMMIT}}"
+  branch: "{{BRANCH}}"
+  worktree: "{{WORKTREE}}"
+
+# Optional traceability only; these fields do not create a dependency graph.
+parent_task_id: null
+source_task_id: null
+
+project_snapshot:
+  source: ".devflow/project.yaml"
+  category: null
+  capabilities: []
+
+workflow:
+  selected_tracks: []
+
+artifacts:
+  prd: null
+  architecture: null
+  scope: ".devflow/scope.yaml"
+  test_reports: []
+  acceptance_report: null
