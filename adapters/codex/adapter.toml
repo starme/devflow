@@ -1,0 +1,14 @@
+platform = "codex"
+version = "0.1"
+capability = "soft"
+core_root_env = "DEVFLOW_CORE_ROOT"
+verified_extension_points = [
+  "turn/start.skill_input",
+  "mcp.tools",
+  "mcp.tool_hooks.synchronous",
+  "item.commandExecution.requestApproval",
+]
+unverified_extension_points = [
+  "generic_pre_tool_use_file_write_deny",
+]
+commands = ["init", "start", "fix", "status", "next"]

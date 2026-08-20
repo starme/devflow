@@ -32,6 +32,21 @@ description: >-
 
 ---
 
+## Project-aware orchestration
+
+Before selecting architecture and development work, read the evidence-based classification fields in `project.category`, `project.capabilities`, and `workflow.tracks`. Legacy manifests that omit these fields use the traditional application flow for backward compatibility.
+
+- `traditional_application`: retain backend/frontend/API and integration tracks when present.
+- `ai_agent_application`: use agent, prompt, integration, evaluation, and testing tracks.
+- `agent_plugin`: use plugin, command, skill, agent, hook, evaluation, packaging, documentation, and testing tracks as applicable.
+- `skill`: use skill, prompt, evaluation, packaging, documentation, and testing tracks.
+- `mcp_server`: use MCP/tool, integration, evaluation, packaging, documentation, and testing tracks.
+- `ai_tool_or_workflow`: use agent/prompt/tool/integration/evaluation/documentation tracks.
+
+The architecture Agent must output only selected tracks in `scope.yaml`. `backend` and `frontend` are ordinary optional tracks, not universal requirements. Do not dispatch a backend/frontend Agent when those tracks are absent. Every non-legacy track must declare its artifact contract, boundary, assigned Agent, and validation command.
+
+If `project.category_ambiguous` is true, pause and ask the user to confirm the ranked candidates before dispatching architecture work.
+
 ## 阶段状态机
 
 ```

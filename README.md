@@ -2,11 +2,14 @@
 
 English | [中文](README.zh-CN.md)
 
-AI-assisted application development lifecycle orchestrator for Claude Code.
+DevFlow analyzes the repository during `init` instead of assuming every project is a backend/frontend application. It classifies traditional applications, AI agent applications, Agent Plugins, Skills, MCP servers, and other AI workflows from explainable repository evidence, then selects only the compatible lifecycle tracks. Existing application projects keep the backend/frontend flow; AI projects use plugin, command, skill, agent, hook, tool, evaluation, packaging, and documentation tracks as applicable.
+
+Codex is supported through `adapters/codex/`. Its current redline capability is **soft**: official Codex extension points for Skills, MCP hooks, and command approvals are supported, but a generic Claude-style pre-tool file-write deny hook has not been verified. Claude Code retains hard PreToolUse protection.
+
 
 DevFlow connects product discovery, architecture, backend/frontend implementation, testing, acceptance, and reusable engineering memory through one workflow. Humans make decisions at explicit gates; the Manager coordinates the remaining work with artifact contracts and safety guardrails.
 
-> **Current status:** Claude Code is the only supported adapter. The 0.2.x release is a working lifecycle prototype with verified hook/worktree safeguards; run a real project before relying on unattended end-to-end execution.
+> **Current status:** Claude Code and Codex CLI are supported adapters. Claude Code provides hard PreToolUse protection. Codex provides a protocol-complete adapter with soft redline protection because a generic pre-tool file-write deny hook has not been verified; validate live app-server integration in your environment before relying on unattended execution.
 
 ## Quick Install (Fresh Machine)
 
@@ -48,7 +51,18 @@ Language/framework rules stay in the plugin directory and are loaded by agents a
 
 DevFlow works without Memorant, but experience recall and distillation require it. Without Memorant, DevFlow still runs the full lifecycle — it just skips memory recall and writes a plain markdown retrospective at project end instead.
 
-## Usage
+## Project analysis and adaptive tracks
+
+During `/devflow init`, DevFlow scans safe repository evidence and records the detected category, confidence, evidence, capabilities, and selected tracks in `.devflow/manifest.yaml`. Supported categories include traditional applications, AI agent applications, Agent Plugins, Skills, MCP servers, and other AI workflows. Low-confidence or conflicting evidence is surfaced for confirmation.
+
+Traditional applications retain backend/frontend/API tracks. AI-oriented projects receive only applicable tracks such as plugin, command, skill, agent, prompt, hook, MCP/tool, integration, evaluation, packaging, and documentation. This prevents empty backend/frontend work from being dispatched for a plugin or Skill repository.
+
+## Codex adapter
+
+The Codex adapter is located at [`adapters/codex/`](adapters/codex/). It provides command mapping, Codex Skill and `AGENTS.md` instructions, app-server `turn/start` payload guidance, MCP/approval integration guidance, runtime context bridging, core audit logging, installation instructions, and protocol-level tests.
+
+Codex capability is intentionally **soft**. Official Codex documentation confirms Skill inputs, MCP tools/hooks, and `item/commandExecution/requestApproval`, but does not currently verify a generic synchronous file-write deny hook equivalent to Claude Code `PreToolUse`. The adapter therefore uses Codex approvals, instruction-level redlines, and post-action audit logging; it must not claim hard file-write interception.
+
 
 | Command | Purpose |
 |---------|---------|
@@ -67,11 +81,12 @@ DevFlow works without Memorant, but experience recall and distillation require i
 ```
 
 This single command:
-1. Detects your tech stack (go-zero? Laravel? Vue?)
-2. Generates CLAUDE.md
-3. Installs all relevant coding rules
-4. Creates `.devflow/manifest.yaml`
-5. Starts Socratic product Q&A
+1. Detects your project category and capabilities (traditional app, AI agent, Agent Plugin, Skill, MCP, etc.)
+2. Selects compatible lifecycle tracks instead of assuming backend/frontend work
+3. Generates CLAUDE.md
+4. Installs all relevant coding rules
+5. Creates `.devflow/manifest.yaml`
+6. Starts Socratic product Q&A
 
 ### Fixing Bugs / Daily Maintenance
 

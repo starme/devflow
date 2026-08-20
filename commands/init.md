@@ -27,22 +27,33 @@ ls "$DEVFLOW_ROOT/core/templates/manifest.yaml" "$DEVFLOW_ROOT/core/rules/engine
 
 使用结果作为 `$DEVFLOW_ROOT`。找不到则提示用户运行 `bash install.sh`。
 
-## Step 1: 探测技术栈和项目路径
+## Step 1: Evidence-based project analysis
 
-读取项目标志文件探测技术栈：
-- 后端：`go.mod`（检查 go-zero/gin）、`composer.json`（检查 laravel/hyperf）、`pyproject.toml`/`requirements.txt`（检查 fastapi/django/flask）
-- 前端：`package.json`（检查 react/vue/vite/next/nuxt）
+Do not assume that every repository is a traditional backend/frontend application. Analyze the repository root with the shared `core/project_analyzer.py` module and classify it from safe, explainable evidence:
 
-设置变量：
-- `BACKEND_LANG`：go / php / python / null
-- `BACKEND_FRAMEWORK`：gin / go-zero / laravel / fastapi 等 / null
-- `FRONTEND_FRAMEWORK`：react / vue / next / nuxt 等 / null
-- `BACKEND_PATH`：后端代码目录。如果根目录就有 go.mod/composer.json/pyproject.toml 则为 `.`，否则查找 `server/`、`backend/`、`api/` 等子目录。找不到但检测到后端语言文件则为 `.`。
-- `FRONTEND_PATH`：前端代码目录。查找 `web/`、`frontend/`、`client/`、`app/` 等子目录。如果根目录 package.json 存在且是前端项目则为 `.`。
+- `traditional_application`
+- `ai_agent_application`
+- `agent_plugin`
+- `skill`
+- `mcp_server`
+- `ai_tool_or_workflow`
+- `library_or_other`
 
-如果探测不确定，询问用户确认路径。这很重要——各研发 Agent 的目录边界依赖这些路径。
+The analyzer must inspect repository markers such as plugin manifests, `SKILL.md`, `AGENTS.md`, commands, hooks, MCP configuration/SDK references, prompt/evaluation directories, application manifests, and documentation. It must never read `.env*`, credentials, secrets, or private keys.
 
-## Step 2: 生成 CLAUDE.md
+Persist all of the following in `project` in the manifest:
+
+- `category`
+- `category_confidence`
+- `category_ambiguous`
+- `category_evidence[]`
+- `capabilities[]`
+
+Persist the selected lifecycle tracks under `workflow.tracks`. Track selection is category-aware. Traditional applications retain backend/frontend/API tracks; Agent Plugin, Skill, MCP, and AI Agent projects use only applicable plugin, command, skill, agent, prompt, hook, tool, integration, evaluation, packaging, documentation, and testing tracks. Do not create empty backend/frontend tracks for projects that do not contain them.
+
+If confidence is low or the top categories are close, show the ranked candidates and evidence and ask the user to confirm the category before writing the final manifest. Do not silently make an incompatible choice.
+
+## Step 2: Generate CLAUDE.md
 
 如果项目根目录没有 `CLAUDE.md`，生成一个简洁版本：
 
