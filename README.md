@@ -50,31 +50,33 @@ npm install -g @openai/codex
 brew install --cask codex
 ```
 
-Then make this repository available to Codex and install the DevFlow adapter instructions:
+### Install DevFlow from the Codex Plugin Marketplace
+
+The recommended path is Codex Plugin Marketplace installation; manual Skill copying is only a fallback:
 
 ```bash
-git clone https://github.com/starme/devflow.git ~/devflow
-cd ~/devflow
-bash install.sh
-mkdir -p ~/.codex/skills/devflow
-cp adapters/codex/devflow-codex.md ~/.codex/skills/devflow/SKILL.md
+# From a local DevFlow checkout
+codex plugin marketplace add .
+codex plugin list --marketplace devflow-marketplace
+codex plugin add devflow@devflow-marketplace
 ```
 
-In the target project, copy or merge the adapter instructions without replacing existing project rules:
+From GitHub, use the repository marketplace directly:
 
 ```bash
-cp ~/devflow/adapters/codex/AGENTS.md ./AGENTS.md
-# If ./AGENTS.md already exists, merge the DevFlow section manually instead.
+codex plugin marketplace add starme/devflow --ref main
+codex plugin list --marketplace devflow-marketplace
+codex plugin add devflow@devflow-marketplace
 ```
 
-Start Codex in the target project and invoke the Skill with `$devflow`:
+Open a new Codex thread after installation, then in the target project run:
 
 ```text
 $devflow init
-$devflow start "Build a team weekly report tool"
+$devflow status
 ```
 
-For Codex app-server integrations, send a `turn/start` request containing a `$devflow` text item and a Skill input item pointing to `adapters/codex/devflow-codex.md`. See [`adapters/codex/install.md`](adapters/codex/install.md) for the CLI/Skill and app-server paths.
+The package manifest is in [`plugins/devflow/.codex-plugin/plugin.json`](plugins/devflow/.codex-plugin/plugin.json), and the repository marketplace is in [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json). See [`plugins/devflow/install.md`](plugins/devflow/install.md) for fallback and app-server details.
 
 
 1. Verifies Python 3 is available

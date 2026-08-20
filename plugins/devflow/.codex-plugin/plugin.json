@@ -1,0 +1,28 @@
+{
+  "name": "devflow",
+  "version": "0.1.0",
+  "description": "Adaptive lifecycle orchestration for traditional applications, AI agents, Agent Plugins, Skills, and MCP servers.",
+  "author": {
+    "name": "starme",
+    "url": "https://github.com/starme"
+  },
+  "homepage": "https://github.com/starme/devflow",
+  "repository": "https://github.com/starme/devflow",
+  "license": "MIT",
+  "keywords": ["devflow", "agent", "plugin", "skill", "mcp", "codex"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "DevFlow",
+    "shortDescription": "Adaptive AI project lifecycle orchestration",
+    "longDescription": "Classifies repositories, selects compatible lifecycle tracks, and coordinates safe product, architecture, implementation, testing, and acceptance work.",
+    "developerName": "starme",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Write"],
+    "websiteURL": "https://github.com/starme/devflow",
+    "defaultPrompt": [
+      "$devflow init",
+      "$devflow status",
+      "$devflow next"
+    ]
+  }
+}

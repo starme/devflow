@@ -1,0 +1,20 @@
+{
+  "name": "devflow-marketplace",
+  "interface": {
+    "displayName": "DevFlow Marketplace"
+  },
+  "plugins": [
+    {
+      "name": "devflow",
+      "source": {
+        "source": "local",
+        "path": "./plugins/devflow"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
