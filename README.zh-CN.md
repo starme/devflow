@@ -59,31 +59,33 @@ npm install -g @openai/codex
 brew install --cask codex
 ```
 
-然后将本仓库提供给 Codex，并安装 DevFlow 适配层指令：
+### 从 Codex 插件广场安装 DevFlow
+
+推荐使用 Codex Plugin Marketplace 安装；手动复制 Skill 只作为兼容/开发兜底路径：
 
 ```bash
-git clone https://github.com/starme/devflow.git ~/devflow
-cd ~/devflow
-bash install.sh
-mkdir -p ~/.codex/skills/devflow
-cp adapters/codex/devflow-codex.md ~/.codex/skills/devflow/SKILL.md
+# 在本地 DevFlow checkout 中执行
+codex plugin marketplace add .
+codex plugin list --marketplace devflow-marketplace
+codex plugin add devflow@devflow-marketplace
 ```
 
-在目标项目中复制或合并适配层指令，不要覆盖项目已有规则：
+也可以直接从 GitHub 仓库添加 Marketplace：
 
 ```bash
-cp ~/devflow/adapters/codex/AGENTS.md ./AGENTS.md
-# 如果 ./AGENTS.md 已存在，请手动合并 DevFlow 部分。
+codex plugin marketplace add starme/devflow --ref main
+codex plugin list --marketplace devflow-marketplace
+codex plugin add devflow@devflow-marketplace
 ```
 
-进入目标项目启动 Codex，然后使用 `$devflow` Skill：
+安装后请新建 Codex thread，然后在目标项目中执行：
 
 ```text
 $devflow init
-$devflow start "做一个团队周报工具"
+$devflow status
 ```
 
-如果使用 Codex app-server 集成，请发送包含 `$devflow` 文本输入和 Skill 输入项的 `turn/start` 请求，并将 Skill 路径指向 `adapters/codex/devflow-codex.md`。具体 CLI/Skill 和 app-server 方式见 [`adapters/codex/install.md`](adapters/codex/install.md)。
+插件 manifest 位于 [`plugins/devflow/.codex-plugin/plugin.json`](plugins/devflow/.codex-plugin/plugin.json)，仓库 Marketplace 位于 [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json)。兜底路径和 app-server 说明见 [`plugins/devflow/install.md`](plugins/devflow/install.md)。
 
 
 1. 检查 Python 3 是否可用

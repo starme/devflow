@@ -27,7 +27,26 @@ Those extension points do not establish a generic, synchronous pre-execution den
 - `install.md`: installation and host integration instructions.
 - `tests/test_context_bridge.py`: stdlib-only contract tests.
 
-## Command mapping
+## Marketplace installation
+
+The recommended user path is the repository's Codex Plugin Marketplace package:
+
+```bash
+codex plugin marketplace add starme/devflow --ref main
+codex plugin list --marketplace devflow-marketplace
+codex plugin add devflow@devflow-marketplace
+```
+
+For local development:
+
+```bash
+codex plugin marketplace add /absolute/path/to/devflow
+codex plugin list --marketplace devflow-marketplace
+codex plugin add devflow@devflow-marketplace
+```
+
+The package lives under `plugins/devflow/`. The manual Skill-copy procedure in `install.md` is a fallback for older hosts or development experiments.
+
 
 | DevFlow command | Codex integration |
 | --- | --- |
