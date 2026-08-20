@@ -1,10 +1,30 @@
-# Codex adapter installation
+## Install Codex CLI
 
-## CLI / Skill mode
+Install Codex using an official package method:
+
+```bash
+npm install -g @openai/codex
+# or on macOS
+brew install --cask codex
+```
+
+The standalone installer documented by Codex is also available when preferred:
+
+```bash
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+```
+
+## Install DevFlow Skill
 
 1. Make the DevFlow repository available to Codex.
 2. Copy or link `adapters/codex/AGENTS.md` at the project root, or merge its instructions into the existing `AGENTS.md` without replacing project-specific rules.
-3. Register `adapters/codex/devflow-codex.md` as a Codex Skill named `devflow`.
+3. Register `adapters/codex/devflow-codex.md` as a Codex Skill named `devflow`:
+
+   ```bash
+   mkdir -p ~/.codex/skills/devflow
+   cp adapters/codex/devflow-codex.md ~/.codex/skills/devflow/SKILL.md
+   ```
+
 4. Run the equivalent of `devflow init` from the target repository. Confirm the reported category and tracks when the result is ambiguous.
 5. Use the Skill with `devflow start`, `devflow fix`, `devflow status`, and `devflow next` inputs.
 
