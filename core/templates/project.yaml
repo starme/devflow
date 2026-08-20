@@ -1,0 +1,36 @@
+schema_version: 1
+
+# Project-level configuration. Workflow state belongs in task.yaml.
+project:
+  name: "{{PROJECT_NAME}}"
+  created_at: "{{CREATED_AT}}"
+  category:
+    primary: null
+    confidence: null
+    ambiguous: false
+    evidence: []
+  capabilities: []
+
+workspace:
+  root: "{{PROJECT_ROOT}}"
+  backend:
+    path: null
+    stack: null
+  frontend:
+    path: null
+    stack: null
+  contract_path: ".devflow/contracts"
+  docs_path: "docs"
+  rules_path: ".devflow/rules"
+
+platforms:
+  supported: [claude-code]
+  default: "{{ADAPTER_NAME}}"
+
+safety:
+  redlines_path: ".devflow/redlines.yaml"
+  test_file_protection: true
+
+memorant:
+  enabled: auto
+  project_key: "{{PROJECT_NAME}}"

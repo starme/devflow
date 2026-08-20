@@ -1,5 +1,7 @@
 # DevFlow
 
+**版本：1.0.0**
+
 [English](README.md) | 中文
 
 DevFlow 会在 `init` 阶段分析仓库证据，而不是假设所有项目都是前后端应用。它会识别传统应用、AI Agent 应用、Agent Plugin、Skill、MCP Server 和其他 AI 工作流，并只选择适用的生命周期轨道。已有应用项目继续使用后端/前端流程；AI 项目则按需使用 plugin、command、skill、agent、hook、tool、evaluation、packaging、documentation 等轨道。
@@ -98,6 +100,23 @@ $devflow status
 ### 可选：安装 Memorant
 
 没有 Memorant DevFlow 也能完整运行，但经验召回和蒸馏功能需要它。请单独安装并配置 [Memorant 插件](https://github.com/starme/memorant)。未安装 Memorant 时，DevFlow 仍能运行完整生命周期，只是跳过经验召回，并在项目结束时写一份纯 Markdown 复盘文档。
+
+## 更新 DevFlow
+
+DevFlow 不会静默自动升级。先刷新已配置的 Codex Marketplace，再比较本地与可用版本：
+
+```bash
+codex plugin marketplace upgrade devflow-marketplace
+codex plugin list --marketplace devflow-marketplace
+```
+
+如果发现新版本，重新安装插件：
+
+```bash
+codex plugin add devflow@devflow-marketplace
+```
+
+升级后请新建 Codex thread，使新的 Skill 生效。正在执行 DevFlow task 时不建议升级，除非已经阅读并确认版本变更。如果当前 Codex 版本提供不同的更新命令，请执行 `codex plugin --help` 查看。
 
 ## 项目分析与自适应轨道
 

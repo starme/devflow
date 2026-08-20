@@ -1,5 +1,7 @@
 # DevFlow
 
+**Version: 1.0.0**
+
 English | [中文](README.zh-CN.md)
 
 DevFlow analyzes the repository during `init` instead of assuming every project is a backend/frontend application. It classifies traditional applications, AI agent applications, Agent Plugins, Skills, MCP servers, and other AI workflows from explainable repository evidence, then selects only the compatible lifecycle tracks. Existing application projects keep the backend/frontend flow; AI projects use plugin, command, skill, agent, hook, tool, evaluation, packaging, and documentation tracks as applicable.
@@ -89,6 +91,23 @@ Language/framework rules stay in the plugin directory and are loaded by agents a
 ### Optional: Install Memorant
 
 DevFlow works without Memorant, but experience recall and distillation require it. Install and configure the [Memorant plugin](https://github.com/starme/memorant) separately. Without Memorant, DevFlow still runs the full lifecycle — it just skips memory recall and writes a plain markdown retrospective at project end.
+
+## Updating DevFlow
+
+DevFlow does not silently upgrade itself. Refresh the configured Codex Marketplace and compare the installed and available versions:
+
+```bash
+codex plugin marketplace upgrade devflow-marketplace
+codex plugin list --marketplace devflow-marketplace
+```
+
+If a newer version is available, reinstall the plugin:
+
+```bash
+codex plugin add devflow@devflow-marketplace
+```
+
+Start a new Codex thread after upgrading so the new Skill is discovered. Do not upgrade while an active DevFlow task is running unless you have reviewed the release changes. If your Codex version exposes a different update command, consult `codex plugin --help`.
 
 ## Project analysis and adaptive tracks
 

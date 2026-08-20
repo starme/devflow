@@ -89,46 +89,31 @@ If `project.category_ambiguous` is true, pause and ask the user to confirm the r
 
 ## 状态文件
 
-DevFlow 使用两个状态文件：
+DevFlow 使用四类状态文件，避免项目配置、需求状态和 Agent 运行时互相覆盖：
 
-### manifest.yaml（持久状态）
+### project.yaml（项目级长期配置）
 
-所有阶段状态记录在项目根目录的 `.devflow/manifest.yaml`。每个阶段开始前读取，完成后更新。
+`.devflow/project.yaml` 描述仓库长期事实：项目分类、capabilities、workspace、支持的 adapter、redlines/rules 路径和 Memorant project key。它不包含某个需求的当前 phase、描述、PRD、分支或测试轮次。
 
-关键字段：
-- `project.current_phase`：当前阶段
-- `project.work_type`：feature / bugfix / chore
-- `workspace`：前后端路径、契约路径
-- `adapter.capability`：`hard` | `soft`，决定红线防护强度（见下方"soft 模式告警"）
-- `phases.<phase>.status`：pending / in_progress / completed / blocked
-- `artifacts`：各阶段产物文件路径索引
+### task.yaml（需求/分支级持久状态）
+
+每个需求或独立 bugfix 都有独立 task worktree，并在该 worktree 的 `.devflow/task.yaml` 保存 task id/kind/description、`git.base_ref`、固化的 `git.base_commit`、branch/worktree、selected tracks、当前 phase、Gate、测试轮次和产物引用。可选 `parent_task_id`、`source_task_id` 仅用于追溯，不构成依赖图。
+
+同一需求的 PRD、架构、开发、测试和验收共享同一个 task worktree；不同需求或独立 bugfix 必须使用不同 worktree。
+
+### scope.yaml（需求架构契约）
+
+`.devflow/scope.yaml` 是架构 Agent 为当前 task 生成的范围、边界、dispatch 和 artifact contract，不复制回其他 task。
 
 ### context.json（运行时上下文）
 
-`.devflow/context.json` 是 hook 层（redline-guard、audit-log）读取的轻量运行时文件。**Manager 必须在流程开始时创建，并在每次阶段转换或派发 Agent 时更新。**
+`.devflow/context.json` 是目标 task worktree 的临时运行时文件，包含 `task_id`、`run_id`、phase、agent、cwd、worktree、branch、project_root 和 adapter。每次阶段转换或 Agent 派发只更新当前 task 的 context。旧项目没有新布局时，兼容读取 `.devflow/manifest.yaml`。
 
-```json
-{
-  "run_id": "20260818-143022-a1b2c3",
-  "current_phase": "development",
-  "current_agent": "devflow-backend-dev",
-  "cwd": "/path/to/project/server",
-  "workspace": {
-    "root": "/path/to/project",
-    "backend": "server",
-    "frontend": "web"
-  }
-}
-```
+Agent 参数必须显式包含 `task_id`、`task_root`、`main_workspace` 和 `cwd`，不能通过最近的 manifest 猜测任务。
 
-管理规则：
-- **流程开始时**（classify 阶段）：生成 `run_id`（时间戳 + 随机后缀），写入 context.json
-- **阶段转换时**：更新 `current_phase`
-- **派发 Agent 时**：更新 `current_agent` 和 `cwd`（Agent 的工作目录）
-- **流程结束时**（done）：将 `current_agent` 设为 `"manager"`，`current_phase` 设为 `"done"`
-- 并行派发两个 Agent 时，`current_agent` 设为 `"both"`，`cwd` 设为项目根目录
+### Legacy manifest
 
-这个文件让 audit-log 能记录"哪个 Agent 在哪个阶段做了什么"，让 redline-guard 能根据 Agent 的 cwd 判断目录边界。
+只有旧项目存在 `.devflow/manifest.yaml` 时，继续按原有单任务流程读取；新任务优先使用 `project.yaml` + 独立 task worktree，不把新任务状态写入共享 manifest。
 
 ### Worktree 隔离与产物回收
 

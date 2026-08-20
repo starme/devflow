@@ -27,7 +27,18 @@ Those extension points do not establish a generic, synchronous pre-execution den
 - `install.md`: installation and host integration instructions.
 - `tests/test_context_bridge.py`: stdlib-only contract tests.
 
-## Marketplace installation
+## Version and updates
+
+The current DevFlow adapter release is **1.0.0**. Refresh the configured Marketplace before checking for updates:
+
+```bash
+codex plugin marketplace upgrade devflow-marketplace
+codex plugin list --marketplace devflow-marketplace
+codex plugin add devflow@devflow-marketplace
+```
+
+Start a new Codex thread after an upgrade. DevFlow does not silently upgrade an active task.
+
 
 The recommended user path is the repository's Codex Plugin Marketplace package:
 

@@ -1,36 +1,35 @@
 ---
-description: 从断点继续 DevFlow 流程
+description: 从指定 DevFlow task 的断点继续流程
+argument-hint: [--task <task-id>]
 ---
 
 # /devflow next
 
-从中断处继续执行 DevFlow 流程。
+从指定 task 的断点继续执行，不读取或修改其他 task 的状态。
+
+## 任务选择
+
+1. 在当前 task worktree 中执行时，读取 `.devflow/task.yaml` 和 `.devflow/context.json`。
+2. 在主仓库执行时，支持 `/devflow next --task <task-id>`；通过 `git worktree list --porcelain` 找到该 task worktree。
+3. 未指定 task 且存在唯一活动 task 时使用它；存在多个活动 task 时要求明确 `--task`。
+4. 只有旧项目时兼容读取 `.devflow/manifest.yaml`，标记为 legacy，不把其他任务状态写入旧 manifest。
 
 ## 执行
 
-1. 读取 `.devflow/manifest.yaml`。
-2. 如果 `current_phase` 是 `idle`，提示用户使用 `/devflow start` 或 `/devflow fix` 开始任务。
-3. 如果 `current_phase` 是 `done`，显示完成摘要。
-4. 加载编排逻辑（`core/orchestrator/SKILL.md`）。
-5. 根据当前阶段继续，并遵循 `project.category` / `workflow.tracks` 裁剪架构、开发和测试任务：
+读取目标 task 的 `task.current_phase`，加载 `core/orchestrator/SKILL.md`，仅在目标 worktree 继续：
 
 | 当前阶段 | 行为 |
 |---------|------|
-| `classify` | 继续分类确认（如果用户尚未确认类别或 work_type） |
-| `product_qa` | 继续需求澄清追问 |
-| `prd_writing` | 派产品 Agent 写 PRD（自动） |
-| `gate_prd` | 提示用户审阅 PRD 并等待批准 |
-| `architecture` | 派架构 Agent（自动） |
-| `gate_arch` | 提示用户审阅技术方案并等待批准 |
-| `development` | 继续派研发 Agent（自动） |
-| `testing` | 继续测试/失败路由循环（自动） |
-| `acceptance` | 派产品 Agent 验收，或等待用户签字 |
-| `distill` | 执行经验蒸馏（自动） |
+| `classify` | 继续分类确认 |
+| `product_qa` | 继续需求澄清 |
+| `prd_writing` | 派产品 Agent |
+| `gate_prd` | 提示审阅 PRD 并等待批准 |
+| `architecture` | 派架构 Agent |
+| `gate_arch` | 提示审阅技术方案并等待批准 |
+| `development` | 继续派目标 task 的研发 Agent |
+| `testing` | 继续测试/失败路由 |
+| `acceptance` | 执行目标 task 验收 |
+| `distill` | 执行目标 task 经验蒸馏 |
+| `done` | 显示完成摘要和 branch/worktree |
 
-6. 检查 `.devflow/` 下的产物文件是否完整；并检查 category-specific tracks 所需产物是否存在：
-   - 如果阶段已标记 completed 但产物文件缺失，回退该阶段重新执行。
-   - 如果阶段是 in_progress 但产物已存在且完整，推进到下一阶段。
-7. 自动阶段（prd_writing、architecture、development、testing、distill）无需用户干预，自动继续。
-8. Gate 阶段提示用户审批；自动阶段由 Stop Hook 尝试阻止会话结束并继续，若宿主未继续则用户再次运行 `/devflow next`。Stop Hook 已激活时不会重复阻止，避免无限循环。
-
-如果 `$ARGUMENTS` 包含反馈内容（如用户在 Gate 阶段说"通过"或修改意见），将其作为审批输入处理。
+每次阶段转换和 Agent 派发只更新目标 task 的 `task.yaml` 与 `context.json`。Gate 等待用户审批；自动阶段停止时提示再次运行 `/devflow next --task <task-id>`。

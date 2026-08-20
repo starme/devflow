@@ -9,7 +9,14 @@ from context_bridge import build_core_payload, soft_warning, write_context
 
 
 class ContextBridgeTest(unittest.TestCase):
-    def test_writes_runtime_context(self):
+    def test_writes_runtime_context_to_task_root(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            task_root = root / "task" / ".devflow"
+            path = write_context(root, {"task_root": str(task_root), "task_id": "task-a"})
+            self.assertEqual(path, task_root.resolve() / "context.json")
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["task_id"], "task-a")
+
         with tempfile.TemporaryDirectory() as temp_dir:
             path = write_context(temp_dir, {"current_phase": "testing", "current_agent": "manager"})
             self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["current_phase"], "testing")

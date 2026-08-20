@@ -25,7 +25,25 @@ $devflow init
 $devflow status
 ```
 
-## Fallback for development
+## Updating
+
+DevFlow release version: **1.0.0**.
+
+Refresh the configured Marketplace and inspect the installed/available versions:
+
+```bash
+codex plugin marketplace upgrade devflow-marketplace
+codex plugin list --marketplace devflow-marketplace
+```
+
+Install the newer plugin version:
+
+```bash
+codex plugin add devflow@devflow-marketplace
+```
+
+Start a new Codex thread after upgrading. Do not silently upgrade an active DevFlow task; review release changes first.
+
 
 If the installed Codex version does not support marketplace installation or sparse marketplace sources, copy `plugins/devflow/skills/devflow/SKILL.md` into `~/.codex/skills/devflow/SKILL.md` and merge `adapters/codex/AGENTS.md` into the target project's `AGENTS.md`. This is a compatibility/development path, not the primary user installation path.
 
