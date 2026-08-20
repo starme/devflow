@@ -38,7 +38,44 @@ Then in Claude Code, run:
 
 Restart Claude Code. The plugin loads automatically.
 
-### What the Installer Does
+### Install Codex CLI
+
+Codex is a separate host runtime. Install it using one of the official methods:
+
+```bash
+# npm
+npm install -g @openai/codex
+
+# or Homebrew on macOS
+brew install --cask codex
+```
+
+Then make this repository available to Codex and install the DevFlow adapter instructions:
+
+```bash
+git clone https://github.com/starme/devflow.git ~/devflow
+cd ~/devflow
+bash install.sh
+mkdir -p ~/.codex/skills/devflow
+cp adapters/codex/devflow-codex.md ~/.codex/skills/devflow/SKILL.md
+```
+
+In the target project, copy or merge the adapter instructions without replacing existing project rules:
+
+```bash
+cp ~/devflow/adapters/codex/AGENTS.md ./AGENTS.md
+# If ./AGENTS.md already exists, merge the DevFlow section manually instead.
+```
+
+Start Codex in the target project and invoke the Skill with `$devflow`:
+
+```text
+$devflow init
+$devflow start "Build a team weekly report tool"
+```
+
+For Codex app-server integrations, send a `turn/start` request containing a `$devflow` text item and a Skill input item pointing to `adapters/codex/devflow-codex.md`. See [`adapters/codex/install.md`](adapters/codex/install.md) for the CLI/Skill and app-server paths.
+
 
 1. Verifies Python 3 is available
 2. Makes all hook scripts executable (`.sh` and `.py`)
@@ -49,7 +86,7 @@ Language/framework rules stay in the plugin directory and are loaded by agents a
 
 ### Optional: Install Memorant
 
-DevFlow works without Memorant, but experience recall and distillation require it. Without Memorant, DevFlow still runs the full lifecycle — it just skips memory recall and writes a plain markdown retrospective at project end instead.
+DevFlow works without Memorant, but experience recall and distillation require it. Install and configure the [Memorant plugin](https://github.com/starme/memorant) separately. Without Memorant, DevFlow still runs the full lifecycle — it just skips memory recall and writes a plain markdown retrospective at project end.
 
 ## Project analysis and adaptive tracks
 

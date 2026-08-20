@@ -47,7 +47,44 @@ cd ~/devflow && bash install.sh
 
 **重启 Claude Code**，插件自动加载。
 
-### 安装脚本做了什么
+### 安装 Codex CLI
+
+Codex 是独立的宿主运行时，需要单独安装。可以使用官方方式之一：
+
+```bash
+# npm
+npm install -g @openai/codex
+
+# 或 macOS Homebrew
+brew install --cask codex
+```
+
+然后将本仓库提供给 Codex，并安装 DevFlow 适配层指令：
+
+```bash
+git clone https://github.com/starme/devflow.git ~/devflow
+cd ~/devflow
+bash install.sh
+mkdir -p ~/.codex/skills/devflow
+cp adapters/codex/devflow-codex.md ~/.codex/skills/devflow/SKILL.md
+```
+
+在目标项目中复制或合并适配层指令，不要覆盖项目已有规则：
+
+```bash
+cp ~/devflow/adapters/codex/AGENTS.md ./AGENTS.md
+# 如果 ./AGENTS.md 已存在，请手动合并 DevFlow 部分。
+```
+
+进入目标项目启动 Codex，然后使用 `$devflow` Skill：
+
+```text
+$devflow init
+$devflow start "做一个团队周报工具"
+```
+
+如果使用 Codex app-server 集成，请发送包含 `$devflow` 文本输入和 Skill 输入项的 `turn/start` 请求，并将 Skill 路径指向 `adapters/codex/devflow-codex.md`。具体 CLI/Skill 和 app-server 方式见 [`adapters/codex/install.md`](adapters/codex/install.md)。
+
 
 1. 检查 Python 3 是否可用
 2. 将所有 hook 脚本（`.sh` 和 `.py`）设为可执行
@@ -58,7 +95,7 @@ cd ~/devflow && bash install.sh
 
 ### 可选：安装 Memorant
 
-没有 Memorant DevFlow 也能完整运行，只是跳过经验召回，在项目结束时写一份纯 Markdown 复盘文档。装上 Memorant 后，自动获得经验召回、A/B 记忆蒸馏、信任路由等自迭代能力。
+没有 Memorant DevFlow 也能完整运行，但经验召回和蒸馏功能需要它。请单独安装并配置 [Memorant 插件](https://github.com/starme/memorant)。未安装 Memorant 时，DevFlow 仍能运行完整生命周期，只是跳过经验召回，并在项目结束时写一份纯 Markdown 复盘文档。
 
 ## 项目分析与自适应轨道
 
