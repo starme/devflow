@@ -4,7 +4,7 @@
 
 [English](README.md) | 中文
 
-DevFlow 会在 `init` 阶段分析仓库证据，而不是假设所有项目都是前后端应用。它会识别传统应用、AI Agent 应用、Agent Plugin、Skill、MCP Server 和其他 AI 工作流，并只选择适用的生命周期轨道。已有应用项目继续使用后端/前端流程；AI 项目则按需使用 plugin、command、skill、agent、hook、tool、evaluation、packaging、documentation 等轨道。
+DevFlow 会在 `init` 阶段分析仓库证据，而不是假设所有项目都是前后端应用。它把项目划分为七类——`traditional_application`、`ai_agent_application`、`agent_plugin`、`skill`、`mcp_server`、`ai_tool_or_workflow`、`library_or_other`，并只选择适用的生命周期轨道。传统应用继续使用后端/前端流程（可选 `integration`/`testing`）；AI 项目按需使用 plugin、command、skill、agent、prompt、hook、MCP/tool、evaluation、packaging、documentation 等轨道。`backend`、`frontend` 只是普通的可选轨道，仅在仓库证据表明存在时才启用。
 
 Codex 通过 `adapters/codex/` 获得支持。当前红线能力明确为 **Soft**：官方 Codex 扩展点已确认支持 Skill、MCP Hook 和命令审批，但尚未确认通用的、等价于 Claude `PreToolUse` 的文件写入前置拒绝 Hook。Claude Code 继续保留 Hard 级别的 PreToolUse 防护。
 
@@ -120,9 +120,9 @@ codex plugin add devflow@devflow-marketplace
 
 ## 项目分析与自适应轨道
 
-执行 `/devflow init` 时，DevFlow 会扫描安全的仓库证据，并将项目类别、置信度、证据、能力和选定轨道写入 `.devflow/manifest.yaml`。支持传统应用、AI Agent 应用、Agent Plugin、Skill、MCP Server 和其他 AI 工作流。证据冲突或置信度较低时，会要求用户确认。
+执行 `/devflow init` 时，DevFlow 会扫描安全的仓库证据，并将项目类别、置信度、证据、能力和选定轨道写入 `.devflow/project.yaml`——项目级的长期配置。它不包含任何与单个需求相关的状态：当前阶段、需求描述、分支和 PRD 都存放在每个 task 独立的 `.devflow/task.yaml` 中（见[工作流程](#工作流程)）。支持的七类分类见上文。证据冲突或置信度较低时，会要求用户确认。
 
-传统应用继续使用后端/前端/API 轨道。AI 项目只启用适用的 plugin、command、skill、agent、prompt、hook、MCP/tool、integration、evaluation、packaging、documentation 等轨道，避免给 Plugin 或 Skill 仓库派发空的后端/前端任务。
+按需求选择轨道发生在稍后的 `/devflow start`：架构 Agent 为该 task 的 `scope.yaml` 选择 `workflow.selected_tracks`。传统应用保留后端/前端/API 轨道。AI 项目只启用适用的 plugin、command、skill、agent、prompt、hook、MCP/tool、integration、evaluation、packaging、documentation 等轨道。跨类别的内建轨道——`product`、`architecture`、`distill`——始终适用；`backend`、`frontend` 可选，仅有支持证据时出现。这避免给 Plugin 或 Skill 仓库派发空的后端/前端任务。
 
 ## Codex 适配
 
@@ -133,7 +133,7 @@ Codex 能力明确为 **Soft**。官方 Codex 文档确认 Skill 输入、MCP �
 
 | 命令 | 用途 |
 |------|------|
-| `/devflow init` | 初始化项目：探测技术栈、配置路径、生成规则/manifest/红线 |
+| `/devflow init` | 初始化项目：探测技术栈、配置路径、生成项目配置/规则/红线 |
 | `/devflow start <需求描述>` | 启动新功能：从 PRD 到验收的完整生命周期 |
 | `/devflow fix <bug 描述>` | Bug 修复模式：根因诊断 → 修复 → 回归测试 → 经验沉淀 |
 | `/devflow status` | 查看当前阶段、进度、产物、下一步 |
@@ -148,13 +148,14 @@ Codex 能力明确为 **Soft**。官方 Codex 文档确认 Skill 输入、MCP �
 ```
 
 这一条命令会：
-1. 分析项目类别和能力（传统应用、AI Agent、Agent Plugin、Skill、MCP 等）
+1. 分析项目类别和能力（传统应用、AI Agent、Agent Plugin、Skill、MCP Server 等）
 2. 选择兼容的生命周期轨道，而不是默认假设存在前后端
-3. 生成 `CLAUDE.md`（项目概览 + 常用命令）
+3. 创建 `.devflow/project.yaml`（项目级配置）
 4. 创建 `.devflow/rules/` 项目自定义规则
-5. 创建 `.devflow/manifest.yaml`（项目状态文件）
-6. 复制 `.devflow/redlines.yaml`（红线保护规则）
-7. 检测 Memorant 是否可用
+5. 复制 `.devflow/redlines.yaml`（红线保护规则）
+6. 检测 Memorant 是否可用
+
+> **说明：** `/devflow init` 不再生成 `CLAUDE.md`，也不再写 `manifest.yaml`。它只生成 `project.yaml` + `.devflow/rules/` + `.devflow/redlines.yaml`，并准备好 `docs/`（含 `docs/adr/`）和 `.devflow/contracts` 目录。已有 `.devflow/manifest.yaml` 的旧项目通过只读兼容路径继续工作——见[项目状态模型](#项目状态模型)。
 
 然后：
 
@@ -170,7 +171,7 @@ Codex 能力明确为 **Soft**。官方 Codex 文档确认 Skill 输入、MCP �
 /devflow fix "登录页点击提交后报 500 错误"
 ```
 
-走精简流程：**症状 → 根因定位 → 修复 → 回归测试 → 结构化经验沉淀**。跳过 PRD、架构评审、产品验收等重环节。
+走精简流程：**症状 → 根因定位 → 修复 → 回归测试 → 结构化经验沉淀**。跳过 PRD、架构评审、产品验收等重环节。每次 `/devflow fix`（和 `/devflow start` 一样）都会创建独立的 task worktree 和该 task 自己的 `.devflow/task.yaml`；它不依赖任何项目级 `manifest.yaml`。
 
 #### Memorant 如何覆盖 Bug 修复
 
@@ -185,80 +186,44 @@ DevFlow 的 `/devflow fix` 在此基础上增加了被动 hook 做不到的事�
 
 ## 工作流程
 
+DevFlow 不是一个大而全的单体 Agent，而是一个 **Plugin（命令 + Hooks + 编排 Skill + 子 Agent）**：
+
 ```mermaid
-flowchart TD
-    START["用户输入"]
-
-    START --> NEW["/devflow start<br/>新项目/新需求"]
-    START --> FIX["/devflow fix<br/>修 bug / 日常维护"]
-
-    subgraph full["全流程模式"]
-        P1["💡 产品设计<br/>苏格拉底追问 → Grilling<br/>产出: PRD 文档"]
-        G1{{"Gate: PRD 评审<br/>+ Memorant 相似项目召回"}}
-        ARCH["🏗️ 架构设计<br/>API 契约 + 组件拆分<br/>产出: SDD 技术方案"]
-
-        P2["⚙️ 后端开发<br/>SDD 方案 → TDD 编码<br/>任务分级: 机械/单模块/跨模块"]
-        G2{{"Gate: 联调对齐<br/>API 契约一致性校验"}}
-        P3["🎨 前端开发<br/>明确边界 → 定向微调<br/>样式/交互/状态数据流"]
-
-        TEST["🧪 测试与验收<br/>单元 → 集成 → 契约检查<br/>Lint → 安全扫描 → 构建验证"]
-        ACCEPT{"✅ 验收签字<br/>对照 PRD 验收标准"}
-        DONE["🎉 完成"]
+flowchart LR
+    subgraph Input["用户输入"]
+        A["/devflow start<br/>新需求"]
+        B["/devflow fix<br/>修 bug"]
     end
 
-    subgraph fixmode["修复模式"]
-        F1["🔍 症状确认<br/>复现步骤 + 错误信息"]
-        F2["🔬 根因定位<br/>Memorant 召回 + 代码分析"]
-        F3["🔧 修复实施<br/>回归测试 + 根因修复"]
-        F4["💎 记忆捕获<br/>结构化根因+解决叙事"]
+    subgraph Manager["Manager · 编排层（不写代码）"]
+        M["分类 · 裁剪流程<br/>调度 · 质量门禁"]
     end
 
-    MEM["💎 Memorant<br/>事件采集 · A/B 记忆蒸馏<br/>经验召回 · 信任路由"]
+    subgraph Agents["5 个专职 Agent"]
+        AG1["产品"]
+        AG2["架构"]
+        AG3["后端"]
+        AG4["前端"]
+        AG5["测试"]
+    end
 
-    NEW --> P1
-    P1 --> G1
-    G1 -->|人审批| ARCH
-    ARCH --> P2
-    ARCH --> P3
-    P2 --> G2
-    P3 --> G2
-    G2 --> TEST
-    TEST --> ACCEPT
-    ACCEPT -->|人签字| DONE
+    subgraph Guard["Hooks 硬约束"]
+        G["PreToolUse 红线<br/>审计 · 目录边界"]
+    end
 
-    FIX --> F1 --> F2 --> F3 --> F4
+    subgraph Memory["Memorant（可选）"]
+        MEM["经验召回<br/>蒸馏闭环"]
+    end
 
-    TEST -.->|失败自动修复循环| P2
-    TEST -.->|失败自动修复循环| P3
-    ACCEPT -.->|要求修改| P2
-    ACCEPT -.->|要求修改| P3
-
-    DONE -->|自动蒸馏经验| MEM
-    F4 -->|写入高质量记忆| MEM
-    MEM -.->|经验注入 & 避坑召回| G1
-    MEM -.->|技术选型 ADR| ARCH
-    MEM -.->|Bug 解决方案| TEST
-    MEM -.->|相似 bug 召回| F2
-    MEM -.->|错误即时召回| F3
-
-    classDef human fill:#f0edff,stroke:#6c5ce7,stroke-width:2px,color:#1a1a2e
-    classDef auto fill:#f7f7fc,stroke:#e2e2f0,stroke-width:1px,color:#1a1a2e
-    classDef gate fill:#fffbf0,stroke:#fdcb6e,stroke-width:1.5px,color:#1a1a2e
-    classDef test fill:#e6fff9,stroke:#00b894,stroke-width:1.5px,color:#1a1a2e
-    classDef fix fill:#fff0ed,stroke:#e17055,stroke-width:1.5px,color:#1a1a2e
-    classDef memorant fill:#f0edff,stroke:#6c5ce7,stroke-width:1.5px,stroke-dasharray:5 3,color:#6c5ce7
-    classDef entry fill:#e8e8f0,stroke:#4a4a68,stroke-width:2px,color:#1a1a2e
-
-    class START,NEW,FIX entry
-    class P1,ACCEPT human
-    class ARCH,P2,P3,DONE auto
-    class G1,G2 gate
-    class TEST test
-    class F1,F2,F3,F4 fix
-    class MEM memorant
+    A --> M
+    B --> M
+    M --> Agents
+    Agents --> Guard
+    Guard --> Memory
+    Memory -.->|经验注入| M
 ```
 
-**图例：** 紫色边框 = 需要人决策 ｜ 黄色边框 = 质量门禁 ｜ 绿色 = 测试阶段 ｜ 橙色 = 修复模式 ｜ 紫色虚线 = Memorant 学习闭环
+完整的阶段状态机——逐阶段的 `CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DISTILL → DONE`、内外循环边界、以及 bugfix/chore 裁剪路径——详见 [docs/workflow.md](docs/workflow.md)。
 
 ### 人类只需在 4 个点介入
 
@@ -270,6 +235,20 @@ flowchart TD
 其余全部自动执行，包括测试失败后的自动修复循环（最多 3 轮，仍失败则暂停报告）。
 
 自动阶段结束时，Stop Hook 会尝试阻止会话结束并提示 Manager 继续执行 `/devflow next`；如果宿主仍结束会话，再手动运行 `/devflow next` 恢复。Gate 阶段始终等待人工审批。
+
+## 项目状态模型
+
+DevFlow 用分层状态文件把项目级事实与单个需求的运行状态分开存放：
+
+| 文件 | 用途 | 作用域 |
+|------|------|--------|
+| `.devflow/project.yaml` | 项目长期配置：分类、capabilities、workspace、adapter、redlines/rules 路径、Memorant key | 每个仓库一份；**不**含当前 phase、需求描述、分支或 PRD |
+| `.devflow/task.yaml` | 需求级持久状态：task id/kind/description、`git.base_ref`/`git.base_commit`、branch/worktree、选定轨道、当前 phase、产物引用 | 每个 task worktree 一份 |
+| `.devflow/scope.yaml` | 需求架构契约（范围、边界、调度、产物契约） | 架构 Agent 为当前 task 生成，不复制到其他 task |
+| `.devflow/context.json` | 运行时上下文（task_id、run_id、phase、agent、cwd、worktree、branch、adapter） | 每个 task worktree 的临时文件 |
+| `.devflow/manifest.yaml` | Legacy，只读兼容 | 仅旧项目存在；新任务优先 project.yaml + task worktree |
+
+每次 `/devflow start` 和 `/devflow fix` 都会创建独立的 git worktree（仓库外，位于 `../.devflow-worktrees/<repo>/<task-id>/`），并在其中写入自己的 `.devflow/task.yaml`。不同需求绝不共享 worktree。对于存在 legacy `manifest.yaml` 的旧项目，`core/orchestrator/migration.py` 会做幂等迁移，派生出 `project.yaml` 和只读的 `tasks/legacy/task.yaml`——旧 manifest 既不被删除也不被覆盖。
 
 ### Agent Manager 架构
 
@@ -360,11 +339,11 @@ DevFlow **没有**把逻辑写死在 Claude Code 上，而是拆成两层：
 
 - **`core/`（平台无关核心）**——所有平台共享同一份引擎：工作流状态机、红线/审计 hook 脚本（纯 Python 标准库）、编码规则、项目模板。**零 Claude 专属依赖**。
 - **Claude Code 适配层**——位于插件根目录（`.claude-plugin/`、`commands/`、`hooks/devflow-hook.*`、`agents/`），把 Claude 的斜杠命令、PreToolUse/PostToolUse 钩子、Task 子 Agent 机制桥接到 `core/`。
-- **`adapters/`**——存放[适配契约](adapters/README.md)，未来在此新增 Codex / Cursor / Trae 适配。
+- **`adapters/`**——存放[适配契约](adapters/README.md)和各平台适配层。Codex 适配已位于 [`adapters/codex/`](adapters/codex/)（Soft 红线能力）；Cursor 和 Trae 适配为未来工作。
 
 core 的 hook 脚本通过 `__file__` 自定位 `core/`，同时识别 `CLAUDE_PLUGIN_ROOT`，因此任何能向脚本管道传入 JSON 的平台都能原样复用。适配契约和 hard/soft 能力分级见 [adapters/README.md](adapters/README.md)。
 
-> 现状：已完成核心解耦，Claude Code 是唯一可用适配。Codex/Cursor/Trae 适配待核心在真实项目端到端验证后再做。
+> 现状：已完成核心解耦，Claude Code 和 Codex CLI 均为可用适配。Codex 为 Soft 红线能力（审批/指令级约束 + 事后审计），只有 Cursor/Trae 适配待做。
 
 ## 插件结构
 
@@ -374,7 +353,13 @@ devflow/
 │   ├── marketplace.json
 │   └── plugin.json             #   注册命令 + core/ 下的 hook
 ├── core/                       # ===== 平台无关核心 =====
-│   ├── orchestrator/SKILL.md   #   工作流引擎：状态机 + Agent 调度
+│   ├── project_analyzer.py     #   证据分类 + 轨道选择
+│   ├── orchestrator/           #   工作流引擎：状态机 + 调度
+│   │   ├── SKILL.md            #     Manager 编排规则
+│   │   ├── migration.py        #     legacy manifest → project/task 迁移
+│   │   ├── task_state.py       #     task.yaml schema + 字段
+│   │   ├── worktree_manager.py #     每个 task 的 git worktree 生命周期
+│   │   └── worktree_sync.py    #     从 worktree 回收 .devflow/ 产物
 │   ├── hooks/                  #   纯 Python CLI 脚本（无 Claude 依赖）
 │   │   ├── devflow_guard_common.py
 │   │   ├── redline-guard.py    #     PreToolUse 硬拦截（stdin JSON → 决策）
@@ -383,11 +368,14 @@ devflow/
 │   │   ├── engineering.md
 │   │   ├── backend/{go,php,python}/
 │   │   └── frontend/vue/
-│   └── templates/              #   项目模板
-│       ├── manifest.yaml
-│       ├── redlines.yaml       #     三级红线规则
-│       ├── scope.yaml
-│       └── rules-{project,backend,frontend}.md
+│   ├── templates/              #   项目/状态模板
+│   │   ├── project.yaml        #     项目级配置
+│   │   ├── task.yaml           #     每个 task worktree 的状态
+│   │   ├── scope.yaml          #     架构契约模板
+│   │   ├── context.json        #     运行时上下文模板
+│   │   ├── redlines.yaml       #     三级红线规则
+│   │   └── rules-{project,backend,frontend}.md
+│   └── tests/                  #   纯 Python 单元测试
 ├── commands/                   # [Claude 适配层] 斜杠命令
 │   ├── devflow.md              #   /devflow（根调度器）
 │   ├── init.md                 #   /devflow init
@@ -404,8 +392,14 @@ devflow/
 ├── hooks/                      # [Claude 适配层] 生命周期 hook
 │   ├── devflow-hook.sh
 │   └── devflow_hook.py
-├── adapters/
-│   └── README.md               # 适配契约 + hard/soft 能力分级
+├── adapters/                   # 平台适配契约 + 各适配层
+│   ├── README.md               #   适配契约 + hard/soft 能力分级
+│   └── codex/                  #   Codex 适配（skill、AGENTS.md、上下文桥接、测试）
+├── plugins/devflow/            # 包清单 + 安装文档
+│   ├── .codex-plugin/plugin.json
+│   └── install.md
+├── .agents/plugins/
+│   └── marketplace.json        # 仓库 Marketplace
 ├── install.sh
 ├── README.md                   # English documentation
 └── README.zh-CN.md             # 中文文档
