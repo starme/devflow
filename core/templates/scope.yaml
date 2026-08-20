@@ -8,7 +8,10 @@ work_type: feature
 tracks:
   - backend
   - frontend
-# 涉及的技术栈。只改前端就只有 frontend，只改后端就只有 backend。
+# Traditional application tracks are kept for compatibility. AI projects may
+# use: plugin, command, skill, agent, prompt, hook, mcp, tool, integration,
+# evaluation, packaging, documentation, implementation, testing, acceptance.
+# The architecture Agent should include only tracks selected by project analysis.
 
 affected:
   backend:

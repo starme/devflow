@@ -13,11 +13,20 @@ project:
   # null | feature | bugfix | chore
   initialized: true
 
+  # Evidence-based repository classification. Legacy manifests may omit these
+  # fields; the orchestrator then preserves the traditional application flow.
+  category: null
+  category_confidence: null
+  category_ambiguous: false
+  category_evidence: []
+  capabilities: []
+
 # ── 适配层信息 ──
 # 由 /devflow init 写入。记录当前平台适配层及红线防护能力等级。
 adapter:
   name: "{{ADAPTER_NAME}}"             # claude-code | codex | cursor | trae
   capability: "{{ADAPTER_CAPABILITY}}"  # hard = 支持 PreToolUse 前置硬拦截；soft = 仅软约束 + 事后审计
+  verified_capabilities: []
 
 # ── 工作区路径约定 ──
 # 前后端分属不同目录，各研发 Agent 只在自己的 path 内工作。
@@ -35,6 +44,11 @@ workspace:
     path: "docs"
   rules:
     path: ".devflow/rules"             # 项目自定义规则目录
+
+workflow:
+  tracks: []
+  # Selected by project classification. Legacy projects may leave this empty.
+  alternatives: []
 
 # ── 阶段状态 ──
 phases:

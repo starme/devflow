@@ -2,11 +2,14 @@
 
 [English](README.md) | 中文
 
-全栈应用开发生命周期编排插件，为 Claude Code 打造。
+DevFlow 会在 `init` 阶段分析仓库证据，而不是假设所有项目都是前后端应用。它会识别传统应用、AI Agent 应用、Agent Plugin、Skill、MCP Server 和其他 AI 工作流，并只选择适用的生命周期轨道。已有应用项目继续使用后端/前端流程；AI 项目则按需使用 plugin、command、skill、agent、hook、tool、evaluation、packaging、documentation 等轨道。
+
+Codex 通过 `adapters/codex/` 获得支持。当前红线能力明确为 **Soft**：官方 Codex 扩展点已确认支持 Skill、MCP Hook 和命令审批，但尚未确认通用的、等价于 Claude `PreToolUse` 的文件写入前置拒绝 Hook。Claude Code 继续保留 Hard 级别的 PreToolUse 防护。
+
 
 DevFlow 将产品需求、架构设计、前后端开发、测试、验收和工程经验沉淀连接为一条工作流：人在明确的 Gate 节点做决策，Manager 通过产物契约和安全护栏协调其余工作。
 
-> **当前状态：** 目前仅支持 Claude Code 适配。0.2.x 是已经具备真实项目试用能力的生命周期原型；Hook 和 Worktree 防护已有自动化验证，正式依赖无人值守的端到端执行前请先在自己的项目中验证。
+> **当前状态：** 已支持 Claude Code 和 Codex CLI 适配。Claude Code 提供 Hard 级别的 PreToolUse 防护；Codex 已提供协议级适配，但由于尚未确认通用的文件写入前置拒绝 Hook，红线能力为 Soft。依赖无人值守执行前，请先在目标环境验证 Codex app-server 的真实集成。
 
 ## 核心理念
 
@@ -57,7 +60,18 @@ cd ~/devflow && bash install.sh
 
 没有 Memorant DevFlow 也能完整运行，只是跳过经验召回，在项目结束时写一份纯 Markdown 复盘文档。装上 Memorant 后，自动获得经验召回、A/B 记忆蒸馏、信任路由等自迭代能力。
 
-## 命令一览
+## 项目分析与自适应轨道
+
+执行 `/devflow init` 时，DevFlow 会扫描安全的仓库证据，并将项目类别、置信度、证据、能力和选定轨道写入 `.devflow/manifest.yaml`。支持传统应用、AI Agent 应用、Agent Plugin、Skill、MCP Server 和其他 AI 工作流。证据冲突或置信度较低时，会要求用户确认。
+
+传统应用继续使用后端/前端/API 轨道。AI 项目只启用适用的 plugin、command、skill、agent、prompt、hook、MCP/tool、integration、evaluation、packaging、documentation 等轨道，避免给 Plugin 或 Skill 仓库派发空的后端/前端任务。
+
+## Codex 适配
+
+Codex 适配位于 [`adapters/codex/`](adapters/codex/)，提供命令映射、Codex Skill 与 `AGENTS.md` 指令、app-server `turn/start` 负载指导、MCP/审批集成指导、运行时上下文桥接、core 审计日志、安装说明和协议级测试。
+
+Codex 能力明确为 **Soft**。官方 Codex 文档确认 Skill 输入、MCP 工具/Hook 和 `item/commandExecution/requestApproval`，但目前没有确认等价于 Claude Code `PreToolUse` 的通用同步文件写入拒绝 Hook。因此适配层使用 Codex 审批、指令级红线和事后审计，不得声称具备文件写入硬拦截。
+
 
 | 命令 | 用途 |
 |------|------|
@@ -76,12 +90,13 @@ cd ~/devflow && bash install.sh
 ```
 
 这一条命令会：
-1. 探测技术栈（go-zero？Laravel？Vue？React？）
-2. 生成 `CLAUDE.md`（项目概览 + 常用命令）
-3. 创建 `.devflow/rules/` 项目自定义规则
-4. 创建 `.devflow/manifest.yaml`（项目状态文件）
-5. 复制 `.devflow/redlines.yaml`（红线保护规则）
-6. 检测 Memorant 是否可用
+1. 分析项目类别和能力（传统应用、AI Agent、Agent Plugin、Skill、MCP 等）
+2. 选择兼容的生命周期轨道，而不是默认假设存在前后端
+3. 生成 `CLAUDE.md`（项目概览 + 常用命令）
+4. 创建 `.devflow/rules/` 项目自定义规则
+5. 创建 `.devflow/manifest.yaml`（项目状态文件）
+6. 复制 `.devflow/redlines.yaml`（红线保护规则）
+7. 检测 Memorant 是否可用
 
 然后：
 

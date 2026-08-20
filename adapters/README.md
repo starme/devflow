@@ -21,8 +21,9 @@ DevFlow 由两部分组成：
 | 项目模板 | `core/templates/` | `manifest.yaml`、`redlines.yaml`、`scope.yaml`、规则模板。 |
 | Agent 角色定义 | `agents/*.md`（当前随 Claude 适配） | 角色正文是平台无关的，仅 frontmatter（name/tools/model）是 Claude 专属。移植时复制正文、替换 frontmatter。 |
 
-`core/hooks/*.py` **不 import 任何 Claude 专属模块**，也不假设运行平台。它们通过 `__file__` 自定位 `core/`，并识别 `CLAUDE_PLUGIN_ROOT` 环境变量作为辅助；新增平台可通过设置等价的"插件根目录"环境变量或直接按相对路径调用来复用，无需改动脚本。
+`core/hooks/*.py` **不 import 任何平台专属模块**，也不假设运行平台。它们通过 `__file__` 自定位 `core/`，并识别 `CLAUDE_PLUGIN_ROOT` 环境变量作为辅助；新增平台可通过设置等价的"插件根目录"环境变量或直接按相对路径调用来复用，无需改动脚本。
 
+项目初始化同样是证据驱动的：`core/project_analyzer.py` 识别传统应用、AI Agent、Agent Plugin、Skill、MCP server 等类别，并为编排器选择适用轨道。适配层只消费分析结果，不应把所有项目强行映射为 backend/frontend。
 ---
 
 ## 二、一个适配层必须提供的 4 项能力
@@ -126,8 +127,8 @@ Codex CLI / Trae 是否支持前置钩子，需在实现对应适配前**逐家�
 | 平台 | 状态 | 能力等级 | 位置 |
 |------|------|---------|------|
 | Claude Code | ✅ 可用 | 🟢 Hard | 插件根目录（`.claude-plugin/`、`commands/`、`hooks/`、`agents/`） |
-| Codex CLI | 📋 规划 | 待核实 | — |
-| Cursor | 📋 规划 | 预估 🟡 Soft（待核实） | — |
+| Codex CLI | `adapters/codex/` | 🟡 Soft | `turn/start` skills, MCP tools/hooks, command approval verified; generic file-write pre-hook not verified |
+| Cursor | 📋 规划 | 待核实 | — |
 | Trae | 📋 规划 | 待核实 | — |
 
-> 当前阶段只交付了核心解耦和 Claude Code 适配。第二个适配应在核心逻辑于真实项目中端到端验证后再做，避免把同一个缺陷复制到多个平台。
+> Codex 的适配实现见 [`codex/`](codex/)。Codex 当前明确声明为 Soft：官方文档确认 Skill、MCP 和命令审批扩展点，但尚未确认通用文件写入前置拒绝 Hook。

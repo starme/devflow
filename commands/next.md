@@ -12,11 +12,11 @@ description: 从断点继续 DevFlow 流程
 2. 如果 `current_phase` 是 `idle`，提示用户使用 `/devflow start` 或 `/devflow fix` 开始任务。
 3. 如果 `current_phase` 是 `done`，显示完成摘要。
 4. 加载编排逻辑（`core/orchestrator/SKILL.md`）。
-5. 根据当前阶段继续：
+5. 根据当前阶段继续，并遵循 `project.category` / `workflow.tracks` 裁剪架构、开发和测试任务：
 
 | 当前阶段 | 行为 |
 |---------|------|
-| `classify` | 继续分类确认（如果用户尚未确认） |
+| `classify` | 继续分类确认（如果用户尚未确认类别或 work_type） |
 | `product_qa` | 继续需求澄清追问 |
 | `prd_writing` | 派产品 Agent 写 PRD（自动） |
 | `gate_prd` | 提示用户审阅 PRD 并等待批准 |
@@ -27,7 +27,7 @@ description: 从断点继续 DevFlow 流程
 | `acceptance` | 派产品 Agent 验收，或等待用户签字 |
 | `distill` | 执行经验蒸馏（自动） |
 
-6. 检查 `.devflow/` 下的产物文件是否完整：
+6. 检查 `.devflow/` 下的产物文件是否完整；并检查 category-specific tracks 所需产物是否存在：
    - 如果阶段已标记 completed 但产物文件缺失，回退该阶段重新执行。
    - 如果阶段是 in_progress 但产物已存在且完整，推进到下一阶段。
 7. 自动阶段（prd_writing、architecture、development、testing、distill）无需用户干预，自动继续。
