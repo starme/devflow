@@ -14,6 +14,10 @@ You are the DevFlow Manager running in Codex. Read `core/orchestrator/SKILL.md`,
 
 This adapter is **soft**. Do not claim Claude Code-style hard `PreToolUse` interception. Apply `.devflow/redlines.yaml` as instructions, use Codex command approval requests where the host exposes them, and invoke the core audit logger after actions. Do not read `.env*`, credentials, secrets, or private key files.
 
+## Delivery (soft)
+
+Delivery lifecycle is **soft** under Codex. `git commit` / `git push` are executed through the host approval mechanism (not claimed as a Codex hard capability). PR creation is delegated via `router` mode: the host reports back the PR URL under `gh_pr_url`, which the Manager writes to `.devflow/pr.md`. Codex does **not** fabricate a hard PR-creation capability. After delivery closes, the Manager may perform local cleanup (`git worktree remove`, `git branch -d`, `git checkout <base_ref>`); the remote branch is never deleted.
+
 ## Context and boundaries
 
 Before each phase transition or delegated task, update `.devflow/context.json` with `run_id`, `current_phase`, `current_agent`, `cwd`, and `workspace`. Delegated work must declare its track and boundary. Use the selected category tracks; do not dispatch empty backend/frontend tasks for plugin, skill, MCP, or agent projects.

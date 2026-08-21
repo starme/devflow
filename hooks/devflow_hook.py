@@ -257,7 +257,7 @@ def handle_user_prompt(data):
         if not manifest_path:
             return emit('', 'UserPromptSubmit')
         phase = read_manifest_phase(manifest_path)
-        gate_phases = {'gate_prd', 'gate_arch', 'acceptance'}
+        gate_phases = {'gate_prd', 'gate_arch', 'acceptance', 'gate_delivery'}
         if phase in gate_phases:
             return emit(
                 f"[DevFlow] Awaiting your review/approval in {phase} phase.",
@@ -276,7 +276,7 @@ def handle_stop(data):
         phase = read_manifest_phase(manifest_path)
         auto_phases = {
             'prd_writing', 'architecture', 'development',
-            'testing', 'distill',
+            'testing', 'delivery', 'distill',
         }
         if phase in auto_phases:
             if data.get('stop_hook_active'):

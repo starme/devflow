@@ -37,8 +37,10 @@ argument-hint: <需求描述>
 1. 将需求描述写入 task 的 `task.description`，将 `task.kind` 设为 `feature`，`current_phase` 设为 `classify`。
 2. 读取项目分类快照与 capabilities；根据当前需求选择 `workflow.selected_tracks`。低置信度分类先要求确认。
 3. 生成该 task 的 run_id 和 `.devflow/context.json`（包含 `task_id`、`run_id`、`project_root`、`task_root`、`worktree`、`branch`、phase、agent、adapter）。
-4. 加载 `core/orchestrator/SKILL.md`，在该 worktree 内按 `CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DISTILL → DONE` 推进。
+4. 加载 `core/orchestrator/SKILL.md`，在该 worktree 内按 `CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DELIVERY → DISTILL → DONE` 推进。
 5. Gate 阶段暂停等待用户审批；自动阶段结束时 Stop Hook 提示 `/devflow next --task <task_id>`。
+
+研发阶段在 task worktree 内按 task 粒度 commit，收尾时统一「commit + push + 创建 PR」走一次三合一交付闭环（PR 创建后暂停不自动合并），交付完成后清理本地 worktree/branch 并切回主分支。
 
 ## 注意
 

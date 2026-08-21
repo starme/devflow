@@ -468,6 +468,8 @@ _DEVFLOW_ARTIFACT_FILES = frozenset({
     ".devflow/test-report.md",
     ".devflow/acceptance-scenarios.md",
     ".devflow/acceptance-report.md",
+    ".devflow/pr.md",
+    ".devflow/delivery.yaml",
 })
 
 

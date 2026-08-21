@@ -223,16 +223,19 @@ flowchart LR
     Memory -.->|经验注入| M
 ```
 
-完整的阶段状态机——逐阶段的 `CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DISTILL → DONE`、内外循环边界、以及 bugfix/chore 裁剪路径——详见 [docs/workflow.md](docs/workflow.md)。
+完整的阶段状态机——逐阶段的 `CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DELIVERY → GATE_DELIVERY → DISTILL → DONE`、内外循环边界、以及 bugfix/chore 裁剪路径——详见 [docs/workflow.md](docs/workflow.md)。
 
-### 人类只需在 4 个点介入
+### 人类只需在 5 个点介入
 
 1. **需求澄清（Q&A）** — 苏格拉底式追问，明确要做什么
 2. **PRD 评审** — 审批产品需求文档
 3. **架构评审** — 审批技术方案和范围
 4. **验收签字** — 最终确认
+5. **交付确认（三合一：commit + push + PR）** — 验收签字后一次确认提交、推送、创建 PR（PR 创建后暂停不自动合并）
 
 其余全部自动执行，包括测试失败后的自动修复循环（最多 3 轮，仍失败则暂停报告）。
+
+验收签字后进入交付闭环：提交、推送、创建 PR（不自动合并），随后清理本地 worktree、切回主分支（不删除远程分支）。
 
 自动阶段结束时，Stop Hook 会尝试阻止会话结束并提示 Manager 继续执行 `/devflow next`；如果宿主仍结束会话，再手动运行 `/devflow next` 恢复。Gate 阶段始终等待人工审批。
 
@@ -256,9 +259,9 @@ Manager 根据工作类型裁剪流程：
 
 | 工作类型 | 流程 |
 |---------|------|
-| **feature**（新功能） | 分类 → 需求澄清 → PRD → Gate → 架构 → Gate → 开发 → 测试 → 验收 → 蒸馏 |
-| **bugfix**（修 bug） | 分类 → 根因诊断 → 开发 → 测试 → 蒸馏 |
-| **chore**（杂项） | 分类 → 影响分析 → 开发 → 测试 → 蒸馏 |
+| **feature**（新功能） | 分类 → 需求澄清 → PRD → Gate → 架构 → Gate → 开发 → 测试 → 验收 → 交付（PR → 蒸馏）|
+| **bugfix**（修 bug） | 分类 → 根因诊断 → 开发 → 测试 → 交付（PR）→ 蒸馏 |
+| **chore**（杂项） | 分类 → 影响分析 → 开发 → 测试 → 交付（PR）→ 蒸馏 |
 
 架构 Agent 输出 `scope.yaml`，Manager 据此决定调度谁：
 

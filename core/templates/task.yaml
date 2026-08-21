@@ -34,3 +34,4 @@ artifacts:
   scope: ".devflow/scope.yaml"
   test_reports: []
   acceptance_report: null
+  delivery: ".devflow/delivery.yaml"

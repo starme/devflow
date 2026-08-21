@@ -29,7 +29,11 @@ argument-hint: [--task <task-id>]
 | `development` | 继续派目标 task 的研发 Agent |
 | `testing` | 继续测试/失败路由 |
 | `acceptance` | 执行目标 task 验收 |
+| `delivery` | 继续交付闭环：探测 + 三合一确认 + commit/push/PR |
+| `gate_delivery` | 提示三合一确认（commit+push+PR）并等待签字 |
 | `distill` | 执行目标 task 经验蒸馏 |
-| `done` | 显示完成摘要和 branch/worktree |
+| `done` | 显示完成摘要和 branch/worktree，返回主仓库 / 清理本地 worktree |
 
-每次阶段转换和 Agent 派发只更新目标 task 的 `task.yaml` 与 `context.json`。Gate 等待用户审批；自动阶段停止时提示再次运行 `/devflow next --task <task-id>`。
+每次阶段转换和 Agent 派发只更新目标 task 的 `task.yaml` 与 `context.json`。Gate 阶段（含 `gate_delivery`）等待用户审批；自动阶段（含 `delivery`）停止时提示再次运行 `/devflow next --task <task-id>`。
+
+> `delivery` 是 DELIVERY 交付闭环的自动阶段（prompt 继续执行），`gate_delivery` 是其中的人工三合一确认点（等待签字），二者语义不同：不要把 `gate_delivery` 当作自动继续。
