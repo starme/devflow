@@ -1,8 +1,11 @@
 import tempfile
 import unittest
 from pathlib import Path
+import sys
 
-from project_analyzer import analyze_project, select_tracks
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from project_analyzer import analyze_project, select_tracks  # noqa: E402
 
 
 class ProjectAnalyzerTest(unittest.TestCase):

@@ -68,6 +68,7 @@ def render_task_yaml(record: TaskRecord, current_phase: str = "classify") -> str
         "  scope: \".devflow/scope.yaml\"\n"
         "  test_reports: []\n"
         "  acceptance_report: null\n"
+        "  delivery: \".devflow/delivery.yaml\"\n"
     )
 
 

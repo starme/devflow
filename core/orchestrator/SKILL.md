@@ -73,8 +73,11 @@ If `project.category_ambiguous` is true, pause and ask the user to confirm the r
 ║ → [feature] ACCEPTANCE       派 devflow-product 对照验收   ║
 ║     发现代码问题 → 回内层循环修复                           ║
 ║     发现 PRD 问题 → 突破到外层，报告用户决策                ║
+║   → DELIVERY             交付闭环：探测 / 三合一确认        ║
+║     [GATE_DELIVERY]       一次询问 commit+push+PR          ║
+║     PR 创建后暂停，不自动 merge                            ║
 ║   → DISTILL              蒸馏经验到 Memorant               ║
-║   → DONE                                                 ║
+║   → DONE                 清理本地 worktree/branch、回主分支  ║
 ╚═══════════════════════════════════════════════════════════╝
 ```
 
@@ -83,7 +86,7 @@ If `project.category_ambiguous` is true, pause and ask the user to confirm the r
 - **突破到外层**只发生在：测试 3 轮仍失败、发现需求矛盾或 PRD 问题、用户在 Gate 要求修改方案。此时必须暂停自动流程，报告用户做决策。
 - GATE_ARCH 通过即"方案冻结"：scope.yaml 中的任务、契约、文件范围是内层循环的执行依据，研发 Agent 的偏差必须在实现报告中记录。
 
-**bugfix/chore 跳过的阶段**：PRODUCT_QA、PRD_WRITING、GATE_PRD、GATE_ARCH、ACCEPTANCE（改为回归确认）。bugfix 从 CLASSIFY 直接进入 ARCHITECTURE（根因分析），然后进入内层循环。
+**bugfix/chore 跳过的阶段**：PRODUCT_QA、PRD_WRITING、GATE_PRD、GATE_ARCH、ACCEPTANCE（改为回归确认）。bugfix 从 CLASSIFY 直接进入 ARCHITECTURE（根因分析），然后进入内层循环。DELIVERY 是全 work_type 都要走的阶段——feature 在验收签字后进入，bugfix/chore 在回归确认通过后进入。
 
 ---
 
@@ -337,6 +340,36 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
 
 **bugfix/chore 模式**：跳过正式验收。Manager 检查测试报告中的相关测试是否全部通过，向用户报告"修复已通过回归测试"即可。
 
+### 阶段 9.5：DELIVERY — 交付闭环
+
+**前置**：feature 已通过 ACCEPTANCE 且用户已验收签字；bugfix/chore 回归确认通过。
+
+**特性**：DELIVERY 是自动阶段（进入 `auto_phases`），内含一个 GATE_DELIVERY 用户确认点（进入 `gate_phases`）。所有 work_type 都走本阶段，不写死为 feature 专属。
+
+**执行**：
+1. 用 `core/orchestrator/delivery.py` 的只读探测评估交付现状：`gh_available()`（gh CLI 是否可用且已认证）、`branch_pushed()`（当前分支是否已有 upstream）、`remote_name()`、`dirty_files()`（`git status --porcelain`）。这些探测不执行任何写命令。
+2. 用 `DELIVERY_ARTIFACT_FILES` 白名单过滤 `dirty_files()`，生成「待提交文件清单」。提交范围：
+   - 所有已跟踪文件的改动（`M`/`A`/`D`）
+   - `docs/**` 下已跟踪的文档
+   - `.devflow/**` 中在 `DELIVERY_ARTIFACT_FILES` 白名单内的产物（scope/prd/architecture/diagnosis/acceptance-report/test-report/pr 等）
+   - **不提交**临时文件、未跟踪且不在白名单的文件、`.devflow/context.json`、`.devflow/runs/**（审计日志）。
+3. 生成 commit message（Conventional Commits，imperative mood，如 `feat: add delivery lifecycle`），并准备 PR 标题/描述预览。
+
+**GATE_DELIVERY 三合一确认（一次询问）**：向用户一次性列出「待提交文件清单 + 分支 `feature/<slug>-<id>` + remote + PR 标题/描述预览」，并询问一次「是否执行：提交 commit + 推送分支 + 创建 PR？」。
+- 用户仅回复「通过 / 同意 / 签字」→ 默认三者全执行。
+- 用户有其他意见（如「先只提交不 push」「PR 标题改成…」）→ 按需调整，不擅自决定。
+
+**执行交付（Manager 用 Bash 工具执行，确保被 hook 审计）**：
+1. `git commit`（白名单内文件）。
+2. `git push -u origin <branch>`（首次）；已存在上游则 `git push origin <branch>`。
+3. 创建 PR：Claude Code 用 `gh pr create`（用户已认证 gh）；Codex 走 `router` mode，由 host 回传 `gh_pr_url`（Codex 不伪造 PR 能力）。PR 创建成功后写 `.devflow/pr.md`。
+
+**关键边界**：PR 创建后**暂停，不自动合并**。合并是用户的 review 决策，DevFlow 不越权。
+
+**交付闭环清单**：向用户汇总 commit 记录 + push 结果 + PR URL。交付子状态写入 `.devflow/delivery.yaml`（`commit`/`pushed`/`remote`/`pr_url`/`pr_title`/`worktree_removed`/`branch_deleted`/`returned_to_main`），并在 `task.yaml` 的 `artifacts` 段引用它，保证 `/devflow next` 可幂等恢复、跳过已完成步骤。
+
+**降级路径**：`gh` 缺失或未认证时，明确告知用户「未检测到 gh CLI 或未认证，请安装/认证后重试，或手动创建 PR」，不静默跳过、不伪造 PR。
+
 ### 阶段 10：DISTILL — 经验蒸馏
 
 **Memorant 可用时**：
@@ -355,12 +388,21 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
 
 ### 阶段 11：DONE
 
+**返回主仓库 / 清理本地 worktree**：交付闭环完成后（PR 已创建，通常已合并或进入 review），清理本地的 task 痕迹：
+1. `git worktree remove <worktree> --force` 删除本地 task worktree。
+2. `git branch -d <branch>` 删除本地分支（仅当分支已合并到 PR 目标时才可用 `-d`；未合并需用 `-D`，必须先向用户确认）。
+3. **不删除远程分支**（远程分支由 PR 合并后的平台策略决定，DevFlow 不越权删除）。
+4. `git checkout <base_ref>` 切回主分支（`base_ref` 固化在 `task.yaml` 的 `git.base_ref`）。
+
+清理时若 worktree 内有未进入白名单的未提交改动，先 `git status` 校验，暂停并提示用户是否放弃或保留，不强制 `--force` 丢弃改动。
+
 **收尾**：更新 context.json 的 `current_phase: "done"`、`current_agent: "manager"`。审计日志保留在 `.devflow/runs/<run_id>/audit.log` 供回溯。
 
 向用户汇报：
 - 完成的工作摘要
 - 产物清单（PRD、架构文档、代码变更、测试报告、验收报告）
 - 测试结果摘要
+- 交付结果（commit、push、PR URL）与当前分支（已切回 base_ref）
 - 审计日志路径（`.devflow/runs/<run_id>/audit.log`）
 - 沉淀的经验数量
 - 后续建议（如有）
@@ -371,8 +413,9 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
 
 如果会话中断后用户执行 `/devflow next`：
 1. 读取 manifest 的 `current_phase`。
-2. 从中断的阶段继续。自动阶段（prd_writing、architecture、development、testing、distill）自动继续；Gate 阶段重新提示用户审批。
+2. 从中断的阶段继续。自动阶段（prd_writing、architecture、development、testing、delivery、distill）自动继续；Gate 阶段（gate_prd、gate_arch、gate_delivery、acceptance 的签字确认）重新提示用户审批。
 3. 检查 `.devflow/` 下的产物文件是否存在，缺失的重新生成。
+4. 交付阶段依据 `.devflow/delivery.yaml` 的字段跳过已完成步骤（commit/push/PR/清理），保证幂等恢复。
 
 ---
 

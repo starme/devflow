@@ -31,13 +31,14 @@ Bug 修复 / 日常维护模式。默认创建独立 bugfix task/worktree，不�
 在 bugfix task worktree 内按精简流程执行：
 
 ```text
-CLASSIFY → ARCHITECTURE/DIAGNOSIS → DEVELOPMENT → TESTING → DISTILL → DONE
+CLASSIFY → ARCHITECTURE/DIAGNOSIS → DEVELOPMENT → TESTING → DELIVERY → DISTILL → DONE
 ```
 
 - 架构 Agent 只分析根因，输出 `.devflow/diagnosis.md` 和 `.devflow/scope.yaml`。
 - 研发 Agent 先写可复现 bug 的回归测试，再针对根因修复。
 - 测试 Agent 运行回归与分层测试，失败最多自动路由 3 轮。
 - 纯文档/配置 bug 可免回归测试，但必须在报告中说明原因。
+- DELIVERY：bugfix 交付走与 feature 相同的 commit + push + PR 闭环（三合一一次确认），PR 创建后暂停不自动合并。bugfix/chore 以回归确认通过作为进入 DELIVERY 的前置（替代 ACCEPTANCE 正式验收）。
 - 不自动 merge、push、删除分支或 worktree。
 
 ## 当前需求内的修复

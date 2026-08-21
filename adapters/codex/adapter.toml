@@ -10,5 +10,16 @@ verified_extension_points = [
 ]
 unverified_extension_points = [
   "generic_pre_tool_use_file_write_deny",
+  "github.pr_create",
+  "git.push_branch",
 ]
 commands = ["init", "start", "fix", "status", "next"]
+
+# Delivery lifecycle capability (soft): commit/push are executed via host
+# approval; PR creation is routed through the host and reported back as
+# gh_pr_url. Codex does NOT claim a hard PR-creation capability.
+[capabilities.delivery]
+commit = "host_approval"
+push = "host_approval"
+pr_create = "router"
+pr_url_key = "gh_pr_url"

@@ -23,6 +23,8 @@ flowchart TD
 
         TEST["🧪 测试与验收<br/>单元 → 集成 → 契约检查<br/>Lint → 安全扫描 → 构建验证"]
         ACCEPT{"✅ 验收签字<br/>对照 PRD 验收标准"}
+        DELIVERY["🚀 交付闭环<br/>commit + push + PR<br/>本地清理 / 切回 base_ref"]
+        GD{{"Gate: 交付确认<br/>三合一：commit+push+PR"}}
         DONE["🎉 完成"]
     end
 
@@ -44,7 +46,10 @@ flowchart TD
     P3 --> G2
     G2 --> TEST
     TEST --> ACCEPT
-    ACCEPT -->|人签字| DONE
+    ACCEPT -->|人签字| DELIVERY
+    DELIVERY --> GD
+    GD -->|人确认| DONE
+    GD -->|要求调整| DELIVERY
 
     FIX --> F1 --> F2 --> F3 --> F4
 
@@ -71,8 +76,8 @@ flowchart TD
 
     class START,NEW,FIX entry
     class P1,ACCEPT human
-    class ARCH,P2,P3,DONE auto
-    class G1,G2 gate
+    class ARCH,P2,P3,DELIVERY,DONE auto
+    class G1,G2,GD gate
     class TEST test
     class F1,F2,F3,F4 fix
     class MEM memorant
@@ -86,12 +91,12 @@ DevFlow 的完整阶段序列如下（源自 `core/orchestrator/SKILL.md`）：
 
 ```text
 IDLE → CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE
-      → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DISTILL → DONE
+      → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DELIVERY → GATE_DELIVERY → DISTILL → DONE
 ```
 
 - **外层循环（需求确认）**：`IDLE → CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH`。这一层每一步都可能暂停，等待人类输入（分类确认、需求澄清、PRD 审批、架构审批）。
 - **内层循环（实现流水线）**：`DEVELOPMENT ↔ TESTING`。任务由研发 Agent 按 scope 实现（可并行），每个 task 自带 VALIDATE 门控自检；测试 Agent 做全量回归。
-- **收尾**：`ACCEPTANCE → DISTILL → DONE`。产品 Agent 对照 PRD 验收；随后蒸馏经验到 Memorant（或写 `docs/retrospective.md`）。
+- **收尾**：`ACCEPTANCE → DELIVERY → GATE_DELIVERY → DISTILL → DONE`。产品 Agent 对照 PRD 验收；签字后进入交付闭环（提交 commit + 推送分支 + 创建 PR，PR 创建后暂停不自动合并），随后蒸馏经验到 Memorant（或写 `docs/retrospective.md`）。
 
 ## 内外循环边界
 
@@ -105,20 +110,22 @@ bugfix 与 chore 跳过重环节，只保留根因诊断与实现闭环：
 
 | 工作类型 | 保留的阶段 | 跳过的阶段 |
 |---------|-----------|-----------|
-| **feature**（新功能） | CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DISTILL → DONE | 无 |
-| **bugfix**（修 bug） | CLASSIFY → ARCHITECTURE（根因分析）→ DEVELOPMENT → TESTING → DISTILL | PRODUCT_QA、PRD_WRITING、GATE_PRD、GATE_ARCH、ACCEPTANCE |
-| **chore**（杂项） | CLASSIFY → ARCHITECTURE（影响分析）→ DEVELOPMENT → TESTING → DISTILL | PRODUCT_QA、PRD_WRITING、GATE_PRD、GATE_ARCH、ACCEPTANCE |
+| **feature**（新功能） | CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DELIVERY → GATE_DELIVERY → DISTILL → DONE | 无 |
+| **bugfix**（修 bug） | CLASSIFY → ARCHITECTURE（根因分析）→ DEVELOPMENT → TESTING → DELIVERY → GATE_DELIVERY → DISTILL | PRODUCT_QA、PRD_WRITING、GATE_PRD、GATE_ARCH、ACCEPTANCE |
+| **chore**（杂项） | CLASSIFY → ARCHITECTURE（影响分析）→ DEVELOPMENT → TESTING → DELIVERY → GATE_DELIVERY → DISTILL | PRODUCT_QA、PRD_WRITING、GATE_PRD、GATE_ARCH、ACCEPTANCE |
 
 - **bugfix** 从 CLASSIFY 直接进入 ARCHITECTURE，架构 Agent 以 `diagnosis` 模式做根因分析而不是完整技术方案。
 - **ACCEPTANCE（验收）** 被替换为回归确认：Manager 检查测试报告中的相关测试是否全部通过，向用户报告"修复已通过回归测试"即可。
+- **DELIVERY（交付）** 是三种 work_type 都走的闭环：feature 在验收签字后、bugfix/chore 在回归确认通过后，走 commit + push + PR，PR 创建后暂停不自动合并。
 
 ## 人类介入点
 
-全流程中人类只需在 4 个点介入（其余自动执行）：
+全流程中人类只需在 5 个点介入（其余自动执行）：
 
 1. **需求澄清（Q&A）** —— 苏格拉底式追问，明确要做什么
 2. **PRD 评审** —— 审批产品需求文档
 3. **架构评审** —— 审批技术方案和范围
 4. **验收签字** —— 最终确认
+5. **交付确认（三合一：commit + push + PR）** —— 验收签字后一次确认提交、推送、创建 PR（PR 创建后暂停不自动合并）
 
 自动阶段结束时，Stop Hook 会尝试阻止会话结束并提示 Manager 继续；如果宿主仍结束会话，运行 `/devflow next` 恢复。Gate 阶段始终等待人工审批。

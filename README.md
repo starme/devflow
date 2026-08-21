@@ -208,17 +208,20 @@ flowchart LR
     Memory -.->|experience injection| M
 ```
 
-The full state machine — with the phase-by-phase `CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DISTILL → DONE` sequence, the inner/outer loop boundaries, and the bugfix/chore pruning paths — lives in [docs/workflow.md](docs/workflow.md).
+The full state machine — with the phase-by-phase `CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DELIVERY → GATE_DELIVERY → DISTILL → DONE` sequence, the inner/outer loop boundaries, and the bugfix/chore pruning paths — lives in [docs/workflow.md](docs/workflow.md).
 
 ### Human Checkpoints
 
-You only need to be involved at 4 points:
+You only need to be involved at 5 points:
 1. **Product Q&A** — clarify what to build
 2. **PRD Review** — approve product requirements
 3. **Architecture Review** — approve tech design
 4. **Acceptance Sign-off** — final approval
+5. **Delivery Confirmation (commit + push + PR)** — after acceptance sign-off, one confirmation to commit, push, and create a PR (paused after PR creation, no auto-merge)
 
 Everything else runs automatically, including test-fix loops (up to 3 retries before pausing).
+
+After acceptance sign-off, DevFlow enters a delivery loop — commit, push, and create a PR (paused, no auto-merge), then clean up the local worktree and switch back to the base branch (remote branches are never deleted).
 
 Automatic phases use the Stop hook to ask the Manager to continue in the same session. If the host ends the session anyway, run `/devflow next`; Gate phases always wait for human approval.
 

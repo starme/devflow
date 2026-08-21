@@ -1,137 +1,244 @@
-# README 重构技术方案
+# 交付生命周期（Delivery Lifecycle）技术方案
 
-## 背景
+## 背景与目标
 
-README.md 与 README.zh-CN.md 存在两类问题：
+当前 DevFlow 在「验收签字 → 完成」之间缺少自动化的交付闭环。用户痛点（来自本 feature 的 task 描述）：
 
-1. **结构问题**：两份 README 各内嵌一份完整 Mermaid 工作流程图（英文 L170-246、中文 L186-259），图与正文混排，不适合对外宣传（PPT、快速浏览）。
-2. **内容过时**：通篇只讲旧 `.devflow/manifest.yaml` 单文件状态模型，而代码已迁移到 `project.yaml`（项目长期配置）+ `task.yaml`（每 task 独立 worktree 状态）；多处 Codex 路径与结构树与实际不符。
+1. 研发阶段虽然 `worktree_manager.create_task` 已自动创建 `feature/<slug>-<id>` 分支和 task worktree，但研发 Agent 在 task worktree 内的改动**没有被 commit**，改动散落在工作区。
+2. 验收人工签字后，没有自动执行「提交 commit + 推送分支 + 创建 PR + 清理 worktree」，需要一次次手动强调。
+3. 交付完成后没有切回主分支。
 
-本方案目标：把详细流程图下沉到 `docs/workflow.md`，README 保留一张精简的宣传型架构图，并同步修正所有过时/不准确表述。
+本方案目标：在状态机中新增 **DELIVERY 阶段**与 **GATE_DELIVERY 用户确认点**，把「提交/推送/PR/清理/返回主仓库」收敛为一次性的确定流程，并明确 PR 创建与 host adapter 的边界。
 
-## 一、新的状态模型（README 必须对齐的事实）
+---
 
-代码（`core/orchestrator/`、`core/templates/`、`commands/init.md`、`commands/start.md`）已确立四类状态文件 + legacy 兼容：
+## 一、状态机新阶段与字段
 
-| 文件 | 定位 | 作用域 |
-|------|------|--------|
-| `.devflow/project.yaml` | 项目长期配置 | 分类、capabilities、workspace、adapter、redlines/rules 路径、Memorant key；**不**含当前 phase/描述/分支/PRD |
-| `.devflow/task.yaml` | 需求/分支级持久状态 | 每个 task worktree 一份：task id/kind/description、`git.base_ref`/`git.base_commit`、branch/worktree、selected tracks、当前 phase、产物引用 |
-| `.devflow/scope.yaml` | 需求架构契约 | 架构 Agent 为当前 task 生成，不复制回其他 task |
-| `.devflow/context.json` | 运行时上下文 | 临时文件：task_id/run_id/phase/agent/cwd/worktree/branch/adapter |
-| `.devflow/manifest.yaml` | **Legacy**，仅兼容 | 旧项目存在时按单任务流程读取；新任务优先 project.yaml + task worktree |
+### 1.1 新阶段
 
-关键推导（全部来自源码）：
-- `/devflow init`（`commands/init.md`）现在生成 `project.yaml` + `.devflow/rules/` + redlines，**不再生成 `CLAUDE.md`**；它会 `mkdir -p docs docs/adr`。
-- `/devflow start`（`commands/start.md`）每次创建独立任务：生成 `task_id`、分支 `feature/<slug>-<id>`、仓库外 worktree `../.devflow-worktrees/<repo>/<task-id>/`，写 `.devflow/task.yaml`。
-- `core/orchestrator/migration.py` 提供幂等迁移：从旧 manifest 派生 `project.yaml` 与只读 `tasks/legacy/task.yaml`，并在 `.devflow/migration.yaml` 记 marker。旧 manifest **不被删除、不被改写**。
-- `core/orchestrator/task_state.py` 定义 `task.yaml` 的 schema 与实际字段。
+在 `ACCEPTANCE` 与 `DISTILL` 之间插入 `DELIVERY`，内含一个 `GATE_DELIVERY` 确认点：
 
-## 二、README 需调整的结构
-
-### 2.1 迁移详细流程图
-
-- **删除**两份 README 中的完整 Mermaid flowchart（英文 L170-246、中文 L186-259）。
-- **新建** `docs/workflow.md`，内容 = 该详细流程图（英文版 + 中文版两份，或一份双语），外加阶段状态机口诀、内外循环边界说明、bugfix/chore 裁剪路径。
-- README「Workflow / 工作流程」章节改为：文字简述 + 一张精简宣传图 + 指向 `docs/workflow.md` 的链接。
-
-### 2.2 精简宣传型架构图（留在 README，Mermaid）
-
-替代方案：README 放一张**宣传型架构图**，用 Mermaid 表达 DevFlow 的「定位」，而非逐阶段的流水线细节。设计为一个 flowchart LR（左右展开）更利于 PPT 横屏：
-
-```mermaid
-flowchart LR
-    subgraph Input["用户输入"]
-        A["/devflow start<br/>新需求"]
-        B["/devflow fix<br/>修 bug"]
-    end
-
-    subgraph Manager["Manager · 编排层（不写代码）"]
-        M["分类 · 裁剪流程<br/>调度 · 质量门禁"]
-    end
-
-    subgraph Agents["5 个专职 Agent"]
-        AG1["产品"]
-        AG2["架构"]
-        AG3["后端"]
-        AG4["前端"]
-        AG5["测试"]
-    end
-
-    subgraph Guard["Hooks 硬约束"]
-        G["PreToolUse 红线<br/>审计 · 目录边界"]
-    end
-
-    subgraph Memory["Memorant（可选）"]
-        MEM["经验召回<br/>蒸馏闭环"]
-    end
-
-    A --> M
-    B --> M
-    M --> Agents
-    Agents --> Guard
-    Guard --> Memory
-    Memory -.->|经验注入| M
+```text
+... → ACCEPTANCE → DELIVERY(含 GATE_DELIVERY) → DISTILL → DONE
 ```
 
-设计原则：
-- **不**把逐阶段（CLASSIFY→PRODUCT_QA→…→DONE）细节塞回 README，那些属于 `docs/workflow.md`。
-- 只回答「DevFlow 是什么」：输入 → Manager 编排 → 5 专职 Agent → Hooks 硬约束 → Memorant 闭环。
-- 保留 classDef 配色（紫=人/Gate、绿=测试、橙=修复），但图本身保持扁平，确保 GitHub/PPT 渲染清晰。
+- `DELIVERY` 是**自动阶段**（进入 `auto_phases`，Stop hook 阻止并提示继续）。
+- `GATE_DELIVERY` 是**用户确认点**（进入 `gate_phases`）。
 
-> 注：最终图的渲染细节由研发 Agent 在 README 落地时微调，但**结构必须是扁平宣传型**，禁止把 20+ 节点的详细流程图复制回来。
+### 1.2 用户确认点（三合一，一次询问）
 
-## 三、README 中需修正的过时/不准确内容清单
+验收签字后，Manager **一次性**向用户列出：
 
-### 3.1 状态模型类（高优先级，两份 README 都改）
+1. 待提交文件清单（经白名单过滤后的 `git status --porcelain`）
+2. 目标分支 `feature/<slug>-<id>`
+3. remote 名称与 push 目标
+4. PR 标题 / 描述预览
 
-| # | 位置（英文/中文） | 现状（错误） | 应改为 |
-|---|---|---|---|
-| 1 | L144 / L154-155 | `/devflow init` 生成 `CLAUDE.md`（英文 step 3 "Generates CLAUDE.md"、中文 step 3） | init 只生成 `project.yaml` + `.devflow/rules/` + redlines，不再生成 CLAUDE.md |
-| 2 | L145-146 / L155-156 | init 生成 `manifest.yaml` | init 生成 `.devflow/project.yaml`；task 级状态在 `/devflow start` 时写入 `.devflow/task.yaml` |
-| 3 | L114 / L123-125 | 「写入 `.devflow/manifest.yaml`」作为项目状态 | 改为「写入 `.devflow/project.yaml`」；补充 task.yaml 说明 |
-| 4 | 通篇 / 通篇 | 无 task worktree 概念 | 新增一句：每个 `/devflow start`/`/devflow fix` 创建独立 git worktree 与 `task.yaml` |
-| 5 | L157 / L157 | "No manifest, no phases"（fix 模式描述） | bugfix 仍走 task.yaml + worktree，无 manifest 是无 legacy manifest |
-| 6 | L276 / L308 | `.devflow/redlines.yaml`（init 生成） | 保留但建议统一为 `.devflow/redlines.yaml`（实际 `core/templates/redlines.yaml` 仍存在，此项 OK，仅确认命名） |
+并询问一次：**「是否执行：提交 commit + 推送分支 + 创建 PR？」**
 
-### 3.2 Codex 路径 / 结构类（高优先级）
+- 用户仅回复「通过 / 同意 / 签字」→ 默认**三者全执行**。
+- 用户有其他意见（如「先只提交不 push」「PR 标题改成…」）→ 按需调整，不擅自决定。
+- 用户在签字的同时未提出异议 → 视为同意三合一默认。
 
-| # | 位置 | 现状（错误） | 应改为 |
-|---|---|---|---|
-| 7 | L283 / L363-367 | `adapters/`「in the future Codex / Cursor / Trae」；中文「Codex/Cursor/Trae 适配待核心验证后再做」 | Codex 适配**已存在**（`adapters/codex/`），删「future」措辞；仍待做的是 Cursor/Trae |
-| 8 | L81 / L90 | manifest 路径 `plugins/devflow/.codex-plugin/plugin.json`、marketplace `.agents/plugins/marketplace.json` | 路径**正确**（已核实存在），但「What's Bundled」结构树漏列 `plugins/`、`.agents/`，需补 |
-| 9 | L290-330 / L372-412 | 结构树过时：`core/templates/` 仅列 `manifest.yaml/scope.yaml/redlines.yaml/rules-{...}.md`；漏 `plugins/`、`.agents/`、`core/project_analyzer.py` | 补全 `project.yaml`/`task.yaml`/`context.json`（templates）、`project_analyzer.py`、`orchestrator/{migration,task_state,worktree_manager,worktree_sync}.py`、`core/tests/`、`plugins/`、`.agents/`、`adapters/codex/` |
-| 10 | L283 / 367 | 英文结构树的 rules 文件名写 `rules-{project,backend,frontend}.md`（占位符） | 实际是 `rules-project.md`/`rules-backend.md`/`rules-frontend.md` |
+### 1.3 新状态字段
 
-### 3.3 分类 / 轨道类（中优先级）
+**`task.yaml`（由 `core/orchestrator/task_state.py` 的 `render_task_yaml` 扩展）新增 `delivery` 段：**
 
-| # | 位置 | 现状（错误/不全） | 应改为 |
-|---|---|---|---|
-| 11 | L114 / L123 | 类别列表缺 `ai_tool_or_workflow`、`library_or_other` | 补全 7 类：`traditional_application`、`ai_agent_application`、`agent_plugin`、`skill`、`mcp_server`、`ai_tool_or_workflow`、`library_or_other` |
-| 12 | L116 / L125 | 轨道列表「plugin, command, skill, agent, hook, MCP/tool, evaluation, packaging, documentation」 | 补充内建轨道 `product`/`architecture`/`distill`（`core/project_analyzer.py` 的 `TRACKS_BY_CATEGORY`），并说明 backend/frontend 只是可选轨道 |
-| 13 | L318 / L398 | 中文「5 个专职 Agent」表模型列「sonnet」 | 保留（已核实 `agents/*.md` 均为 `model: sonnet`），但补充 subagent name（`devflow-product` 等）一致性 |
+```yaml
+delivery:
+  commit: null          # 交付 commit 的 short hash
+  pushed: false         # 分支是否已 push 到 remote
+  remote: "origin"      # remote 名称
+  pr_url: null          # PR URL（未创建为 null）
+  pr_title: null        # PR 标题
+  worktree_removed: false  # 本地 task worktree 是否已清理
+  branch_deleted: false    # 本地分支是否已删除
+  returned_to_main: false  # 是否已切回 base_ref 主分支
+```
 
-### 3.4 措辞 / 一致性（低优先级）
+**`context.json`（`core/templates/context.json`）新增 `delivery` 上下文块：**
 
-| # | 位置 | 现状 | 建议 |
-|---|---|---|---|
-| 14 | L258 / L272 | 「Stop hook 向 Manager 请求 continue」表述 | 表述可用，随 workflow 图下沉到 docs/workflow.md |
-| 15 | L311 / L407 | 结构树 `README.md` 注释「English documentation」 | 应含 README.zh-CN.md（英文版树漏列中文 README） |
+```json
+"delivery": {
+  "gh_available": "{{GH_AVAILABLE}}",
+  "branch_pushed": "{{BRANCH_PUSHED}}",
+  "pr_url": "{{PR_URL}}"
+}
+```
 
-## 四、文件边界
+> 注意：`task_state.py` 当前 `TaskRecord` 是 `frozen dataclass` 且 `load_task` 只解析标量字段。扩展 `delivery` 段时需要同步扩展 `TaskRecord` 字段与 `_read_scalar` 的解析，或采用独立的 `delivery.yaml` 子状态文件，避免破坏现有 round-trip 测试（`test_worktree_manager.py`）。**推荐方案：新增独立 `.devflow/delivery.yaml` 作为交付子状态**，与 `task.yaml` 解耦，`task.yaml` 仅在 `artifacts` 段加一个 `delivery: ".devflow/delivery.yaml"` 引用——最小侵入，不破坏 `TaskRecord` 结构。
 
-- **只允许修改**：`README.md`、`README.zh-CN.md`、`docs/`（新建 `docs/workflow.md` 及必要的 `docs/adr/0001-*.md`）。
-- **禁止修改**：`core/`、`commands/`、`agents/`、`hooks/`、`adapters/`、`plugins/`、`.agents/`、`.claude-plugin/`、`install.sh` 下的一切（它们是 README 的事实来源，只读参照）。
-- **附带发现（不修）**：`install.sh` L82-83 的收尾 echo 中 templates 描述仍是旧的 "(manifest, redlines, scope)"，漏 project.yaml/task.yaml/context.json —— 属源码，超出本任务边界，仅提示 Manager 后续可另开 chore。
+---
 
-## 五、风险
+## 二、交付流程（Manager 执行）
 
-- **图下沉导致信息丢失**：详细流程图移走后，README 需保证「人类 4 个决策点」「三级红线」「目录边界」等关键信息仍在 README 正文保留（它们本就是独立章节，不受影响）。
-- **中英文同步**：两份 README + workflow.md 需保持术语一致，避免只改英文漏中文。
-- **渲染兼容**：精简图尽量用 Mermaid 基础语法，避免依赖过新特性导致 GitHub/部分 PPT 渲染失败。
+### 2.1 commit 文件白名单
 
-## 六、验证要点
+提交前用白名单过滤 `git status --porcelain`：
 
-- Mermaid 图语法可通过 GitHub 渲染 + 本地 `mermaid-cli`（若可用）校验。
-- 文中所有路径（`plugins/devflow/.codex-plugin/plugin.json`、`.agents/plugins/marketplace.json`、`adapters/codex/` 等）需反查实际文件存在。
-- 状态模型描述需与 `core/templates/project.yaml`、`task.yaml`、`migration.py` 一致。
+**允许提交（ADD）：**
+1. 所有已跟踪文件的改动（`M` / `A` / `D`）
+2. `docs/**` 下已跟踪的文档（`docs/architecture.md`、`docs/workflow.md`、`docs/adr/*.md`、`README*.md`）
+3. `.devflow/**` 中在 `DELIVERY_ARTIFACT_FILES` 白名单内的产物
+
+**禁止提交（SKIP）：**
+- 临时文件、编辑器残留、`*.tmp`、`*.log`
+- `.devflow/context.json`（运行时上下文，属 `_NEVER_COLLECT`）
+- `.devflow/runs/**`（审计日志，不进交付）
+- 未跟踪且不在 `.devflow` 白名单内的文件
+
+**`DELIVERY_ARTIFACT_FILES` 白名单（与 `devflow_guard_common._DEVFLOW_ARTIFACT_FILES` 并集对齐）：**
+
+```text
+.devflow/scope.yaml
+.devflow/prd.md
+.devflow/architecture.md
+.devflow/diagnosis.md
+.devflow/acceptance-report.md
+.devflow/acceptance-scenarios.md
+.devflow/test-report.md
+.devflow/pr.md            # 新增：PR 创建结果记录
+.devflow/delivery.yaml    # 新增：交付子状态
+```
+
+### 2.2 commit 规范
+
+- 遵循 Conventional Commits：`feat: ...` / `fix: ...` / `chore: ...`，imperative mood。
+- 由 Manager 汇总本次改动生成 commit message，不照搬 task 描述原文，避免超长。
+- 例：`feat: add delivery lifecycle (commit/push/PR/cleanup)`。
+
+### 2.3 push 与 PR 创建
+
+- push：`git push -u origin <branch>`（首次）；已存在上游则 `git push origin <branch>`。
+- PR 创建成功后写 `.devflow/pr.md`（含 PR URL、标题、base/head 分支、时间戳）。
+- **PR 创建后暂停，不自动合并**。
+
+### 2.4 清理与返回主仓库（PR 合并后 / 交付闭环）
+
+PR 创建后**不自动清理**——清理发生在 PR 合并、交付闭环确认时：
+
+1. `git worktree remove <worktree> --force` 删除本地 task worktree
+2. `git branch -d <branch>` 删除本地分支（仅在分支已合并时 `-d`；未合并需 `-D`，先向用户确认）
+3. **不删除远程分支**（remote branch 由 PR 合并后的平台策略决定，DevFlow 不越权删除）
+4. `git checkout <base_ref>` 切回主分支（`base_ref` 固化在 `task.yaml` 的 `git.base_ref`）
+
+---
+
+## 三、PR 创建与 host adapter 边界
+
+### 3.1 核心原则：core 定决策，adapter 定能力
+
+- `core/orchestrator/delivery.py` 只做**只读探测**（`gh_available` / `branch_pushed` / `remote_name` / `dirty_files`）与决策逻辑，**不直接执行** `git commit/push` 或 `gh pr create` 写命令。
+- 真正的 `git commit` / `git push` / `gh pr create` 由 **Manager 在 task worktree 内用 Bash 工具执行**——这样每一条写命令都能被 `redline-guard.py` 的 PreToolUse hook 审计与拦截。
+- adapter 提供 **host 能力探测与执行边界**，不伪造能力。
+
+### 3.2 各 host 的 PR 边界
+
+| Host | PR 创建方式 | 能力等级 | 说明 |
+|------|------------|---------|------|
+| Claude Code | Manager 调用 `gh pr create`（依赖用户已 `gh auth`） | hard 可执行 | `gh` 已认证可用时直接创建；未认证时降级为引导用户手动创建 |
+| Codex CLI | **router mode**：由 host 回传 `gh_pr_url` | soft | Codex 未核实通用文件写前置 hook，PR 创建不伪造 hard 能力，走 host 转派/回传 |
+| Cursor / Trae | 待核实 | soft | 同 Codex，标注 unverified |
+
+**关键边界（ADR-0002 强制）：**
+- Claude Code 不硬编码 `gh` 存在；`gh_available()` 探测失败时，Manager 明确告知用户「未检测到 gh CLI 或未认证，请安装/认证后重试，或手动创建 PR」，不静默跳过。
+- Codex 严禁声称 hard PR 能力；`adapters/codex/adapter.toml` 的 `unverified_extension_points` 标注 `github.pr_create`、`git.push_branch`。
+- 软约束平台的后置审计（`audit-log.py`）在交付阶段照常运行。
+
+---
+
+## 四、错误 / 恢复路径
+
+| 场景 | 处理 |
+|------|------|
+| `gh` CLI 缺失或未认证（Claude Code） | 提示用户安装/认证；不自动 fallback 到伪造 PR；允许用户改为「仅 commit+push，PR 我手动建」 |
+| push 失败（无权限 / remote 拒绝） | 保留本地 commit，报告用户 push 失败原因，进入 GATE_DELIVERY 重新确认；不清理 worktree |
+| PR 创建冲突（已有同分支 PR） | 复用已有 PR，`pr.md` 记录既有 URL，不重复创建 |
+| 清理时 worktree 有未提交改动 | `git worktree remove` 前先 `git status`，若有未进入白名单的改动，暂停并提示用户是否放弃或保留；不强制 `--force` 丢改动 |
+| 分支未合并却用 `-d` 报错 | 改用 `-D` 前先向用户确认「分支未合并，是否强制删除本地分支？」 |
+| Codex 下 PR 回传超时/失败 | 本地 commit+push 已完成，PR 状态记为 pending，用户可稍后 `/devflow next` 补 PR；不阻塞清理 |
+| 中断恢复（会话断） | `delivery` 在 `auto_phases`，Stop hook 阻止并提示 `/devflow next`；`gate_delivery` 在 `gate_phases`，重新提示三合一确认 |
+
+**恢复幂等性：** 交付各步骤（commit / push / PR / 清理）都有可判定的状态字段（`commit`、`pushed`、`pr_url`、`worktree_removed`、`branch_deleted`、`returned_to_main`），`/devflow next` 依据这些字段跳过已完成步骤，不重复执行。
+
+---
+
+## 五、模块划分与改动文件
+
+### 新增
+
+| 文件 | 职责 |
+|------|------|
+| `core/orchestrator/delivery.py` | 交付编排：只读探测（gh/branch/remote/dirty）+ `DELIVERY_ARTIFACT_FILES` 白名单 + 交付子状态读写 |
+| `core/tests/test_delivery.py` | delivery.py 单测 + 白名单一致性测试 |
+
+### 修改
+
+| 文件 | 改动点 |
+|------|--------|
+| `core/orchestrator/SKILL.md` | 状态机图插 DELIVERY + 阶段 9.5 交付闭环 + DONE 清理/返回主仓库 + 中断恢复 |
+| `core/orchestrator/task_state.py` | `artifacts` 段加 `delivery` 引用（或独立 delivery.yaml 解析） |
+| `core/templates/context.json` | 新增 `delivery` 上下文块 |
+| `core/hooks/devflow_guard_common.py` | `_DEVFLOW_ARTIFACT_FILES` 补 `.devflow/pr.md`、`.devflow/delivery.yaml` |
+| `hooks/devflow_hook.py` | `auto_phases` + `delivery`，`gate_phases` + `gate_delivery` |
+| `commands/start.md` / `next.md` / `status.md` / `fix.md` | 阶段序列与恢复表接入 DELIVERY |
+| `docs/workflow.md` | 状态机口诀 / 流程图 / 人类介入点（4→5）/ 裁剪表补 DELIVERY |
+| `docs/adr/0002-delivery-lifecycle.md` | 交付生命周期 ADR |
+| `README.md` / `README.zh-CN.md` | 一句话交付闭环说明 |
+| `adapters/codex/adapter.toml` / `AGENTS.md` / `devflow-codex.md` | Codex delivery 能力声明 |
+
+---
+
+## 六、关键流程时序（验收签字后）
+
+```text
+ACCEPTANCE 通过（用户签字）
+   │
+   ▼
+DELIVERY（自动阶段）
+   │  1. delivery.py 探测：gh 可用？分支已 push？working tree 状态？
+   │  2. 白名单过滤 git status，生成待提交清单
+   │  3. 生成 commit message + PR 标题/描述预览
+   │
+   ▼
+GATE_DELIVERY（用户确认点）——一次询问「commit + push + PR」
+   │  用户签字 → 三合一默认执行
+   │  用户有意见 → 按需调整
+   │
+   ▼
+执行交付：
+   │  1. git commit（白名单内文件）
+   │  2. git push -u origin <branch>
+   │  3. gh pr create（Claude Code）/ host 回传（Codex）→ 写 .devflow/pr.md
+   │
+   ▼
+【暂停：PR 已创建，不自动合并，等待 review/merge】
+   │
+   ▼
+DISTILL → DONE
+   │  交付闭环：清理本地 worktree + 本地分支（不删远程）+ 切回 base_ref 主分支
+   ▼
+完成汇报（commit / PR URL / 清理状态 / 当前分支）
+```
+
+---
+
+## 七、验证策略
+
+1. `python3 -m unittest discover -s core/tests -v`：delivery.py 单测 + 既有测试无回归。
+2. `python3 -m unittest discover -s adapters/codex/tests -v`：Codex 适配无回归。
+3. `python3 -c 'import tomllib; tomllib.load(open("adapters/codex/adapter.toml","rb"))'`：TOML 合法。
+4. grep 校验 SKILL.md / commands / docs 的 DELIVERY 插桩点存在。
+5. 手工走查：模拟一个 feature 完整走完，确认验收签字后出现 GATE_DELIVERY 一次确认、PR 创建后暂停、清理后切回 main、远程分支仍在。
+
+---
+
+## 八、风险
+
+| 风险 | 等级 | 缓解 |
+|------|------|------|
+| `task_state.py` 扩展破坏 round-trip 测试 | 中 | 采用独立 `.devflow/delivery.yaml` 子状态，最小侵入 |
+| Codex 误暴露 hard PR 能力 | 中 | ADR 强制 router mode + unverified 标注 |
+| 清理误删未合并本地改动 | 高 | 清理前 `git status` 校验 + `-d`/`-D` 分情形确认 |
+| PR 创建后用户期望自动 merge | 低 | 明确「暂停不合并」为固定语义，用户手动 review/merge |
+| 交付阶段 hook 漏审计写命令 | 中 | 强制 Manager 用 Bash 执行写命令，delivery.py 只探测不写 |

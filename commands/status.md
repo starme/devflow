@@ -29,5 +29,6 @@ DevFlow 将项目级配置与 task 状态分开读取。
 6. 当前需求实际启用的 `workflow.selected_tracks`
 7. PRD、架构、scope、测试和验收产物
 8. 测试轮次、blocked 项和下一步操作
+9. 交付状态（来自 task.yaml `delivery` 段或 `.devflow/delivery.yaml`）：PR URL（未创建为 null）、分支 pushed 状态、worktree 清理状态。DELIVERY 交付闭环的进度标记为：commit short hash、pushed、remote、PR URL、worktree 是否清理、是否已切回主分支
 
 不同 task 的阶段、产物和测试状态必须分别显示，不得从共享 manifest 推断。

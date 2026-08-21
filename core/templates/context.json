@@ -10,5 +10,10 @@
   "adapter": {
     "name": "{{ADAPTER_NAME}}",
     "capability": "{{ADAPTER_CAPABILITY}}"
+  },
+  "delivery": {
+    "gh_available": "{{GH_AVAILABLE}}",
+    "branch_pushed": "{{BRANCH_PUSHED}}",
+    "pr_url": "{{PR_URL}}"
   }
 }
