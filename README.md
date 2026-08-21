@@ -13,6 +13,16 @@ DevFlow connects product discovery, architecture, backend/frontend implementatio
 
 > **Current status:** Claude Code and Codex CLI are supported adapters. Claude Code provides hard PreToolUse protection. Codex provides a protocol-complete adapter with soft redline protection because a generic pre-tool file-write deny hook has not been verified; validate live app-server integration in your environment before relying on unattended execution.
 
+## Why DevFlow?
+
+DevFlow is for teams that want more than a coding agent that edits files. It provides a repeatable, reviewable path from an idea to a merged pull request:
+
+- **Adaptive workflow** — detects the repository type and enables only relevant tracks instead of forcing every project into a backend/frontend template.
+- **Coordinated roles** — a Manager routes work between product, architecture, implementation, and testing agents through explicit artifact contracts.
+- **Safe isolation** — every feature or bugfix gets its own branch and worktree; separate requirements never share working state.
+- **Human checkpoints** — people approve the decisions that matter; routine implementation, testing, and recovery continue automatically.
+- **Delivery-ready output** — after acceptance, DevFlow can commit the allow-listed files, push the task branch, and create a PR without auto-merging it.
+
 ## Quick Install (Fresh Machine)
 
 ### Prerequisites
@@ -21,22 +31,16 @@ DevFlow connects product discovery, architecture, backend/frontend implementatio
 - **Python 3.8+** (pre-installed on macOS; `brew install python` if missing)
 - **Git**
 
-### One-Command Install
+### Install DevFlow from GitHub
 
-```bash
-# Clone this repository (or copy the devflow/ directory anywhere)
-git clone git@github.com:starme/devflow.git ~/devflow
+Add the GitHub repository as a Claude Code marketplace:
 
-# Run the installer (makes hooks executable, copies global rules)
-cd ~/devflow && bash install.sh
-```
-
-Then in Claude Code, run:
-
-```
-/plugin marketplace add ~/devflow
+```text
+/plugin marketplace add starme/devflow
 /plugin install devflow@devflow-marketplace
 ```
+
+Use `starme/devflow#main` when you want to pin the marketplace to a branch.
 
 Restart Claude Code. The plugin loads automatically.
 
@@ -91,6 +95,22 @@ Language/framework rules stay in the plugin directory and are loaded by agents a
 ### Optional: Install Memorant
 
 DevFlow works without Memorant, but experience recall and distillation require it. Install and configure the [Memorant plugin](https://github.com/starme/memorant) separately. Without Memorant, DevFlow still runs the full lifecycle — it just skips memory recall and writes a plain markdown retrospective at project end.
+
+## Quick Start
+
+After installing the plugin, use it in the project you want to work on:
+
+```text
+# Initialize project-level configuration once
+/devflow init
+
+# Start a feature or maintenance task
+/devflow start "Build a team weekly report tool"
+# Or use the lightweight bugfix/chore flow
+/devflow fix "Login submission returns HTTP 500"
+```
+
+Every `start` or `fix` task gets an isolated branch and worktree. You can inspect progress with `/devflow status` and resume an interrupted task with `/devflow next --task <task-id>`.
 
 ## Updating DevFlow
 
@@ -222,6 +242,15 @@ You only need to be involved at 5 points:
 Everything else runs automatically, including test-fix loops (up to 3 retries before pausing).
 
 After acceptance sign-off, DevFlow enters a delivery loop — commit, push, and create a PR (paused, no auto-merge), then clean up the local worktree and switch back to the base branch (remote branches are never deleted).
+
+### After acceptance
+
+Once you approve the result, DevFlow shows the allow-listed files, commit message, push target, and PR preview in one confirmation. A plain approval executes `commit + push + create PR`; other instructions can narrow or adjust those actions.
+
+- Only code and explicitly listed task artifacts are committed; runtime context, audit logs, and temporary files are excluded.
+- PR creation pauses the task. DevFlow never merges the PR automatically.
+- After the PR is merged, run `/devflow next --task <task-id>` to remove the local task worktree and local branch, keep the remote branch, and return to the task's base branch.
+- See [the delivery decision](docs/adr/0002-delivery-lifecycle.md) for the detailed recovery and adapter rules.
 
 Automatic phases use the Stop hook to ask the Manager to continue in the same session. If the host ends the session anyway, run `/devflow next`; Gate phases always wait for human approval.
 
