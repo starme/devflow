@@ -13,6 +13,16 @@ DevFlow 将产品需求、架构设计、前后端开发、测试、验收和工
 
 > **当前状态：** 已支持 Claude Code 和 Codex CLI 适配。Claude Code 提供 Hard 级别的 PreToolUse 防护；Codex 已提供协议级适配，但由于尚未确认通用的文件写入前置拒绝 Hook，红线能力为 Soft。依赖无人值守执行前，请先在目标环境验证 Codex app-server 的真实集成。
 
+## 为什么使用 DevFlow？
+
+如果你需要的不只是一个会修改文件的 coding agent，DevFlow 提供了一条从想法到 Pull Request 的可重复、可审查路径：
+
+- **自适应流程**——先识别仓库类型，只启用相关轨道，不把所有项目强行套进后端/前端模板。
+- **角色协作**——Manager 通过明确的产物契约，在产品、架构、研发和测试 Agent 之间分派工作。
+- **安全隔离**——每个功能或 Bug 修复都有独立分支和 worktree，不同需求不会共享工作状态。
+- **人工决策点**——人只审批关键决策，常规实现、测试和恢复流程自动推进。
+- **面向交付**——验收后可提交白名单文件、推送 task 分支并创建 PR，但不会自动合并。
+
 ## 核心理念
 
 不是一个大而全的单体 Agent，而是一个 **Plugin（命令 + Hooks + 编排 Skill + 子 Agent）**：
@@ -30,22 +40,16 @@ DevFlow 将产品需求、架构设计、前后端开发、测试、验收和工
 - **Python 3.8+**（macOS 自带；如缺失执行 `brew install python`）
 - **Git**
 
-### 安装步骤
+### 从 GitHub 安装 DevFlow
 
-```bash
-# 1. 克隆仓库（或将 devflow/ 目录复制到任意位置）
-git clone <your-repo-url> ~/devflow
+直接将 GitHub 仓库添加为 Claude Code marketplace：
 
-# 2. 运行安装脚本（设置 hook 可执行权限、复制全局规则）
-cd ~/devflow && bash install.sh
-```
-
-然后在 Claude Code 中执行：
-
-```
-/plugin marketplace add ~/devflow
+```text
+/plugin marketplace add starme/devflow
 /plugin install devflow@devflow-marketplace
 ```
+
+如果需要固定到某个分支，可使用 `starme/devflow#main`。
 
 **重启 Claude Code**，插件自动加载。
 
@@ -100,6 +104,22 @@ $devflow status
 ### 可选：安装 Memorant
 
 没有 Memorant DevFlow 也能完整运行，但经验召回和蒸馏功能需要它。请单独安装并配置 [Memorant 插件](https://github.com/starme/memorant)。未安装 Memorant 时，DevFlow 仍能运行完整生命周期，只是跳过经验召回，并在项目结束时写一份纯 Markdown 复盘文档。
+
+## 快速开始
+
+安装插件后，在要开发的项目中执行：
+
+```text
+# 只需初始化一次项目级配置
+/devflow init
+
+# 启动功能或维护任务
+/devflow start "做一个团队周报工具"
+# 或使用精简的 Bug 修复/杂项流程
+/devflow fix "登录提交后返回 HTTP 500"
+```
+
+每个 `start` 或 `fix` task 都会获得独立分支和 worktree。使用 `/devflow status` 查看进度，使用 `/devflow next --task <task-id>` 恢复中断的任务。
 
 ## 更新 DevFlow
 
@@ -236,6 +256,15 @@ flowchart LR
 其余全部自动执行，包括测试失败后的自动修复循环（最多 3 轮，仍失败则暂停报告）。
 
 验收签字后进入交付闭环：提交、推送、创建 PR（不自动合并），随后清理本地 worktree、切回主分支（不删除远程分支）。
+
+### 验收后会发生什么？
+
+你批准结果后，DevFlow 会一次性展示白名单文件、commit message、推送目标和 PR 预览。你直接确认时，默认执行 `commit + push + create PR`；如果提出其他要求，也可以缩小或调整执行范围。
+
+- 只提交代码和明确列入 task 产物清单的文档；运行时上下文、审计日志和临时文件都会排除。
+- 创建 PR 后流程暂停，DevFlow 不会自动合并 PR。
+- PR 合并后，执行 `/devflow next --task <task-id>`，删除本地 task worktree 和本地分支，保留远程分支，并返回该 task 的基准分支。
+- 详细的恢复和适配器规则见[交付决策](docs/adr/0002-delivery-lifecycle.md)。
 
 自动阶段结束时，Stop Hook 会尝试阻止会话结束并提示 Manager 继续执行 `/devflow next`；如果宿主仍结束会话，再手动运行 `/devflow next` 恢复。Gate 阶段始终等待人工审批。
 
