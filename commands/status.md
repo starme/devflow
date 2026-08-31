@@ -27,7 +27,10 @@ DevFlow 将项目级配置与 task 状态分开读取。
 4. task id、kind、描述、当前阶段和状态
 5. branch、worktree、base_ref、固化的 base_commit
 6. 当前需求实际启用的 `workflow.selected_tracks`
-7. PRD、架构、scope、测试和验收产物
+7. PRD、架构、scope、测试和验收产物（每条产物需同时显示两个路径：
+   - **task 内临时路径**：worktree 内的 `.devflow/<name>`（如 `.devflow/prd.md`）
+   - **主工作区已发布路径**：`docs/tasks/<task-id>/<target>`（PRD 发布为 `prd-<task-slug>.md`，其余保持固定名）
+   已发布与未发布的产物要明确区分，避免把 task 内草稿误认为归档成果。）
 8. 测试轮次、blocked 项和下一步操作
 9. 交付状态（来自 task.yaml `delivery` 段或 `.devflow/delivery.yaml`）：PR URL（未创建为 null）、分支 pushed 状态、worktree 清理状态。DELIVERY 交付闭环的进度标记为：commit short hash、pushed、remote、PR URL、worktree 是否清理、是否已切回主分支
 

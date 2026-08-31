@@ -98,6 +98,8 @@ IDLE → CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE
 - **内层循环（实现流水线）**：`DEVELOPMENT ↔ TESTING`。任务由研发 Agent 按 scope 实现（可并行），每个 task 自带 VALIDATE 门控自检；测试 Agent 做全量回归。
 - **收尾**：`ACCEPTANCE → DELIVERY → GATE_DELIVERY → DISTILL → DONE`。产品 Agent 对照 PRD 验收；签字后进入交付闭环（提交 commit + 推送分支 + 创建 PR，PR 创建后暂停不自动合并），随后蒸馏经验到 Memorant（或写 `docs/retrospective.md`）。
 
+- **产物发布（publish）**：`DELIVERY` 阶段在提交/推送之外，还需把 task 产物正式发布到主工作区的 `docs/tasks/<task-id>/` 命名空间（收集白名单内的 PRD、架构、scope、测试与验收产物，PRD 发布为 `prd-<task-slug>.md`，其余保持固定名）。发布是幂等操作，目标内容未变则跳过；内容不同则拒绝覆盖并报告冲突。发布完成的产物与 task.yaml 中的 `artifacts` 引用形成「worktree 临时路径 + 已发布路径」双路径对照。
+
 ## 内外循环边界
 
 - **内层自动流转**：`DEVELOPMENT ↔ TESTING` 之间的失败只在内部绕，不打扰用户。每个 task 的 VALIDATE 是第一道门控，测试 Agent 的全量回归是第二道门控。
