@@ -71,10 +71,35 @@ def find_worktrees(main_root):
     return worktrees
 
 
+def _is_formal_task_worktree(worktree):
+    """Return True when *worktree* lives inside the formal task worktree tree
+    (``.devflow-worktrees/``).  ``collect`` only recycles *agent* worktrees
+    under ``.claude/worktrees/agent-*``; formal task artifacts must be published
+    explicitly via ``artifact_publish.py publish`` and never flattened here.
+    """
+    try:
+        return ".devflow-worktrees" in Path(worktree).resolve().parts
+    except Exception:
+        return False
+
+
 def collect_artifacts(main_root, worktree=None, dry_run=False):
-    """Collect artifacts from one worktree, or legacy agent worktrees."""
+    """Collect artifacts from one worktree, or legacy agent worktrees.
+
+    Formal task worktrees (``.devflow-worktrees/``) are explicitly skipped —
+    they are published to ``docs/tasks/<task-id>/`` by ``artifact_publish.py``,
+    not flattened into the main ``.devflow/`` (AC-8, AC-11).
+    """
     main_devflow = main_root / ".devflow"
     result = {"synced": [], "errors": []}
+
+    if worktree and _is_formal_task_worktree(worktree):
+        result["errors"].append(
+            f"{Path(worktree).name}: formal task worktree, use "
+            "artifact_publish.py publish"
+        )
+        return result
+
     worktrees = [Path(worktree).resolve()] if worktree else find_worktrees(main_root)
 
     for wt in worktrees:

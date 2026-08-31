@@ -355,6 +355,13 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
    - **不提交**临时文件、未跟踪且不在白名单的文件、`.devflow/context.json`、`.devflow/runs/**（审计日志）。
 3. 生成 commit message（Conventional Commits，imperative mood，如 `feat: add delivery lifecycle`），并准备 PR 标题/描述预览。
 
+**发布产物（publish，显式步骤，不是 Agent collect 的隐含副作用）**：交付前把正式 task 产物归档到主工作区 `docs/tasks/<task-id>/` 命名空间：
+1. 校验 task worktree 内 `.devflow/` 的 PRD、architecture、测试、验收产物存在（缺失 → 提示用户，不强行发布）。
+2. 用 Bash 调用 `python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish --root <项目根> --task <task-id>`（Manager 用 Bash 执行，保证落盘被 hook 审计），产出 `docs/tasks/<task-id>/`（PRD 发布为 `prd-<task-slug>.md`，其余保持固定名）。
+3. 冲突检测失败（返回非零并有 `conflicts`）→ 报告用户决策，不覆盖现有文件、不阻断其它交付子步骤。
+4. publish 自动生成/更新 `docs/tasks/<task-id>/README.md` 来源索引，并更新 task worktree 内 `.devflow/task.yaml` 的 `artifacts` 段为 worktree+published 双路径引用。
+5. publish 是「读源 worktree + 写主工作区 `docs/` + 写 task worktree 的 `task.yaml`」的混合操作；`--dry-run` 只产出待发布清单与冲突预检，不落盘。重复发布天然幂等（内容相同 → skip）。
+
 **GATE_DELIVERY 三合一确认（一次询问）**：向用户一次性列出「待提交文件清单 + 分支 `feature/<slug>-<id>` + remote + PR 标题/描述预览」，并询问一次「是否执行：提交 commit + 推送分支 + 创建 PR？」。
 - 用户仅回复「通过 / 同意 / 签字」→ 默认三者全执行。
 - 用户有其他意见（如「先只提交不 push」「PR 标题改成…」）→ 按需调整，不擅自决定。

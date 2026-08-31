@@ -94,6 +94,7 @@ Bug 或维护类改动使用：
 你批准结果后，DevFlow 会一次性展示白名单文件、commit message、推送目标和 PR 预览。直接确认时，默认执行 `commit + push + create PR`；如果提出其他要求，也可以缩小或调整执行范围。
 
 - 只提交代码和明确列入 task 产物清单的文档；运行时上下文、审计日志和临时文件都会排除。
+- 交付时，task 产物会归档到 `docs/tasks/<task-id>/` 命名空间（PRD 发布为 `prd-<task-slug>.md`，其余产物保持固定名），来源元数据记录在该目录的 `README.md` 中。详见[产物发布决策](docs/adr/0003-task-artifact-publishing.md)。
 - 创建 PR 后流程暂停，DevFlow 不会自动合并 PR。
 - PR 合并后，执行 `/devflow next --task <task-id>`，删除本地 task worktree 和本地分支，保留远程分支，并返回该 task 的基准分支。
 - 详细恢复规则见[交付决策](docs/adr/0002-delivery-lifecycle.md)。
@@ -136,6 +137,7 @@ Memorant 提供经验召回、Bug 模式、产品决策和经验蒸馏。未安�
 - [完整工作流](docs/workflow.md)
 - [架构说明](docs/architecture.md)
 - [交付生命周期决策](docs/adr/0002-delivery-lifecycle.md)
+- [Task 产物发布决策](docs/adr/0003-task-artifact-publishing.md)
 - [适配器契约](adapters/README.md)
 
 ## 更新与卸载
