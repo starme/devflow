@@ -37,9 +37,25 @@ def _repo_root(path: Path) -> Path:
     return Path(_git(path, "rev-parse", "--show-toplevel")).resolve()
 
 
+# Porcelain XY status characters that mark a *tracked* change.  Untracked
+# (``??``) and ignored (``!!``) files are deliberately excluded: they are
+# exactly the sort of residue (a prior task's unpublished artifacts) that must
+# not block starting a new task.
+_TRACKED_CHANGE_FLAGS = frozenset({"M", "A", "D", "R", "C"})
+
+
 def _ensure_clean(root: Path) -> None:
-    if _git(root, "status", "--porcelain"):
-        raise WorktreeError(f"main workspace has uncommitted changes: {root}")
+    """Raise only when tracked files have uncommitted changes (M/A/D/R/C).
+
+    Untracked (``??``) and ignored (``!!``) entries leave the workspace "clean"
+    enough to start a new task — git doesn't risk silently committing them into
+    a new worktree because they simply won't be tracked there either.
+    """
+    status = _git(root, "status", "--porcelain")
+    for line in status.splitlines():
+        xy = line[:2]
+        if xy[0] in _TRACKED_CHANGE_FLAGS or xy[1] in _TRACKED_CHANGE_FLAGS:
+            raise WorktreeError(f"main workspace has uncommitted changes: {root}")
 
 
 def create_task(
