@@ -466,26 +466,25 @@ _DEVFLOW_ARTIFACT_FILES = frozenset({
     ".devflow/backend-task-report.md",
     ".devflow/frontend-task-report.md",
     ".devflow/test-report.md",
+    ".devflow/task-report.md",
     ".devflow/acceptance-scenarios.md",
     ".devflow/acceptance-report.md",
     ".devflow/pr.md",
     ".devflow/delivery.yaml",
 })
 
-# Published task artifacts live under ``docs/tasks/<task-id>/`` in the main
-# workspace.  The publish command (``artifact_publish.py publish``) writes there
-# on Delivery; those writes must not be mistaken for out-of-boundary edits.
-# Sensitive-file protection is untouched — forbidden files (``.env``/``.pem``/
-# ``secrets.*``) are still denied by the redline checks that run *before* the
-# boundary check in ``redline-guard.py``.
-_PUBLISHED_ARTIFACT_PREFIXES = (
-    "docs/tasks/",
-)
+# Published task artifacts now live under ``.devflow/tasks/<task-id>/``, which
+# is already covered by ``_DEVFLOW_ARTIFACT_PREFIXES`` above.  The former
+# ``docs/tasks/`` track is retired, so there is no separate published-prefix
+# whitelist — the single ``.devflow/`` channel is the sole authority (ADR-002
+# single-main-channel principle).  Sensitive-file protection is untouched:
+# forbidden files (``.env``/``.pem``/``secrets.*``) are still denied by the
+# redline checks that run *before* the boundary check in ``redline-guard.py``.
 
 
 def is_devflow_artifact(rel_path):
-    """Return ``True`` if *rel_path* is a ``.devflow/`` artifact or a published
-    ``docs/tasks/`` artifact that agents are permitted to write.
+    """Return ``True`` if *rel_path* is a ``.devflow/`` artifact that agents
+    are permitted to write.
 
     Protected configuration files (rules/, redlines.yaml, manifest.yaml,
     context.json) are NOT considered artifacts and remain boundary-protected.
@@ -497,9 +496,6 @@ def is_devflow_artifact(rel_path):
             if rel_path.startswith(prefix):
                 return True
         return False
-    for prefix in _PUBLISHED_ARTIFACT_PREFIXES:
-        if rel_path.startswith(prefix):
-            return True
     return False
 
 
