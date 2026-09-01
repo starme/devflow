@@ -101,7 +101,7 @@ class TargetNameTest(unittest.TestCase):
     def test_other_artifacts_keep_fixed_name(self):
         for name in ("architecture.md", "scope.yaml", "diagnosis.md",
                      "acceptance-report.md", "acceptance-scenarios.md",
-                     "test-report.md"):
+                     "test-report.md", "task-report.md"):
             self.assertEqual(ap.target_name(name, _meta()), name)
 
     def test_test_reports_dir_entries_keep_fixed_name(self):
@@ -262,6 +262,7 @@ class WhitelistTest(unittest.TestCase):
         f.artifact(wt, "prd.md", "prd")
         f.artifact(wt, "architecture.md", "arch")
         f.artifact(wt, "scope.yaml", "scope")
+        f.artifact(wt, "task-report.md", "impl report")
         # Non-publishable files (config / state / read-only refs).
         f.artifact(wt, "project.yaml", "proj")
         f.artifact(wt, "context.json", "ctx")
@@ -270,7 +271,8 @@ class WhitelistTest(unittest.TestCase):
         f.artifact(wt, "rules/redlines.yaml", "rl")
 
         rels = ap.iter_publishable_files(wt)
-        self.assertEqual(rels, ["architecture.md", "prd.md", "scope.yaml"])
+        self.assertEqual(rels, ["architecture.md", "prd.md", "scope.yaml",
+                                "task-report.md"])
 
     def test_test_reports_dir_walked_recursively(self):
         f = _Fixture(tempfile.mkdtemp())

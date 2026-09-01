@@ -66,6 +66,7 @@ PUBLISHABLE_ARTIFACTS = frozenset({
     "acceptance-report.md",
     "acceptance-scenarios.md",
     "test-report.md",
+    "task-report.md",  # implementation report (declared dynamically via scope artifact contract)
     "prd.md",  # published as prd-<task-slug>.md
 })
 
