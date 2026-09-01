@@ -424,6 +424,18 @@ class ReadmeIndexTest(unittest.TestCase):
         # No absolute worktree path leaks into the index.
         self.assertNotIn("/.devflow-worktrees/", readme)
 
+    def test_task_report_gets_own_key(self):
+        # task-report.md is a publishable artifact (PUBLISHABLE_ARTIFACTS); the
+        # README index must record it under a task_report key once published.
+        f = _Fixture(tempfile.mkdtemp())
+        wt = f.make_task("t-taskrep", "t-taskrep")
+        f.artifact(wt, "task-report.md", "impl report")
+
+        ap.publish(f.project_root, wt)
+        readme = (f.archive_dir() / "t-taskrep" / "README.md").read_text(
+            encoding="utf-8")
+        self.assertIn('task_report: "task-report.md"', readme)
+
     def test_acceptance_report_and_scenarios_get_distinct_keys(self):
         # Regression: both files used to map to one ``acceptance_report`` key,
         # emitting duplicate YAML keys that silently dropped the report ref.

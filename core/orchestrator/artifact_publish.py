@@ -377,6 +377,7 @@ _README_ARTIFACT_KEYS = [
     ("acceptance-report.md", "acceptance_report"),
     ("acceptance-scenarios.md", "acceptance_scenarios"),
     ("test-report.md", "test_report"),
+    ("task-report.md", "task_report"),
     ("test_reports/", "test_reports"),
 ]
 
