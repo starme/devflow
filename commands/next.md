@@ -29,7 +29,7 @@ argument-hint: [--task <task-id>]
 | `development` | 继续派目标 task 的研发 Agent |
 | `testing` | 继续测试/失败路由 |
 | `acceptance` | 执行目标 task 验收 |
-| `delivery` | 继续交付闭环：探测 + 三合一确认 + commit/push/PR + 产物 publish 到 `docs/tasks/<task-id>/` |
+| `delivery` | 继续交付闭环：探测 + 三合一确认 + commit/push/PR + 产物 publish 到 `.devflow/tasks/<task-id>/` |
 | `gate_delivery` | 提示三合一确认（commit+push+PR）并等待签字 |
 | `distill` | 执行目标 task 经验蒸馏 |
 | `done` | 显示完成摘要和 branch/worktree，返回主仓库 / 清理本地 worktree |
@@ -38,4 +38,4 @@ argument-hint: [--task <task-id>]
 
 > `delivery` 是 DELIVERY 交付闭环的自动阶段（prompt 继续执行），`gate_delivery` 是其中的人工三合一确认点（等待签字），二者语义不同：不要把 `gate_delivery` 当作自动继续。
 
-> **publish 幂等**：产物发布（publish 到 `docs/tasks/<task-id>/`）是幂等操作——重复执行时，已归档产物内容未变则跳过（skip），不会重复生成或覆盖；只有内容不同才报告冲突并要求人工处理。因此中断恢复或重复运行 `/devflow next --task <task-id>` 是安全的。
+> **publish 幂等**：产物发布（publish 到 `.devflow/tasks/<task-id>/`）是幂等操作——重复执行时，已归档产物内容未变则跳过（skip），不会重复生成或覆盖；只有内容不同才报告冲突并要求人工处理。因此中断恢复或重复运行 `/devflow next --task <task-id>` 是安全的。
