@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
-"""Publish completed formal task artifacts into the main workspace.
+"""Publish completed formal task artifacts into the project archive root.
 
 DevFlow runs formal tasks in isolated worktrees at
-``<parent>/.devflow-worktrees/<repo>/<task-id>/``.  Artifacts written there
-(PRD, architecture, scope, test/acceptance reports) stay inside the worktree.
-This module publishes them, on explicit Delivery, into a per-task namespace in
-the main workspace::
+``<repo_root.parent>/.devflow-worktrees/<repo>/<task-id>/``.  Artifacts written
+there (PRD, architecture, scope, test/acceptance reports) stay inside the
+worktree.  This module publishes them, on explicit milestone gates, into a
+per-task namespace under the project's archive root::
 
-    <project>/docs/tasks/<task-id>/
+    <project_root>/.devflow/tasks/<task-id>/
         README.md                      # source index (task metadata + artifact map)
         prd-<task-slug>.md             # PRD published under a semantic name
         architecture.md
         test_reports/
         ...
+
+The archive root derives from ``project_root`` (the directory holding
+``.devflow/``), while the task worktree location derives from ``repo_root``
+(the git repository root).  These two authorities are orthogonal and are passed
+in explicitly (``--root`` and ``--repo-root`` on the CLI), never inferred from a
+single ambiguous root — form A (project_root == repo_root) and form B
+(project_root == repo_root.parent) both resolve correctly.
 
 ``collect`` (``worktree_sync.py``) keeps recycling *agent* worktrees under
 ``.claude/worktrees/agent-*``; ``publish`` here only handles *formal* tasks.
@@ -25,9 +32,9 @@ files are never rolled back.  The module is split into pure, testable functions
 (the top half) and a thin ``__main__`` CLI (the bottom half).
 
 Usage:
-    python3 artifact_publish.py publish --root /path/to/project --task <id>
-    python3 artifact_publish.py publish --root /path/to/project --worktree <path>
-    python3 artifact_publish.py publish --root /path/to/project --all-tasks [--dry-run]
+    python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root> --task <id>
+    python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root> --worktree <path>
+    python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root> --all-tasks [--dry-run]
 """
 from __future__ import annotations
 
@@ -92,6 +99,16 @@ def _worktree_root(repo_root: Path, task_id: str) -> Path:
     return repo_root.parent / ".devflow-worktrees" / repo_root.name / task_id
 
 
+def resolve_archive_root(project_root: Path) -> Path:
+    """Return the archive root ``project_root/.devflow/tasks``.
+
+    Form-independent: *project_root* is already the directory holding
+    ``.devflow/`` (equal to repo_root in form A, repo_root.parent in form B),
+    so no existence probing is needed.
+    """
+    return project_root / ".devflow" / "tasks"
+
+
 def _is_formal_worktree(worktree: Path) -> bool:
     """Return True when *worktree* sits inside a ``.devflow-worktrees/`` tree."""
     parts = worktree.resolve().parts
@@ -115,7 +132,7 @@ def _has_legal_task_yaml(worktree: Path) -> bool:
 
 
 def discover_task(
-    root: Path,
+    repo_root: Path,
     task_id: Optional[str] = None,
     worktree: Optional[str] = None,
     all_tasks: bool = False,
@@ -124,8 +141,11 @@ def discover_task(
     then ``--all-tasks``.  Only a directory that is both inside the
     ``.devflow-worktrees/`` tree *and* contains a legal ``.devflow/task.yaml``
     is accepted — the directory name is never trusted on its own.
+
+    *repo_root* is the worktree-location authority (the git repo root); it is
+    independent of the archive root (``project_root``).
     """
-    main_root = root.resolve()
+    repo_root = repo_root.resolve()
 
     if worktree:
         candidate = Path(worktree).resolve()
@@ -136,13 +156,13 @@ def discover_task(
         return candidate
 
     if task_id:
-        candidate = _worktree_root(main_root, task_id)
+        candidate = _worktree_root(repo_root, task_id)
         if not _has_legal_task_yaml(candidate):
             raise ValueError(f"formal task worktree not found for task id: {task_id}")
         return candidate
 
     if all_tasks:
-        task_files = find_task_files(main_root)
+        task_files = find_task_files(repo_root)
         for task_file in task_files:
             worktree_dir = task_file.parent.parent
             if _has_legal_task_yaml(worktree_dir):
@@ -334,9 +354,9 @@ def plan_publish(worktree: Path, target_dir: Path) -> Tuple[List[Dict[str, str]]
                 action["reason"] = "target exists with different content"
         actions.append(action)
 
-        # Record the semantic published path (``docs/tasks/<task-id>/<target>``)
+        # Record the semantic published path (``.devflow/tasks/<task-id>/<target>``)
         # for README / task.yaml references.
-        published_map[source_rel] = f"docs/tasks/{target_dir.name}/{name}"
+        published_map[source_rel] = f".devflow/tasks/{target_dir.name}/{name}"
 
     return actions, published_map
 
@@ -365,9 +385,9 @@ def render_readme(meta: Dict[str, str], published_map: Dict[str, str]) -> str:
 
     Absolute worktree paths are deliberately omitted (they break across
     machines); only stable task metadata and a semantic artifact map remain.
-    ``published_map`` values are full ``docs/tasks/<id>/<target>`` paths; the
-    README records just the target name (as in the 2.5 example) while keeping
-    the semantic ``prd-<slug>.md`` name for the PRD.
+    ``published_map`` values are full ``.devflow/tasks/<id>/<target>`` paths;
+    the README records just the target name (as in the 2.5 example) while
+    keeping the semantic ``prd-<slug>.md`` name for the PRD.
     """
     artifact_lines = ""
     for prefix, key in _README_ARTIFACT_KEYS:
@@ -375,7 +395,7 @@ def render_readme(meta: Dict[str, str], published_map: Dict[str, str]) -> str:
         if source_rel is None:
             continue
         # Record the target name within the task namespace, not the absolute
-        # worktree path nor the ``docs/tasks/<id>/`` prefix.
+        # worktree path nor the ``.devflow/tasks/<id>/`` prefix.
         target_name = published.rsplit("/", 1)[-1]
         if key == "test_reports":
             target_name = "test_reports/"
@@ -548,21 +568,23 @@ def update_task_artifact_refs(
 # ---------------------------------------------------------------------------
 
 def publish(
-    main_root: Path,
+    project_root: Path,
     worktree: Path,
     dry_run: bool = False,
 ) -> Dict[str, object]:
     """Publish a single formal task's artifacts into
-    ``<main>/docs/tasks/<task-id>/``.
+    ``<project_root>/.devflow/tasks/<task-id>/``.
 
-    Returns a result dict with ``published`` / ``skipped`` / ``conflicts``
-    lists and an ``errors`` list.  Conflicts abort before any write so no
-    partial publish occurs (atomic at the plan level); each file write is then
-    idempotent and never overwrites a differing target.
+    *project_root* is the archive authority (the dir holding ``.devflow/``);
+    the worktree is already located via ``discover_task`` (which keys off
+    ``repo_root``).  Returns a result dict with ``published`` / ``skipped`` /
+    ``conflicts`` lists and an ``errors`` list.  Conflicts abort before any
+    write so no partial publish occurs (atomic at the plan level); each file
+    write is then idempotent and never overwrites a differing target.
     """
     meta = read_task_meta(worktree)
     task_id = meta["task_id"]
-    target_dir = main_root / "docs" / "tasks" / task_id
+    target_dir = resolve_archive_root(project_root) / task_id
 
     actions, published_map = plan_publish(worktree, target_dir)
 
@@ -632,8 +654,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="DevFlow formal task artifact publish")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_publish = sub.add_parser("publish", help="Publish task artifacts into docs/tasks/")
-    p_publish.add_argument("--root", required=True, help="Main workspace root")
+    p_publish = sub.add_parser("publish", help="Publish task artifacts into .devflow/tasks/")
+    p_publish.add_argument(
+        "--root", required=True,
+        help="Project root (= .devflow/ parent, the archive authority)",
+    )
+    p_publish.add_argument(
+        "--repo-root", required=True,
+        help="Git repository root (the worktree-location authority)",
+    )
     group = p_publish.add_mutually_exclusive_group(required=True)
     group.add_argument("--task", help="Publish by task id")
     group.add_argument("--worktree", help="Publish by explicit worktree path")
@@ -641,15 +670,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_publish.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args(argv)
-    main_root = Path(args.root).resolve()
+    project_root = Path(args.root).resolve()
+    repo_root = Path(args.repo_root).resolve()
 
-    if not main_root.is_dir():
-        print(json.dumps({"error": f"root not found: {main_root}"}))
+    if not project_root.is_dir():
+        print(json.dumps({"error": f"root not found: {project_root}"}))
+        return 1
+    if not repo_root.is_dir():
+        print(json.dumps({"error": f"repo root not found: {repo_root}"}))
         return 1
 
     try:
         worktree = discover_task(
-            main_root,
+            repo_root,
             task_id=args.task,
             worktree=args.worktree,
             all_tasks=args.all_tasks,
@@ -658,7 +691,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(json.dumps({"error": str(exc)}))
         return 1
 
-    result = publish(main_root, worktree, dry_run=args.dry_run)
+    result = publish(project_root, worktree, dry_run=args.dry_run)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result["errors"] or result["conflicts"]:
         return 1
