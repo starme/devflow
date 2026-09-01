@@ -87,7 +87,7 @@ def collect_artifacts(main_root, worktree=None, dry_run=False):
     """Collect artifacts from one worktree, or legacy agent worktrees.
 
     Formal task worktrees (``.devflow-worktrees/``) are explicitly skipped —
-    they are published to ``docs/tasks/<task-id>/`` by ``artifact_publish.py``,
+    they are published to ``.devflow/tasks/<task-id>/`` by ``artifact_publish.py``,
     not flattened into the main ``.devflow/`` (AC-8, AC-11).
     """
     main_devflow = main_root / ".devflow"
