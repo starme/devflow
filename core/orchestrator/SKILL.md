@@ -355,12 +355,29 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
    - **不提交**临时文件、未跟踪且不在白名单的文件、`.devflow/context.json`、`.devflow/runs/**（审计日志）。
 3. 生成 commit message（Conventional Commits，imperative mood，如 `feat: add delivery lifecycle`），并准备 PR 标题/描述预览。
 
-**发布产物（publish，显式步骤，不是 Agent collect 的隐含副作用）**：交付前把正式 task 产物归档到主工作区 `docs/tasks/<task-id>/` 命名空间：
-1. 校验 task worktree 内 `.devflow/` 的 PRD、architecture、测试、验收产物存在（缺失 → 提示用户，不强行发布）。
-2. 用 Bash 调用 `python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish --root <项目根> --task <task-id>`（Manager 用 Bash 执行，保证落盘被 hook 审计），产出 `docs/tasks/<task-id>/`（PRD 发布为 `prd-<task-slug>.md`，其余保持固定名）。
+**发布产物（publish，显式步骤，不是 Agent collect 的隐含副作用）**：产物在各个里程碑通过后增量归档到主工作区 `.devflow/tasks/<task-id>/` 命名空间，DELIVERY 阶段再补漏一次汇总。
+
+每个里程碑（GATE_PRD / GATE_ARCH / TESTING / ACCEPTANCE）通过后，Manager 用 Bash 调用同一命令发布对应产物：
+
+```bash
+python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish \
+  --root <project_root> --repo-root <repo_root> --task <task-id>
+```
+
+- `<project_root>` 与 `<repo_root>` 分别取自 task worktree 的 `context.json`（`project_root` 是 `.devflow/` 所在目录，即归档根权威源；`repo_root` 是 git 仓库根，即 worktree 定位权威源），二者正交，不可混用单一 `--root`。
+- 每个里程碑发布前，**校验对应产物存在，缺失则提示用户并跳过，不阻断其它子步骤**：
+  - GATE_PRD 通过 → 发布 `prd-<task-slug>.md`（校验 worktree `.devflow/prd.md`）；
+  - GATE_ARCH 通过 → 发布 `architecture.md` + `scope.yaml`（bugfix/chore 则 `diagnosis.md` + `scope.yaml`）；
+  - TESTING 通过 → 发布 `test-report.md` + `test_reports/`；
+  - ACCEPTANCE 通过 → 发布 `acceptance-scenarios.md` + `acceptance-report.md`（+ scope 声明的 `task-report.md`）。
+- DELIVERY 阶段复用同一命令做汇总补漏，缺啥补啥（幂等 skip 已存在的）。
+
+发布遵循：
+1. 校验 task worktree 内 `.devflow/` 的对应产物存在（缺失 → 提示用户，不强行发布）。
+2. 用 Bash 调用 `publish`（Manager 用 Bash 执行，保证落盘被 hook 审计），产出 `.devflow/tasks/<task-id>/`（PRD 发布为 `prd-<task-slug>.md`，其余保持固定名）。
 3. 冲突检测失败（返回非零并有 `conflicts`）→ 报告用户决策，不覆盖现有文件、不阻断其它交付子步骤。
-4. publish 自动生成/更新 `docs/tasks/<task-id>/README.md` 来源索引，并更新 task worktree 内 `.devflow/task.yaml` 的 `artifacts` 段为 worktree+published 双路径引用。
-5. publish 是「读源 worktree + 写主工作区 `docs/` + 写 task worktree 的 `task.yaml`」的混合操作；`--dry-run` 只产出待发布清单与冲突预检，不落盘。重复发布天然幂等（内容相同 → skip）。
+4. publish 自动生成/更新 `.devflow/tasks/<task-id>/README.md` 来源索引，并更新 task worktree 内 `.devflow/task.yaml` 的 `artifacts` 段为 worktree+published 双路径引用。
+5. publish 是「读源 worktree + 写主工作区 `.devflow/tasks/` + 写 task worktree 的 `task.yaml`」的混合操作；`--dry-run` 只产出待发布清单与冲突预检，不落盘。重复发布天然幂等（内容相同 → skip）。
 
 **GATE_DELIVERY 三合一确认（一次询问）**：向用户一次性列出「待提交文件清单 + 分支 `feature/<slug>-<id>` + remote + PR 标题/描述预览」，并询问一次「是否执行：提交 commit + 推送分支 + 创建 PR？」。
 - 用户仅回复「通过 / 同意 / 签字」→ 默认三者全执行。
