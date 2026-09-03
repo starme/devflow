@@ -113,7 +113,13 @@ def memorant_available():
 
 
 def find_manifest():
-    """Walk up from CWD to find DevFlow state, migrating legacy metadata."""
+    """Walk up from CWD to find DevFlow state, migrating legacy metadata.
+
+    State lookup order mirrors the orchestrator's migration to isolated task
+    worktrees (PR #7/#8): a task worktree's ``.devflow/task.yaml`` is the
+    authoritative phase source, followed by the project-level ``project.yaml``,
+    and finally the legacy single-file ``manifest.yaml``.
+    """
     try:
         cwd = Path.cwd()
         plugin_root = Path(__file__).resolve().parent.parent
@@ -123,11 +129,14 @@ def find_manifest():
         from orchestrator.migration import migrate_legacy_project
         for parent in [cwd] + list(cwd.parents):
             devflow = parent / '.devflow'
+            # New isolated-task layout: task.yaml is the per-task state file.
+            if (devflow / 'task.yaml').is_file():
+                return devflow / 'task.yaml', parent
+            if (devflow / 'project.yaml').is_file():
+                return devflow / 'project.yaml', parent
             if (devflow / 'manifest.yaml').is_file():
                 migrate_legacy_project(parent)
                 return devflow / 'manifest.yaml', parent
-            if (devflow / 'project.yaml').is_file():
-                return devflow / 'project.yaml', parent
     except Exception:
         pass
     return None, None
@@ -144,6 +153,44 @@ def read_manifest_phase(manifest_path):
     except Exception:
         pass
     return 'unknown'
+
+
+def read_task_phase(task_path):
+    """Extract ``task.current_phase`` from a ``task.yaml`` state file.
+
+    Unlike the legacy manifest, task.yaml nests ``current_phase`` under the
+    ``task:`` section, so a naive top-level ``current_phase:`` scan misses it.
+    """
+    try:
+        content = task_path.read_text(encoding='utf-8', errors='replace')
+        in_task = False
+        for line in content.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            indent = len(line) - len(line.lstrip())
+            if indent == 0 and stripped == 'task:':
+                in_task = True
+                continue
+            if in_task and indent == 0 and stripped.endswith(':'):
+                break
+            if in_task and stripped.startswith('current_phase:'):
+                return stripped.split(':', 1)[1].strip().strip('"\'')
+    except Exception:
+        pass
+    return 'unknown'
+
+
+def read_state_phase(state_path):
+    """Read the current phase from whichever state file *state_path* points at.
+
+    ``task.yaml`` (isolated worktree) and ``manifest.yaml``/``project.yaml``
+    (legacy) store the phase in different positions, so dispatch on filename.
+    """
+    name = state_path.name
+    if name == 'task.yaml':
+        return read_task_phase(state_path)
+    return read_manifest_phase(state_path)
 
 
 def read_manifest_field(manifest_path, field):
@@ -239,7 +286,7 @@ def handle_session_start(data):
                     'SessionStart',
                 )
             return emit('', 'SessionStart')
-        phase = read_manifest_phase(manifest_path)
+        phase = read_state_phase(manifest_path)
         work_type = read_manifest_field(manifest_path, 'work_type:') or '—'
         tasks = read_tasks_summary(manifest_path, phase)
         ctx = f"[DevFlow] Active project: {project_root.name} | type: {work_type} | phase: {phase}."
@@ -256,7 +303,7 @@ def handle_user_prompt(data):
         manifest_path, _ = find_manifest()
         if not manifest_path:
             return emit('', 'UserPromptSubmit')
-        phase = read_manifest_phase(manifest_path)
+        phase = read_state_phase(manifest_path)
         gate_phases = {'gate_prd', 'gate_arch', 'acceptance', 'gate_delivery'}
         if phase in gate_phases:
             return emit(
@@ -273,7 +320,7 @@ def handle_stop(data):
         manifest_path, _ = find_manifest()
         if not manifest_path:
             return emit('', 'Stop')
-        phase = read_manifest_phase(manifest_path)
+        phase = read_state_phase(manifest_path)
         auto_phases = {
             'prd_writing', 'architecture', 'development',
             'testing', 'delivery', 'distill',
@@ -295,7 +342,7 @@ def handle_pre_compact(data):
         manifest_path, project_root = find_manifest()
         if not manifest_path:
             return emit_text('')
-        phase = read_manifest_phase(manifest_path)
+        phase = read_state_phase(manifest_path)
         content = manifest_path.read_text(encoding='utf-8', errors='replace')
         summary = (
             f"[DevFlow State - preserve through compaction]\n"
@@ -307,7 +354,7 @@ def handle_pre_compact(data):
     except Exception:
         try:
             manifest_path, project_root = find_manifest()
-            phase = read_manifest_phase(manifest_path) if manifest_path else 'unknown'
+            phase = read_state_phase(manifest_path) if manifest_path else 'unknown'
             return emit_text(f"[DevFlow] Phase: {phase}")
         except Exception:
             return emit_text('')
