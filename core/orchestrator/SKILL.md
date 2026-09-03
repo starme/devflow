@@ -271,7 +271,7 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
 **Memorant 召回策略**：
 - 用 scope.yaml 的 `memorant_recall_query` 作为搜索关键词。
 - 搜索相关代码片段、同类 bug 修复模式、语言/框架陷阱。
-- 按 manifest 中 `memorant.pre_dispatch_recall.max_results` 限制数量。
+- 按 `project.yaml` 的 `memorant` 段（旧项目则 `manifest.yaml` 的 `memorant.pre_dispatch_recall.max_results`）限制数量。
 - 只注入 `trust_tier: verified` 的记忆（除非配置允许 provisional）。
 
 **并行调度**：两个 Agent 同时工作时，在 Task 调用中明确各自的 boundary，防止文件冲突。后端只动后端目录，前端只动前端目录，契约文件冻结后双方只读。
@@ -405,7 +405,7 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish \
    - bugfix：根因 + 修复方式 + 回归点
    - chore：变更内容和注意事项
 5. 如果配置了 `auto_promote`，检查是否有多次验证的 provisional 记忆可以升级为 verified。
-6. 更新 manifest `phases.distill.memories_created` 和 `memorant.distilled`。
+6. 更新 task 的 `task.yaml` 的 `phases.distill.memories_created`（旧项目则 `manifest.yaml` 的对应字段）和 `memorant.distilled`。
 
 **Memorant 不可用时**：
 1. 写 `docs/retrospective.md`，包含：做了什么、怎么做的、遇到什么问题、怎么解决的、下次注意什么。
@@ -436,7 +436,7 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish \
 ## 中断恢复
 
 如果会话中断后用户执行 `/devflow next`：
-1. 读取 manifest 的 `current_phase`。
+1. 读取目标 task 的 `task.yaml` 的 `task.current_phase`（旧项目则读 `manifest.yaml` 的 `current_phase`）。
 2. 从中断的阶段继续。自动阶段（prd_writing、architecture、development、testing、delivery、distill）自动继续；Gate 阶段（gate_prd、gate_arch、gate_delivery、acceptance 的签字确认）重新提示用户审批。
 3. 检查 `.devflow/` 下的产物文件是否存在，缺失的重新生成。
 4. 交付阶段依据 `.devflow/delivery.yaml` 的字段跳过已完成步骤（commit/push/PR/清理），保证幂等恢复。
