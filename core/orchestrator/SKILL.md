@@ -74,7 +74,7 @@ If `project.category_ambiguous` is true, pause and ask the user to confirm the r
 ║     发现代码问题 → 回内层循环修复                           ║
 ║     发现 PRD 问题 → 突破到外层，报告用户决策                ║
 ║   → DELIVERY             交付闭环：探测 / 三合一确认        ║
-║     [GATE_DELIVERY]       一次询问 commit+push+PR          ║
+║                          current_phase 保持 delivery         ║
 ║     PR 创建后暂停，不自动 merge                            ║
 ║   → DISTILL              蒸馏经验到 Memorant               ║
 ║   → DONE                 清理本地 worktree/branch、回主分支  ║
@@ -118,27 +118,17 @@ Agent 参数必须显式包含 `task_id`、`task_root`、`main_workspace` 和 `c
 
 只有旧项目存在 `.devflow/manifest.yaml` 时，继续按原有单任务流程读取；新任务优先使用 `project.yaml` + 独立 task worktree，不把新任务状态写入共享 manifest。
 
-### Worktree 隔离与产物回收
+### 工作区与派发
 
-Claude Code 的 Task 工具将 subagent 运行在隔离的 git worktree 中（路径：`<项目根>/.claude/worktrees/agent-<id>/`）。worktree 有完整的 git 跟踪文件副本，但 `.devflow/`（被 gitignore）不存在于其中，导致：
+默认一个需求在主工作区的功能分支上做（in-place）。只有主工作区已有未完成 task 时，后来的正式任务才进 `.devflow-worktrees/`，先到的不搬家。
 
-1. Agent 在 worktree 中写的 `.devflow/` 产物（scope.yaml、报告、契约等）不会自动出现在主工作区
-2. Guard hooks 必须正确处理 worktree 路径（已由 hook 层自动处理）
+派发专职 Agent 时 **cwd 钉在该 task 的工作区**（in-place 即仓库根或其 backend/frontend 子目录；后来者即对应 worktree）。不要让 Claude Task 再隔一层 `.claude/worktrees/agent-*`，也不要在每次派发后跑 `worktree_sync.py collect`。同一需求的产物就写在该 task 的 `.devflow/` 里。
 
-**Manager 的职责：每次 Task 派发完成后，执行产物回收。**
-
-```bash
-python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root "<项目根目录>"
-```
-
-该命令会扫描所有 worktree，将 `.devflow/` 下的流程产物（scope、报告、contracts、runs/ 等）复制回主工作区。受保护的配置文件（rules/、redlines.yaml、manifest.yaml、context.json）不会被覆盖。
-
-**派发 Agent 时的路径规则**：
-- `cwd`：Agent 的工作目录（workspace.backend.path 或 workspace.frontend.path），Agent 在此目录下写代码
-- `main_workspace`：主工作区的绝对路径，Agent 从此路径**读取** `.devflow/` 配置和前序产物（如 scope.yaml、rules/）
-- Agent 写产物时使用相对路径 `.devflow/<filename>`（相对于自己的 cwd），回收时由 sync 脚本处理
-
-**Agent 完成后、读取产物前**，必须先执行 collect，否则主工作区中找不到 Agent 写的文件。
+**路径规则**：
+- `cwd`：该 task 工作区内的代码目录（有 backend/frontend 时用 workspace 路径，否则用 task 根）
+- `main_workspace` / `project_root`：`.devflow/` 所在目录（in-place 时等于 repo 根；形态 B 插件自托管时按 context.json）
+- `repo_root`：git 仓库根，给后来者 worktree 定位用
+- Agent 读写 `.devflow/<filename>` 相对于自己的 cwd（已钉在 task 工作区）
 
 ---
 
@@ -165,8 +155,8 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
 6. 如果用户不反对：
    a. 生成 `run_id`（格式：`YYYYMMDD-HHMMSS-xxxxxx`，xxxxxx 为 6 位随机十六进制）。
    b. 创建 `.devflow/runs/<run_id>/` 目录（审计日志和 Agent 报告存放在这里）。
-   c. 写入 `.devflow/context.json`，包含 `run_id`、`current_phase: "classify"`、`current_agent: "manager"`、`cwd`（项目根目录）、`workspace`（从 manifest 读取）。
-   d. 更新 manifest，进入下一阶段。
+   c. 写入 `.devflow/context.json`，包含 `task_id`、`run_id`、`current_phase: "classify"`、`current_agent: "manager"`、`cwd`、`project_root`、`repo_root`、`workspace`（从 `project.yaml` 读取，旧项目才读 manifest）。
+   d. 更新该 task 的 `task.yaml`（旧项目才写 manifest），进入下一阶段。
 
 **Memorant 召回**（如果可用）：搜索类似任务的历史经验，辅助判断风险。
 
@@ -197,8 +187,7 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
    - `project_path`、`workspace`、`main_workspace`、`stack`
    - `memorant_context`：召回结果
    - `memorant_available`：true/false
-3. Agent 完成后，**执行产物回收**（worktree_sync.py collect）。
-4. 读取产物路径，更新 manifest `artifacts.prd`。
+3. Agent 完成后读取该 task 工作区里的产物路径，更新 `task.yaml` 的 `artifacts.prd`（旧项目才写 manifest）。
 
 ### 阶段 4：GATE_PRD — PRD 审批（仅 feature）
 
@@ -223,8 +212,7 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
    - `memorant_context`
    - `memorant_available`
 3. Agent 输出 scope.yaml（必需）和架构文档（feature 模式）。
-4. **执行产物回收**：运行 worktree_sync.py collect，将 scope.yaml 等产物从 worktree 同步回主工作区。
-5. 读取 scope.yaml，更新 manifest：
+4. 读取该 task 工作区的 scope.yaml，更新 `task.yaml`：
    - `phases.architecture.scope_path`
    - `phases.development.dispatched_agents`（根据 tracks）
    - `phases.development.parallel`（根据 parallelizable）
@@ -279,8 +267,7 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
 **Task 级 VALIDATE 是研发 Agent 的内置门控**：你不需要在派发后逐一检查每个 task 的 validate 结果——研发 Agent 会在每个 task 完成后立即运行其 validate 命令，失败当场修复。你只需要在 Agent 全部完成后读取实现报告，关注是否有 blocked 任务和偏差。
 
 **完成后**：
-1. **先执行产物回收**：运行 worktree_sync.py collect，将 Agent 的 `.devflow/` 产物从 worktree 同步回主工作区。
-2. 读取两个 Agent 的**实现报告**（`.devflow/backend-task-report.md` / `.devflow/frontend-task-report.md`）。
+1. 读取该 task 工作区里的**实现报告**（`.devflow/backend-task-report.md` / `.devflow/frontend-task-report.md`）。
 3. 检查报告状态：
    - `Status: COMPLETE` + 所有 task VALIDATE 通过 → 进入 TESTING。
    - `Status: PARTIAL`（有 blocked 任务）→ 报告用户阻塞项，询问是否继续测试（已完成部分）还是先解决阻塞。
@@ -299,8 +286,7 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
    - "变更文件"和"测试新增"段落——了解测试覆盖范围
    - blocked 任务——这些功能可能未完成，测试时标注为 SKIP 而非 FAIL
 3. 派 `devflow-tester`，传入 scope、workspace、prd_path（feature 模式）、implementation_reports（实现报告路径）、main_workspace、round=1。
-4. **执行产物回收**：运行 worktree_sync.py collect。
-5. 读取测试报告：
+4. 读取该 task 工作区的测试报告：
    - `overall: ALL GREEN` → 进入下一阶段。
    - `overall: FAILURES` → 进入失败路由循环。
    - `overall: BLOCKED` → 报告用户阻塞原因，等待用户解决环境问题后重试。
@@ -327,9 +313,8 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
 2. 产品 Agent 生成：
    - `.devflow/acceptance-scenarios.md`：从 PRD 派生的验收场景
    - `.devflow/acceptance-report.md`：逐条核查结果
-3. **执行产物回收**（worktree_sync.py collect）。
-4. 读取验收报告：
-   - 总体 PASS → 进入 Distill。
+3. 读取该 task 工作区的验收报告：
+   - 总体 PASS → 进入 DELIVERY。
    - 有 FAIL → 分析原因：
      - 代码问题（该有的功能没有或行为不对）→ 回到 DEVELOPMENT 修复
      - PRD 问题（验收标准不合理或模糊）→ 报告用户决定是否修订 PRD
@@ -344,7 +329,7 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
 
 **前置**：feature 已通过 ACCEPTANCE 且用户已验收签字；bugfix/chore 回归确认通过。
 
-**特性**：DELIVERY 是自动阶段（进入 `auto_phases`），内含一个 GATE_DELIVERY 用户确认点（进入 `gate_phases`）。所有 work_type 都走本阶段，不写死为 feature 专属。
+**特性**：DELIVERY 的 `current_phase` 保持 `delivery`。探测和准备清单时不要停；向用户做三合一确认时可以停。不要把 phase 改成 `gate_delivery`。所有 work_type 都走本阶段。
 
 **执行**：
 1. 用 `core/orchestrator/delivery.py` 的只读探测评估交付现状：`gh_available()`（gh CLI 是否可用且已认证）、`branch_pushed()`（当前分支是否已有 upstream）、`remote_name()`、`dirty_files()`（`git status --porcelain`）。这些探测不执行任何写命令。
@@ -355,29 +340,16 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_sync.py" collect --root 
    - **不提交**临时文件、未跟踪且不在白名单的文件、`.devflow/context.json`、`.devflow/runs/**（审计日志）。
 3. 生成 commit message（Conventional Commits，imperative mood，如 `feat: add delivery lifecycle`），并准备 PR 标题/描述预览。
 
-**发布产物（publish，显式步骤，不是 Agent collect 的隐含副作用）**：产物在各个里程碑通过后增量归档到主工作区 `.devflow/tasks/<task-id>/` 命名空间，DELIVERY 阶段再补漏一次汇总。
-
-每个里程碑（GATE_PRD / GATE_ARCH / TESTING / ACCEPTANCE）通过后，Manager 用 Bash 调用同一命令发布对应产物：
+**发布产物（只在 DELIVERY，用于追溯）**：把本 task 的 PRD / 方案 / scope / 实现报告 / 测试 / 验收一次归档到 `.devflow/tasks/<task-id>/`。不要在 GATE_PRD / GATE_ARCH / TESTING / ACCEPTANCE 提前 publish。
 
 ```bash
 python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish \
   --root <project_root> --repo-root <repo_root> --task <task-id>
 ```
 
-- `<project_root>` 与 `<repo_root>` 分别取自 task worktree 的 `context.json`（`project_root` 是 `.devflow/` 所在目录，即归档根权威源；`repo_root` 是 git 仓库根，即 worktree 定位权威源），二者正交，不可混用单一 `--root`。
-- 每个里程碑发布前，**校验对应产物存在，缺失则提示用户并跳过，不阻断其它子步骤**：
-  - GATE_PRD 通过 → 发布 `prd-<task-slug>.md`（校验 worktree `.devflow/prd.md`）；
-  - GATE_ARCH 通过 → 发布 `architecture.md` + `scope.yaml`（bugfix/chore 则 `diagnosis.md` + `scope.yaml`）；
-  - TESTING 通过 → 发布 `test-report.md` + `test_reports/`；
-  - ACCEPTANCE 通过 → 发布 `acceptance-scenarios.md` + `acceptance-report.md`（+ scope 声明的 `task-report.md`）。
-- DELIVERY 阶段复用同一命令做汇总补漏，缺啥补啥（幂等 skip 已存在的）。
-
-发布遵循：
-1. 校验 task worktree 内 `.devflow/` 的对应产物存在（缺失 → 提示用户，不强行发布）。
-2. 用 Bash 调用 `publish`（Manager 用 Bash 执行，保证落盘被 hook 审计），产出 `.devflow/tasks/<task-id>/`（PRD 发布为 `prd-<task-slug>.md`，其余保持固定名）。
-3. 冲突检测失败（返回非零并有 `conflicts`）→ 报告用户决策，不覆盖现有文件、不阻断其它交付子步骤。
-4. publish 自动生成/更新 `.devflow/tasks/<task-id>/README.md` 来源索引，并更新 task worktree 内 `.devflow/task.yaml` 的 `artifacts` 段为 worktree+published 双路径引用。
-5. publish 是「读源 worktree + 写主工作区 `.devflow/tasks/` + 写 task worktree 的 `task.yaml`」的混合操作；`--dry-run` 只产出待发布清单与冲突预检，不落盘。重复发布天然幂等（内容相同 → skip）。
+- `project_root` 与 `repo_root` 取自 `context.json`，二者正交。
+- 缺失产物提示用户并跳过，不阻断其它交付子步骤。
+- 冲突（内容不同）报告用户，不覆盖。内容相同则 skip。
 
 **GATE_DELIVERY 三合一确认（一次询问）**：向用户一次性列出「待提交文件清单 + 分支 `feature/<slug>-<id>` + remote + PR 标题/描述预览」，并询问一次「是否执行：提交 commit + 推送分支 + 创建 PR？」。
 - 用户仅回复「通过 / 同意 / 签字」→ 默认三者全执行。
@@ -412,11 +384,12 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish \
 
 ### 阶段 11：DONE
 
-**返回主仓库 / 清理本地 worktree**：交付闭环完成后（PR 已创建，通常已合并或进入 review），清理本地的 task 痕迹：
-1. `git worktree remove <worktree> --force` 删除本地 task worktree。
-2. `git branch -d <branch>` 删除本地分支（仅当分支已合并到 PR 目标时才可用 `-d`；未合并需用 `-D`，必须先向用户确认）。
-3. **不删除远程分支**（远程分支由 PR 合并后的平台策略决定，DevFlow 不越权删除）。
-4. `git checkout <base_ref>` 切回主分支（`base_ref` 固化在 `task.yaml` 的 `git.base_ref`）。
+**返回主仓库 / 清理**：只在 **PR 已合并** 之后执行。未合并则停在这里，等用户合并后再 `/devflow next`。
+1. 若该 task 在后来者 worktree：`git worktree remove <worktree>`（有未提交改动先问用户，不默认 `--force`）。
+2. 若该 task 在主工作区：不要 `worktree remove`。
+3. `git branch -d <branch>`（未合并需 `-D` 且先问用户）。
+4. **不删除远程分支**。
+5. `git checkout <base_ref>`。
 
 清理时若 worktree 内有未进入白名单的未提交改动，先 `git status` 校验，暂停并提示用户是否放弃或保留，不强制 `--force` 丢弃改动。
 
@@ -437,7 +410,7 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish \
 
 如果会话中断后用户执行 `/devflow next`：
 1. 读取目标 task 的 `task.yaml` 的 `task.current_phase`（旧项目则读 `manifest.yaml` 的 `current_phase`）。
-2. 从中断的阶段继续。自动阶段（prd_writing、architecture、development、testing、delivery、distill）自动继续；Gate 阶段（gate_prd、gate_arch、gate_delivery、acceptance 的签字确认）重新提示用户审批。
+2. 从中断的阶段继续。自动阶段继续干活，不要等人打 `/devflow next` 才往下走。Gate（gate_prd、gate_arch、acceptance）和 delivery 的三合一确认重新提示用户。
 3. 检查 `.devflow/` 下的产物文件是否存在，缺失的重新生成。
 4. 交付阶段依据 `.devflow/delivery.yaml` 的字段跳过已完成步骤（commit/push/PR/清理），保证幂等恢复。
 
@@ -477,7 +450,7 @@ Memorant：
 完成后请报告：{需要 Agent 返回的关键信息}
 ```
 
-**重要：每次 Task 调用完成后，必须立即执行产物回收，然后才能读取 Agent 写的产物文件。**
+**重要：Agent 的 cwd 必须是该 task 的工作区。读产物直接读该工作区的 `.devflow/`，不要 collect。**
 
 ### 并行调度
 

@@ -1,6 +1,6 @@
 {
   "name": "devflow-marketplace",
-  "description": "DevFlow: Full-stack application development lifecycle orchestrator",
-  "owner": { "name": "tal" },
+  "description": "DevFlow: 多 Agent 协作的研发生命周期编排器。人只在 Gate 拍板，中间自动把需求做完并开出 PR；适配任意 git 仓库。",
+  "owner": { "name": "starme" },
   "plugins": [{ "name": "devflow", "source": "." }]
 }

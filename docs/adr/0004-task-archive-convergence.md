@@ -2,7 +2,9 @@
 
 ## 状态
 
-已提议（Proposed）——本 ADR 记录归档方向从 `docs/tasks/` 收敛到 `.devflow/tasks/` 的变更，锚定于 `deliverable-archiving-1d43d8` 任务，待 GATE_ARCH 审批后落地。
+已接受（Accepted）——2026-09-04。归档目标 `.devflow/tasks/` 与双根参数已落地。
+
+修订（2026-09-04）：决策第 3 条「各 Gate 里程碑增量发布」被产品口径取代——过程物料**只在 DELIVERY 归档一次**，GATE_PRD / GATE_ARCH / TESTING / ACCEPTANCE 不再 publish。其余决策不变。
 
 ## 背景
 

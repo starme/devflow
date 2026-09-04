@@ -28,8 +28,8 @@ color: purple
 - `cwd`：前端工作目录（你的代码操作在此目录内）
 - `main_workspace`：主工作区绝对路径
 
-**读取** `.devflow/` 配置（rules/、redlines.yaml、manifest.yaml）和前序产物（scope.yaml、contracts/、component_spec）时，使用 `main_workspace/.devflow/...`（绝对路径）。
-**写入** `.devflow/` 产物（如 `frontend-task-report.md`）时，使用相对路径 `.devflow/<filename>`，相对于你的 `cwd`。Manager 会在你完成后自动回收。
+**读取** `.devflow/` 配置（`project.yaml`、rules/、redlines.yaml；旧项目才有 manifest.yaml）和前序产物时，相对于 Manager 钉住的 `cwd`。
+**写入** `.devflow/` 产物（如 `frontend-task-report.md`）用相对路径 `.devflow/<filename>`。不要假设 Manager 会 collect。
 
 ## 按改动类型选择流程
 

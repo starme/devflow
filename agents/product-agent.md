@@ -26,8 +26,7 @@ color: blue
 - `cwd`：你的工作目录
 - `main_workspace`：主工作区绝对路径
 
-**读取** `.devflow/` 配置和前序产物（PRD、测试报告、scope.yaml）时，使用 `main_workspace/.devflow/...`（绝对路径）。
-**写入** `.devflow/` 产物（如 `prd.md`、`acceptance-report.md`）时，使用相对路径 `.devflow/<filename>`，相对于你的 `cwd`。Manager 会在你完成后自动回收。
+**读取 / 写入** 都相对于 Manager 钉住的 `cwd`（该 task 的工作区）。配置和前序产物用 `.devflow/...`。不要假设 Manager 会 collect。
 
 ## Memorant 记忆能力
 

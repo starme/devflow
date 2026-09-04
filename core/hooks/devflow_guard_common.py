@@ -69,7 +69,12 @@ def detect_worktree(cwd):
                 while project_root.parent != project_root and project_root.name != ".devflow-worktrees":
                     project_root = project_root.parent
                 if project_root.name == ".devflow-worktrees":
-                    return p if p == parent else parent, project_root.parent
+                    # Layout: <repo.parent>/.devflow-worktrees/<repo.name>/<task-id>
+                    # main_root must be the git repo, not the directory that
+                    # contains `.devflow-worktrees`.
+                    repo_name = parent.parent.name
+                    repo_root = project_root.parent / repo_name
+                    return parent, repo_root
         parts = p.parts
         for i in range(len(parts) - 1):
             if parts[i] == ".claude" and i + 1 < len(parts) and parts[i + 1] == "worktrees":
@@ -95,6 +100,26 @@ def map_worktree_path(abs_path, wt_root, main_root):
         return str(abs_path)
 
 
+def _plugin_version_key(path):
+    """Parse a trailing ``1.2.3``-style directory name for newest-cache picks."""
+    name = os.path.basename(str(path).rstrip(os.sep))
+    parts = []
+    for bit in name.split("."):
+        if bit.isdigit():
+            parts.append(int(bit))
+        else:
+            return (0,)
+    return tuple(parts) if parts else (0,)
+
+
+def _newest_plugin_dir(paths):
+    """Pick the newest existing directory: version name first, then mtime."""
+    dirs = [p for p in paths if os.path.isdir(p)]
+    if not dirs:
+        return None
+    return max(dirs, key=lambda p: (_plugin_version_key(p), os.path.getmtime(p)))
+
+
 def _find_core_dir():
     """Locate the platform-agnostic ``core/`` directory (bundled resources).
 
@@ -115,21 +140,26 @@ def _find_core_dir():
         if (core / "templates" / "redlines.yaml").is_file():
             return core
 
-    # 3. Claude Code cache fallback.
+    # 3. Claude Code cache fallback — newest version/mtime, not first glob hit.
     try:
         home = Path.home()
+        candidates = []
         for p in (home / ".claude" / "plugins" / "cache").glob("*/devflow/*"):
             core = p / "core"
             if (core / "templates" / "redlines.yaml").is_file():
-                return core
+                candidates.append(str(p))
+        if candidates:
+            newest = _newest_plugin_dir(candidates)
+            if newest:
+                return Path(newest) / "core"
     except Exception:
         pass
 
     return None
 
 
-def _parse_manifest_workspace(project_root):
-    """Parse workspace paths from ``.devflow/manifest.yaml``.
+def _parse_workspace_yaml(project_root, filename):
+    """Parse workspace paths from a DevFlow YAML file.
 
     Returns a dict with ``root``, ``backend``, ``frontend`` keys.
     This is a *minimal* YAML reader — it only extracts the fields the
@@ -137,7 +167,7 @@ def _parse_manifest_workspace(project_root):
     """
     ws = {"root": str(project_root), "backend": "", "frontend": ""}
     try:
-        manifest = project_root / ".devflow" / "manifest.yaml"
+        manifest = project_root / ".devflow" / filename
         if not manifest.is_file():
             return ws
 
@@ -205,6 +235,44 @@ def _parse_manifest_workspace(project_root):
     return ws
 
 
+def _parse_manifest_workspace(project_root):
+    """Workspace from ``project.yaml``, then legacy ``manifest.yaml``."""
+    ws = _parse_workspace_yaml(project_root, "project.yaml")
+    if ws.get("backend") or ws.get("frontend"):
+        return ws
+    legacy = _parse_workspace_yaml(project_root, "manifest.yaml")
+    if legacy.get("backend") or legacy.get("frontend"):
+        return legacy
+    if (project_root / ".devflow" / "project.yaml").is_file():
+        return ws
+    return legacy
+
+
+def _parse_task_phase(project_root):
+    """Read ``task.current_phase`` from ``task.yaml`` if present."""
+    try:
+        task_path = project_root / ".devflow" / "task.yaml"
+        if not task_path.is_file():
+            return ""
+        content = task_path.read_text(encoding="utf-8", errors="replace")
+        in_task = False
+        for raw_line in content.splitlines():
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            indent = len(raw_line) - len(raw_line.lstrip())
+            if indent == 0 and stripped == "task:":
+                in_task = True
+                continue
+            if in_task and indent == 0 and stripped.endswith(":"):
+                break
+            if in_task and stripped.startswith("current_phase:"):
+                return stripped.split(":", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return ""
+
+
 def _parse_manifest_phase(project_root):
     """Read ``project.current_phase`` from manifest.yaml."""
     try:
@@ -254,19 +322,18 @@ def load_context(project_root):
     except Exception:
         ctx = {}
 
-    # 2. Enrich from manifest.yaml (workspace paths are the critical piece)
+    # 2. Enrich workspace from project.yaml (legacy manifest as fallback)
     manifest_ws = _parse_manifest_workspace(project_root)
     if "workspace" not in ctx or not isinstance(ctx.get("workspace"), dict):
         ctx["workspace"] = manifest_ws
     else:
-        # Merge — manifest fills in any missing keys
         for k, v in manifest_ws.items():
             if k not in ctx["workspace"] or not ctx["workspace"][k]:
                 ctx["workspace"][k] = v
 
-    # 3. Phase fallback
+    # 3. Phase fallback: task.yaml, then legacy manifest
     if not ctx.get("current_phase"):
-        phase = _parse_manifest_phase(project_root)
+        phase = _parse_task_phase(project_root) or _parse_manifest_phase(project_root)
         if phase:
             ctx["current_phase"] = phase
 
@@ -584,6 +651,46 @@ _SHELL_SED_I = re.compile(
     r"\bsed\s+-i\b(?:\s+''|\"\"|\s+'[^']*'|\s+\"[^\"]*\")?\s+"
     r"(?:-[eE]\s+[^']+?\s+)*(?P<path>[^\s;|&<>]+)"
 )
+_SHELL_CP_MV = re.compile(
+    r"\b(?:cp|mv|install)\s+(?:-[a-zA-Z]+\s+)*"
+    r"(?:[^\s;|&<>]+\s+)+(?P<path>[^\s;|&<>]+)"
+)
+_SHELL_PYTHON_C = re.compile(r"\bpython3?(?:\s+-(?!c\b)[^\s]+)*\s+-c\b")
+_SHELL_SINGLE = re.compile(r"'([^']+)'")
+_SHELL_DOUBLE = re.compile(r'"([^"]+)"')
+_SHELL_PATCH_CMD = re.compile(r"\b(?:git\s+(?:apply|am)|patch)\b")
+_SHELL_PATCH_FILE = re.compile(
+    r"(?:^|[\s;|&])(?P<path>[^\s;|&<>]+\.(?:diff|patch))\b"
+)
+_PATCH_PLUSPLUS = re.compile(r"^\+\+\+ (?:[ab]/)?(?P<path>.+)$", re.M)
+
+
+def _looks_like_path(value):
+    """True when a quoted string is likely a filesystem path, not prose."""
+    if not value or len(value) > 512 or value.startswith("/dev/"):
+        return False
+    if "/" in value or value.startswith("."):
+        return True
+    return bool(re.search(r"\.[A-Za-z0-9]{1,8}$", value))
+
+
+def _paths_from_patch_file(raw, base):
+    """Read ``+++`` targets from a .diff/.patch argument when the file exists."""
+    try:
+        patch = Path(raw)
+        if not patch.is_absolute():
+            patch = (base / raw).resolve()
+        else:
+            patch = patch.resolve()
+        if not patch.is_file():
+            return
+        text = patch.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return
+    for m in _PATCH_PLUSPLUS.finditer(text):
+        dest = m.group("path").strip()
+        if dest and dest != "/dev/null":
+            yield dest
 
 
 def _extract_shell_write_targets(command, project_root, cwd=None,
@@ -592,17 +699,37 @@ def _extract_shell_write_targets(command, project_root, cwd=None,
 
     Yields ``(rel_path, abs_path)`` tuples for targets inside the project.
     This is intentionally conservative — it catches common patterns
-    (``> file``, ``tee file``, ``sed -i file``) but does not attempt to
-    parse arbitrary shell syntax.
+    (``> file``, ``tee file``, ``sed -i file``, ``cp`` / ``mv`` / ``install``
+    destinations, ``python -c`` quoted paths, ``git apply`` / ``patch``
+    ``+++`` targets) but does not attempt to parse arbitrary shell syntax.
     """
     candidates = set()
-    for regex in (_SHELL_REDIRECT, _SHELL_TEE, _SHELL_SED_I):
+    for regex in (_SHELL_REDIRECT, _SHELL_TEE, _SHELL_SED_I, _SHELL_CP_MV):
         for m in regex.finditer(command):
             raw = m.group("path").strip().strip("'\"")
             if raw and not raw.startswith("/dev/") and raw != "/dev/null":
                 candidates.add(raw)
 
+    def _quoted_strings():
+        for regex in (_SHELL_SINGLE, _SHELL_DOUBLE):
+            for m in regex.finditer(command):
+                yield m.group(1).strip()
+
+    if _SHELL_PYTHON_C.search(command):
+        for raw in _quoted_strings():
+            if _looks_like_path(raw):
+                candidates.add(raw)
+
     base = Path(cwd).resolve() if cwd else project_root
+    if _SHELL_PATCH_CMD.search(command):
+        for raw in _quoted_strings():
+            if raw.endswith((".diff", ".patch")):
+                candidates.update(_paths_from_patch_file(raw, base))
+            elif _looks_like_path(raw):
+                candidates.add(raw)
+        for m in _SHELL_PATCH_FILE.finditer(command):
+            candidates.update(_paths_from_patch_file(m.group("path"), base))
+
     for raw in candidates:
         try:
             p = Path(raw)

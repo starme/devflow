@@ -131,8 +131,16 @@ def load_task(path: Path) -> TaskRecord:
 
 
 def find_task_files(root: Path) -> list[Path]:
-    """Find task state files in DevFlow-managed worktrees."""
+    """Find task state files in the main workspace and managed worktrees."""
+    found = []
+    in_place = root / ".devflow" / "task.yaml"
+    if in_place.is_file():
+        found.append(in_place)
     parent = root.parent / ".devflow-worktrees" / root.name
-    if not parent.is_dir():
-        return []
-    return sorted(path / ".devflow" / "task.yaml" for path in parent.iterdir() if path.is_dir() and (path / ".devflow" / "task.yaml").is_file())
+    if parent.is_dir():
+        found.extend(
+            path / ".devflow" / "task.yaml"
+            for path in parent.iterdir()
+            if path.is_dir() and (path / ".devflow" / "task.yaml").is_file()
+        )
+    return sorted(found)

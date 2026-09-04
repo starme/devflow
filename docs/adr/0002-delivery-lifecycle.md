@@ -2,7 +2,9 @@
 
 ## 状态
 
-已提议（Proposed）——本 ADR 与 `docs/architecture.md` 一并作为功能方案冻结，待 GATE_ARCH 审批后落地。
+已接受（Accepted）——2026-09-04。DELIVERY 与三合一确认已落地。
+
+修订（2026-09-04）：`GATE_DELIVERY` 不是独立 `current_phase`，只是 `delivery` 内的确认点。清理只在 PR 合并后 `/devflow next` 进入 DONE 时执行，不在创建 PR 后立刻做。
 
 ## 背景
 

@@ -144,9 +144,9 @@ def prepare_worktree(main_root, worktree_path, dry_run=False):
     that guard hooks can find .devflow/ and load the correct context when
     the agent works inside the worktree.
 
-    This copies: manifest.yaml, redlines.yaml, rules/, contracts/ (read-only
-    references).  It does NOT copy context.json (each worktree gets its own
-    runtime context written by the hooks).
+    This copies: project.yaml, manifest.yaml (legacy), redlines.yaml, rules/,
+    contracts/ (read-only references).  It does NOT copy context.json (each
+    worktree gets its own runtime context written by the hooks).
     """
     main_devflow = main_root / ".devflow"
     wt_devflow = Path(worktree_path) / ".devflow"
@@ -155,7 +155,9 @@ def prepare_worktree(main_root, worktree_path, dry_run=False):
     if not main_devflow.is_dir():
         return {"copied": copied, "error": "main .devflow/ not found"}
 
-    config_items = ["manifest.yaml", "redlines.yaml", "rules", "contracts"]
+    config_items = [
+        "project.yaml", "manifest.yaml", "redlines.yaml", "rules", "contracts",
+    ]
 
     for item in config_items:
         src = main_devflow / item

@@ -1,3 +1,24 @@
+# DevFlow 架构说明
+
+DevFlow 是 Claude Code 上的生命周期编排插件（命令、Agent、Hook、YAML 契约）。人只在 Gate 拍板；中间自动把一个需求做完并开出 PR。任意 git 仓库都能编，`backend` / `frontend` 是可选 track。
+
+核心结构：
+
+| 层 | 位置 | 职责 |
+|----|------|------|
+| 命令 | `commands/` | `/devflow init\|start\|fix\|status\|next` |
+| 编排 | `core/orchestrator/` | SKILL、task 状态、worktree、交付、归档 |
+| Guard | `core/hooks/`、`hooks/` | 红线、审计、Stop 续跑到 Gate |
+| 专职 Agent | `agents/` | 产品 / 架构 / 后端 / 前端 / 测试 |
+| 项目状态 | `.devflow/project.yaml` + `task.yaml` | 仓库级配置 vs 当前需求阶段 |
+| 归档 | `.devflow/tasks/<task-id>/` | 只在 DELIVERY 发布过程物料 |
+
+隔离默认 in-place（主工作区功能分支）。只有主工作区已有未完成 task 时，后来者才进 `.devflow-worktrees/<repo>/<task-id>`。过程物料不是每个里程碑都 publish。
+
+下文是交付闭环的详细方案（文件曾只以 Delivery Lifecycle 为题；系统总览以本节为准）。
+
+---
+
 # 交付生命周期（Delivery Lifecycle）技术方案
 
 ## 背景与目标
@@ -22,8 +43,8 @@
 ... → ACCEPTANCE → DELIVERY(含 GATE_DELIVERY) → DISTILL → DONE
 ```
 
-- `DELIVERY` 是**自动阶段**（进入 `auto_phases`，Stop hook 阻止并提示继续）。
-- `GATE_DELIVERY` 是**用户确认点**（进入 `gate_phases`）。
+- `DELIVERY` 是阶段名；`GATE_DELIVERY` 只是其中的确认点，不是独立 `current_phase`。
+- Stop hook **允许**在 `delivery` 停下，等人做三合一确认（commit + push + PR）。确认通过后才进入 DISTILL。
 
 ### 1.2 用户确认点（三合一，一次询问）
 
@@ -157,7 +178,7 @@ PR 创建后**不自动清理**——清理发生在 PR 合并、交付闭环确
 | 清理时 worktree 有未提交改动 | `git worktree remove` 前先 `git status`，若有未进入白名单的改动，暂停并提示用户是否放弃或保留；不强制 `--force` 丢改动 |
 | 分支未合并却用 `-d` 报错 | 改用 `-D` 前先向用户确认「分支未合并，是否强制删除本地分支？」 |
 | Codex 下 PR 回传超时/失败 | 本地 commit+push 已完成，PR 状态记为 pending，用户可稍后 `/devflow next` 补 PR；不阻塞清理 |
-| 中断恢复（会话断） | `delivery` 在 `auto_phases`，Stop hook 阻止并提示 `/devflow next`；`gate_delivery` 在 `gate_phases`，重新提示三合一确认 |
+| 中断恢复（会话断） | `current_phase` 保持 `delivery`。探测/准备清单时不要停；三合一确认时 Stop 允许停下等人回答。不要改成 `gate_delivery`，也不要提示 `/devflow next` 来续跑自动阶段 |
 
 **恢复幂等性：** 交付各步骤（commit / push / PR / 清理）都有可判定的状态字段（`commit`、`pushed`、`pr_url`、`worktree_removed`、`branch_deleted`、`returned_to_main`），`/devflow next` 依据这些字段跳过已完成步骤，不重复执行。
 
@@ -180,7 +201,7 @@ PR 创建后**不自动清理**——清理发生在 PR 合并、交付闭环确
 | `core/orchestrator/task_state.py` | `artifacts` 段加 `delivery` 引用（或独立 delivery.yaml 解析） |
 | `core/templates/context.json` | 新增 `delivery` 上下文块 |
 | `core/hooks/devflow_guard_common.py` | `_DEVFLOW_ARTIFACT_FILES` 补 `.devflow/pr.md`、`.devflow/delivery.yaml` |
-| `hooks/devflow_hook.py` | `auto_phases` + `delivery`，`gate_phases` + `gate_delivery` |
+| `hooks/devflow_hook.py` | 自动阶段（prd_writing/architecture/development/testing/distill）拦 Stop；`delivery` 允许停 |
 | `commands/start.md` / `next.md` / `status.md` / `fix.md` | 阶段序列与恢复表接入 DELIVERY |
 | `docs/workflow.md` | 状态机口诀 / 流程图 / 人类介入点（4→5）/ 裁剪表补 DELIVERY |
 | `docs/adr/0002-delivery-lifecycle.md` | 交付生命周期 ADR |
@@ -195,13 +216,14 @@ PR 创建后**不自动清理**——清理发生在 PR 合并、交付闭环确
 ACCEPTANCE 通过（用户签字）
    │
    ▼
-DELIVERY（自动阶段）
+DELIVERY（current_phase 保持 delivery）
    │  1. delivery.py 探测：gh 可用？分支已 push？working tree 状态？
    │  2. 白名单过滤 git status，生成待提交清单
    │  3. 生成 commit message + PR 标题/描述预览
+   │  4. 过程物料 publish 到 .devflow/tasks/<task-id>/
    │
    ▼
-GATE_DELIVERY（用户确认点）——一次询问「commit + push + PR」
+GATE_DELIVERY（确认点，不是独立 phase）——一次询问「commit + push + PR」
    │  用户签字 → 三合一默认执行
    │  用户有意见 → 按需调整
    │
@@ -215,8 +237,8 @@ GATE_DELIVERY（用户确认点）——一次询问「commit + push + PR」
 【暂停：PR 已创建，不自动合并，等待 review/merge】
    │
    ▼
-DISTILL → DONE
-   │  交付闭环：清理本地 worktree + 本地分支（不删远程）+ 切回 base_ref 主分支
+DISTILL →（PR 合并后 /devflow next）→ DONE
+   │  清理后来者 worktree（若有）+ 本地分支（不删远程）+ 切回 base_ref
    ▼
 完成汇报（commit / PR URL / 清理状态 / 当前分支）
 ```

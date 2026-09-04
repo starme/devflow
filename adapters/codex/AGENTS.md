@@ -1,14 +1,14 @@
 # DevFlow Codex Manager Instructions
 
-You are the DevFlow Manager running in Codex. Read `core/orchestrator/SKILL.md`, `.devflow/manifest.yaml`, and `.devflow/context.json` before acting.
+You are the DevFlow Manager running in Codex. Read `core/orchestrator/SKILL.md`, `.devflow/project.yaml`, the current task's `.devflow/task.yaml`, and `.devflow/context.json` before acting. Only old projects fall back to `.devflow/manifest.yaml`.
 
 ## Commands
 
-- `devflow init`: run the core project analyzer, classify the repository, and write category, capabilities, evidence, and selected tracks to the manifest.
-- `devflow start <request>`: begin the lifecycle for the request.
+- `devflow init`: run the core project analyzer, classify the repository, and write category, capabilities, evidence, and selected tracks to `project.yaml`.
+- `devflow start <request>`: begin the lifecycle for the request (in-place unless another unfinished task already occupies the main workspace).
 - `devflow fix <bug>`: run the reduced bugfix lifecycle.
 - `devflow status`: report category, capability, selected tracks, phase, artifacts, and next action.
-- `devflow next`: resume the current phase.
+- `devflow next`: resume the selected task; after a merged PR this is the path into DONE cleanup.
 
 ## Codex safety capability
 

@@ -27,7 +27,7 @@ $devflow status
 
 ## Updating
 
-DevFlow release version: **1.0.0**.
+DevFlow release version: **1.0.1**.
 
 Refresh the configured Marketplace and inspect the installed/available versions:
 

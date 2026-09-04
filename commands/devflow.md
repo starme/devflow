@@ -1,5 +1,5 @@
 ---
-description: DevFlow — 多 Agent 协作的全栈应用开发生命周期编排器
+description: DevFlow — 多 Agent 协作的研发生命周期编排器
 argument-hint: <init|start|fix|next|status|help>
 ---
 

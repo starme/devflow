@@ -4,9 +4,10 @@
 Fail-open: any exception results in empty JSON output so the user
 is never blocked.
 
-For automatic phases, the Stop hook blocks the stop once and instructs the
-main Agent to continue with ``/devflow next``. ``stop_hook_active`` disables
-that block on the host's follow-up Stop event to prevent an infinite loop.
+For automatic phases the Stop hook keeps blocking so the main Agent continues
+with tools until the next Gate. ``delivery`` is the nested confirmation Gate
+(commit + push + PR): Stop is allowed so the user can answer. ``stop_hook_active``
+does not release an unfinished automatic phase.
 """
 import glob
 import json
@@ -15,14 +16,34 @@ import os
 from pathlib import Path
 
 
+def _version_key(path):
+    """Parse a trailing ``1.2.3``-style directory name for newest-cache picks."""
+    name = os.path.basename(str(path).rstrip(os.sep))
+    parts = []
+    for bit in name.split('.'):
+        if bit.isdigit():
+            parts.append(int(bit))
+        else:
+            return (0,)
+    return tuple(parts) if parts else (0,)
+
+
+def _newest_dir(paths):
+    """Pick the newest existing directory: version name first, then mtime."""
+    dirs = [p for p in paths if os.path.isdir(p)]
+    if not dirs:
+        return None
+    return max(dirs, key=lambda p: (_version_key(p), os.path.getmtime(p)))
+
+
 def find_plugin_root():
     """Locate the devflow plugin directory.
 
     Checks in order:
       1. CLAUDE_PLUGIN_ROOT environment variable
-      2. ~/.claude/plugins/cache/*/devflow/*/
+      2. ~/.claude/plugins/cache/*/devflow/*/ (newest version/mtime)
       3. ~/.claude/plugins/marketplaces/devflow-marketplace/
-      4. ~/.claude/plugins/marketplaces/*/devflow/
+      4. ~/.claude/plugins/marketplaces/*/devflow/ (newest mtime)
       5. This script's parent directory's parent (hooks/..)
     Returns path as string or None.
     """
@@ -36,11 +57,9 @@ def find_plugin_root():
     try:
         home = Path.home()
         pattern = str(home / '.claude' / 'plugins' / 'cache' / '*' / 'devflow' / '*')
-        matches = glob.glob(pattern)
-        if matches:
-            for m in matches:
-                if os.path.isdir(m):
-                    return m
+        newest = _newest_dir(glob.glob(pattern))
+        if newest:
+            return newest
     except Exception:
         pass
 
@@ -55,11 +74,9 @@ def find_plugin_root():
     try:
         home = Path.home()
         pattern = str(home / '.claude' / 'plugins' / 'marketplaces' / '*' / 'devflow')
-        matches = glob.glob(pattern)
-        if matches:
-            for m in matches:
-                if os.path.isdir(m):
-                    return m
+        newest = _newest_dir(glob.glob(pattern))
+        if newest:
+            return newest
     except Exception:
         pass
 
@@ -113,29 +130,20 @@ def memorant_available():
 
 
 def find_manifest():
-    """Walk up from CWD to find DevFlow state, migrating legacy metadata.
+    """Walk up from CWD to find DevFlow state. Read-only: no migration.
 
-    State lookup order mirrors the orchestrator's migration to isolated task
-    worktrees (PR #7/#8): a task worktree's ``.devflow/task.yaml`` is the
-    authoritative phase source, followed by the project-level ``project.yaml``,
-    and finally the legacy single-file ``manifest.yaml``.
+    Lookup order: ``task.yaml`` (per-task phase), ``project.yaml``, then
+    legacy ``manifest.yaml``. Migration stays in ``/devflow init`` / ``next``.
     """
     try:
         cwd = Path.cwd()
-        plugin_root = Path(__file__).resolve().parent.parent
-        core_dir = plugin_root / "core"
-        if str(core_dir) not in sys.path:
-            sys.path.insert(0, str(core_dir))
-        from orchestrator.migration import migrate_legacy_project
         for parent in [cwd] + list(cwd.parents):
             devflow = parent / '.devflow'
-            # New isolated-task layout: task.yaml is the per-task state file.
             if (devflow / 'task.yaml').is_file():
                 return devflow / 'task.yaml', parent
             if (devflow / 'project.yaml').is_file():
                 return devflow / 'project.yaml', parent
             if (devflow / 'manifest.yaml').is_file():
-                migrate_legacy_project(parent)
                 return devflow / 'manifest.yaml', parent
     except Exception:
         pass
@@ -191,6 +199,45 @@ def read_state_phase(state_path):
     if name == 'task.yaml':
         return read_task_phase(state_path)
     return read_manifest_phase(state_path)
+
+
+def read_work_type(state_path):
+    """Read the work type (feature/bugfix/chore) from the state file.
+
+    ``task.yaml`` stores it nested as ``task.kind``; the legacy manifest uses
+    the top-level ``work_type:`` field. ``project.yaml`` carries no work type
+    (it is project-level config), so it falls back to the neutral ``—``.
+    """
+    name = state_path.name
+    if name == 'task.yaml':
+        return read_task_kind(state_path) or '—'
+    return read_manifest_field(state_path, 'work_type:') or '—'
+
+
+def read_task_kind(task_path):
+    """Extract ``task.kind`` from a ``task.yaml`` state file.
+
+    Mirrors :func:`read_task_phase` — ``kind`` nests under the ``task:``
+    section, so a top-level scan would miss it.
+    """
+    try:
+        content = task_path.read_text(encoding='utf-8', errors='replace')
+        in_task = False
+        for line in content.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            indent = len(line) - len(line.lstrip())
+            if indent == 0 and stripped == 'task:':
+                in_task = True
+                continue
+            if in_task and indent == 0 and stripped.endswith(':'):
+                break
+            if in_task and stripped.startswith('kind:'):
+                return stripped.split(':', 1)[1].strip().strip('"\'')
+    except Exception:
+        pass
+    return None
 
 
 def read_manifest_field(manifest_path, field):
@@ -287,12 +334,12 @@ def handle_session_start(data):
                 )
             return emit('', 'SessionStart')
         phase = read_state_phase(manifest_path)
-        work_type = read_manifest_field(manifest_path, 'work_type:') or '—'
+        work_type = read_work_type(manifest_path)
         tasks = read_tasks_summary(manifest_path, phase)
         ctx = f"[DevFlow] Active project: {project_root.name} | type: {work_type} | phase: {phase}."
         if tasks:
             ctx += f" Tasks: {tasks}."
-        ctx += " Run /devflow status for details, /devflow next to continue."
+        ctx += " Automatic phases continue to the next Gate; /devflow status for details."
         return emit(ctx, 'SessionStart')
     except Exception:
         return emit('', 'SessionStart')
@@ -304,7 +351,7 @@ def handle_user_prompt(data):
         if not manifest_path:
             return emit('', 'UserPromptSubmit')
         phase = read_state_phase(manifest_path)
-        gate_phases = {'gate_prd', 'gate_arch', 'acceptance', 'gate_delivery'}
+        gate_phases = {'gate_prd', 'gate_arch', 'acceptance', 'delivery'}
         if phase in gate_phases:
             return emit(
                 f"[DevFlow] Awaiting your review/approval in {phase} phase.",
@@ -323,14 +370,14 @@ def handle_stop(data):
         phase = read_state_phase(manifest_path)
         auto_phases = {
             'prd_writing', 'architecture', 'development',
-            'testing', 'delivery', 'distill',
+            'testing', 'distill',
         }
         if phase in auto_phases:
-            if data.get('stop_hook_active'):
-                return emit('', 'Stop')
             return emit_stop_block(
                 f"[DevFlow] Automatic phase '{phase}' is not finished. "
-                "Continue the workflow by running /devflow next."
+                "Do not stop and do not wait for /devflow next. "
+                "Continue with tools until the next Gate "
+                "(gate_prd, gate_arch, acceptance, or delivery confirmation)."
             )
         return emit('', 'Stop')
     except Exception:
