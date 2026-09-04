@@ -2,7 +2,7 @@
 
 - 日期：2026-09-04
 - 范围：整仓契约与实现，不是单 PR
-- 核验：2026-09-04 第三轮闭合（H3 ADR / architecture 旧表 / M2 启发式 / L1 1.0.1+starme）
+- 核验：2026-09-04 第四轮——对齐愿景：SKILL/README in-place、distill 后回 delivery、hook 认 payload cwd
 - 刻意不改：M3 Guard fail-open；M9 测例保护仅 `development`
 - 发布身份：version **1.0.1**，author **starme**
 
@@ -71,6 +71,12 @@
 |----------|----------|
 | Cursor 无适配层 | Cursor 不是产品宿主 |
 | `start.md` / `fix.md` 未把 GATE_DELIVERY 写成独立阶段 | 它本来就不是独立 phase |
+
+---
+
+## 历史条目（原文保留）
+
+以下 Critical / High / Medium / Low 是 2026-09-04 盘点原文，**不是当前未修复清单**。当前状态见文首核验表。
 
 ---
 

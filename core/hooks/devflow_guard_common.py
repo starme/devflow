@@ -538,6 +538,7 @@ _DEVFLOW_ARTIFACT_FILES = frozenset({
     ".devflow/acceptance-report.md",
     ".devflow/pr.md",
     ".devflow/delivery.yaml",
+    ".devflow/retrospective.md",
 })
 
 # Published task artifacts now live under ``.devflow/tasks/<task-id>/``, which

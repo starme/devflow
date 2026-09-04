@@ -100,7 +100,7 @@ stdout：
 | 代表平台 | Claude Code | Cursor（待确认）；部分 CLI |
 
 **规则：**
-- 适配层在 `devflow init` 时必须探测平台能力，并在 `.devflow/manifest.yaml` 写入 `adapter.capability: hard | soft`。
+- 适配层在 `devflow init` 时必须探测平台能力，并在 `.devflow/project.yaml` 写入 `adapter.capability: hard | soft`（旧项目才写 `manifest.yaml`）。
 - Soft 模式下，编排器在启动时明确告知用户："当前平台不支持前置硬拦截，红线仅为软约束 + 事后审计。"
 - Soft 模式不得伪装成 Hard 模式。宁可让用户知道防护降级，也不给出虚假的安全感。
 

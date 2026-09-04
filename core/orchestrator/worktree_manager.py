@@ -71,6 +71,41 @@ def _active_in_place_task(root: Path) -> bool:
     return status != "done"
 
 
+def _workspace_snapshot(repo_root: Path) -> dict:
+    """Read workspace paths from project.yaml (legacy: manifest.yaml)."""
+    ws = {"root": str(repo_root), "backend": "", "frontend": ""}
+    for name in ("project.yaml", "manifest.yaml"):
+        path = repo_root / ".devflow" / name
+        if not path.is_file():
+            continue
+        current = None
+        try:
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                stripped = raw.strip()
+                indent = len(raw) - len(raw.lstrip())
+                if indent == 0 and stripped == "workspace:":
+                    current = "workspace"
+                    continue
+                if current == "workspace" and indent == 0 and stripped.endswith(":"):
+                    break
+                if current == "workspace" and indent == 2 and ":" in stripped:
+                    key, _, val = stripped.partition(":")
+                    key, val = key.strip(), val.strip().strip("\"'")
+                    if key == "root" and val:
+                        ws["root"] = val
+                    elif key in ("backend", "frontend"):
+                        current = key
+                        if val:
+                            ws[key] = val
+                elif current in ("backend", "frontend") and indent >= 4 and stripped.startswith("path:"):
+                    ws[current] = stripped.split(":", 1)[1].strip().strip("\"'")
+                    current = "workspace"
+        except OSError:
+            continue
+        break
+    return ws
+
+
 def _seed_task_devflow(repo_root: Path, dest_devflow: Path, record: TaskRecord, copy_config: bool) -> None:
     dest_devflow.mkdir(parents=True, exist_ok=True)
     src = repo_root / ".devflow"
@@ -92,6 +127,7 @@ def _seed_task_devflow(repo_root: Path, dest_devflow: Path, record: TaskRecord, 
         "repo_root": str(repo_root),
         "task_root": str(dest_devflow),
         "branch": record.branch,
+        "workspace": _workspace_snapshot(repo_root),
     }
     (dest_devflow / "context.json").write_text(
         json.dumps(ctx, indent=2) + "\n", encoding="utf-8"

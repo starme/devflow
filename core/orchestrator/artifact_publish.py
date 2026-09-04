@@ -68,6 +68,7 @@ PUBLISHABLE_ARTIFACTS = frozenset({
     "test-report.md",
     "task-report.md",  # implementation report (declared dynamically via scope artifact contract)
     "prd.md",  # published as prd-<task-slug>.md
+    "retrospective.md",
 })
 
 # Artifact directories (relative to ``.devflow/``) walked recursively on publish.
@@ -378,6 +379,7 @@ _README_ARTIFACT_KEYS = [
     ("acceptance-scenarios.md", "acceptance_scenarios"),
     ("test-report.md", "test_report"),
     ("task-report.md", "task_report"),
+    ("retrospective.md", "retrospective"),
     ("test_reports/", "test_reports"),
 ]
 
@@ -499,6 +501,7 @@ def update_task_artifact_refs(
         ("acceptance-report.md", "acceptance_report"),
         ("acceptance-scenarios.md", "acceptance_scenarios"),
         ("diagnosis.md", "diagnosis"),
+        ("retrospective.md", "retrospective"),
     ]
 
     # Preserve legacy scalar fields that are NOT publishable artifacts

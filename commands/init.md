@@ -42,11 +42,11 @@ description: Initialize DevFlow project — detect stack, configure paths, gener
 mkdir -p .devflow/contracts docs docs/adr
 ```
 
-新任务由 `/devflow start` 或 `/devflow fix` 创建自己的 worktree，并在该 worktree 写 `.devflow/task.yaml`。`context.json` 和 `runs/` 属于运行时，不应成为共享项目状态。
+新任务由 `/devflow start` 或 `/devflow fix` 创建：默认在主工作区功能分支上写 `.devflow/task.yaml`；只有主工作区已有未完成 task 时，后来者才进 `.devflow-worktrees/`。`context.json` 和 `runs/` 属于运行时，不应成为共享项目状态。
 
 ## Step 5: 兼容说明
 
-为旧项目保留 `.devflow/manifest.yaml` 读取路径。旧 manifest 映射为内存中的 legacy project/task view，不在本步骤强制迁移。新任务优先使用 `project.yaml` + task worktree。
+为旧项目保留 `.devflow/manifest.yaml` 读取路径。旧 manifest 映射为内存中的 legacy project/task view，不在本步骤强制迁移。新任务用 `project.yaml` + 该 task 的 `task.yaml`。
 
 ## Step 6: 完成报告
 

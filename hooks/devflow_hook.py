@@ -129,15 +129,22 @@ def memorant_available():
         return False
 
 
-def find_manifest():
-    """Walk up from CWD to find DevFlow state. Read-only: no migration.
+def find_manifest(cwd=None):
+    """Walk up from *cwd* (or process CWD) to find DevFlow state. Read-only.
 
     Lookup order: ``task.yaml`` (per-task phase), ``project.yaml``, then
     legacy ``manifest.yaml``. Migration stays in ``/devflow init`` / ``next``.
+    Prefer the hook payload ``cwd`` so a latercomer worktree is not missed
+    when the hook process starts in the main workspace.
     """
     try:
-        cwd = Path.cwd()
-        for parent in [cwd] + list(cwd.parents):
+        raw = cwd or str(Path.cwd())
+        start = Path(raw)
+        if not start.is_absolute():
+            start = (Path.cwd() / start).resolve()
+        else:
+            start = start.resolve()
+        for parent in [start] + list(start.parents):
             devflow = parent / '.devflow'
             if (devflow / 'task.yaml').is_file():
                 return devflow / 'task.yaml', parent
@@ -324,7 +331,7 @@ def emit_text(text):
 
 def handle_session_start(data):
     try:
-        manifest_path, project_root = find_manifest()
+        manifest_path, project_root = find_manifest(data.get('cwd'))
         if not manifest_path:
             if not check_rules_installed():
                 return emit(
@@ -347,11 +354,14 @@ def handle_session_start(data):
 
 def handle_user_prompt(data):
     try:
-        manifest_path, _ = find_manifest()
+        manifest_path, _ = find_manifest(data.get('cwd'))
         if not manifest_path:
             return emit('', 'UserPromptSubmit')
         phase = read_state_phase(manifest_path)
-        gate_phases = {'gate_prd', 'gate_arch', 'acceptance', 'delivery'}
+        gate_phases = {
+            'classify', 'product_qa', 'gate_prd', 'gate_arch',
+            'acceptance', 'delivery',
+        }
         if phase in gate_phases:
             return emit(
                 f"[DevFlow] Awaiting your review/approval in {phase} phase.",
@@ -364,7 +374,7 @@ def handle_user_prompt(data):
 
 def handle_stop(data):
     try:
-        manifest_path, _ = find_manifest()
+        manifest_path, _ = find_manifest(data.get('cwd'))
         if not manifest_path:
             return emit('', 'Stop')
         phase = read_state_phase(manifest_path)
@@ -386,7 +396,7 @@ def handle_stop(data):
 
 def handle_pre_compact(data):
     try:
-        manifest_path, project_root = find_manifest()
+        manifest_path, project_root = find_manifest(data.get('cwd'))
         if not manifest_path:
             return emit_text('')
         phase = read_state_phase(manifest_path)
@@ -400,7 +410,7 @@ def handle_pre_compact(data):
         return emit_text(summary)
     except Exception:
         try:
-            manifest_path, project_root = find_manifest()
+            manifest_path, project_root = find_manifest(data.get('cwd'))
             phase = read_state_phase(manifest_path) if manifest_path else 'unknown'
             return emit_text(f"[DevFlow] Phase: {phase}")
         except Exception:

@@ -100,9 +100,9 @@ DevFlow 使用四类状态文件，避免项目配置、需求状态和 Agent �
 
 ### task.yaml（需求/分支级持久状态）
 
-每个需求或独立 bugfix 都有独立 task worktree，并在该 worktree 的 `.devflow/task.yaml` 保存 task id/kind/description、`git.base_ref`、固化的 `git.base_commit`、branch/worktree、selected tracks、当前 phase、Gate、测试轮次和产物引用。可选 `parent_task_id`、`source_task_id` 仅用于追溯，不构成依赖图。
+每个需求有一份 `.devflow/task.yaml`，保存 task id/kind/description、`git.base_ref`、固化的 `git.base_commit`、branch/worktree、selected tracks、当前 phase、Gate、测试轮次和产物引用。可选 `parent_task_id`、`source_task_id` 仅用于追溯，不构成依赖图。
 
-同一需求的 PRD、架构、开发、测试和验收共享同一个 task worktree；不同需求或独立 bugfix 必须使用不同 worktree。
+默认这份文件在**主工作区**（in-place，功能分支）。只有主工作区已有未完成 task 时，后来者才把 `task.yaml` 写进 `.devflow-worktrees/<repo>/<task-id>/`。同一需求的 PRD、架构、开发、测试和验收共享该 task 的工作区，不要再给它开第二层 worktree。
 
 ### scope.yaml（需求架构契约）
 
@@ -110,13 +110,13 @@ DevFlow 使用四类状态文件，避免项目配置、需求状态和 Agent �
 
 ### context.json（运行时上下文）
 
-`.devflow/context.json` 是目标 task worktree 的临时运行时文件，包含 `task_id`、`run_id`、phase、agent、cwd、worktree、branch、project_root 和 adapter。每次阶段转换或 Agent 派发只更新当前 task 的 context。旧项目没有新布局时，兼容读取 `.devflow/manifest.yaml`。
+`.devflow/context.json` 是当前 task 工作区的临时运行时文件，包含 `task_id`、`run_id`、phase、agent、cwd、worktree、branch、`project_root`、`repo_root`、`workspace` 和 adapter。每次阶段转换或 Agent 派发只更新当前 task 的 context。旧项目没有新布局时，兼容读取 `.devflow/manifest.yaml`。
 
 Agent 参数必须显式包含 `task_id`、`task_root`、`main_workspace` 和 `cwd`，不能通过最近的 manifest 猜测任务。
 
 ### Legacy manifest
 
-只有旧项目存在 `.devflow/manifest.yaml` 时，继续按原有单任务流程读取；新任务优先使用 `project.yaml` + 独立 task worktree，不把新任务状态写入共享 manifest。
+只有旧项目存在 `.devflow/manifest.yaml` 时，继续按原有单任务流程读取；新任务用 `project.yaml` + 该 task 的 `task.yaml`，不把新任务状态写入共享 manifest。
 
 ### 工作区与派发
 
@@ -136,14 +136,14 @@ Agent 参数必须显式包含 `task_id`、`task_root`、`main_workspace` 和 `c
 
 ### 阶段 0：INIT（/devflow init）
 
-由 `/devflow init` 命令处理，不在此详述。初始化后 manifest 存在，workspace 路径已配置。
+由 `/devflow init` 命令处理，不在此详述。初始化后 `.devflow/project.yaml` 存在，workspace 路径已配置。旧项目才有 `manifest.yaml`。
 
 ### 阶段 1：CLASSIFY — 工作分类
 
 **触发**：用户执行 `/devflow start "<需求描述>"` 或 `/devflow fix "<bug 描述>"`。
 
 **执行**：
-1. 读取 manifest 的 `adapter.capability`。若为 `soft`，向用户输出告警：「当前平台不支持前置硬拦截，红线仅为软约束 + 事后审计」。若字段缺失（旧项目），视为 `hard` 仅当平台为 Claude Code，否则提示用户重新运行 `/devflow init` 补充该字段。
+1. 读取 `project.yaml` 的 `adapter.capability`（旧项目才读 manifest）。若为 `soft`，向用户输出告警：「当前平台不支持前置硬拦截，红线仅为软约束 + 事后审计」。若字段缺失（旧项目），视为 `hard` 仅当平台为 Claude Code，否则提示用户重新运行 `/devflow init` 补充该字段。
 2. 读取任务描述。
 3. 如果是 `/devflow fix`，直接设 `work_type: bugfix`。
 4. 如果是 `/devflow start`，根据关键词初判：
@@ -175,7 +175,7 @@ Agent 参数必须显式包含 `task_id`、`task_root`、`main_workspace` 和 `c
 3. 根据用户回答，可能追问 1-2 轮直到需求清晰。
 4. 整理出结构化的 `requirement_summary`，包含：背景、目标用户、核心诉求、主要流程、成功标准、约束。
 5. 让用户确认摘要准确。
-6. 写入 manifest `phases.product_qa.requirement_summary`。
+6. 写入该 task 的 `task.yaml` 的 `phases.product_qa.requirement_summary`（旧项目才写 manifest）。
 
 ### 阶段 3：PRD_WRITING — 派产品 Agent 写 PRD（仅 feature）
 
@@ -273,7 +273,7 @@ Agent 参数必须显式包含 `task_id`、`task_root`、`main_workspace` 和 `c
    - `Status: PARTIAL`（有 blocked 任务）→ 报告用户阻塞项，询问是否继续测试（已完成部分）还是先解决阻塞。
 4. 重点阅读**"与计划的偏差"段落**：记录在案的偏差是有意决策，不是 bug。如果偏差涉及契约变更或架构偏离，需要回 ARCHITECTURE 阶段更新方案（突破内层循环）。
 5. 从报告的 `memory_candidates` 段收集记忆候选，去重后写入 Memorant（如果可用）。
-6. 更新 manifest phases.development 状态。
+6. 更新该 task 的 `task.yaml` 的 `phases.development` 状态（旧项目才写 manifest）。
 
 ### 阶段 8：TESTING — 派测试 Agent + 失败路由
 
@@ -302,7 +302,7 @@ Agent 参数必须显式包含 `task_id`、`task_root`、`main_workspace` 和 `c
 6. 3 轮后仍有 blocker 级失败 → 停止自动循环，报告用户：失败详情、已尝试的修复、建议的人工排查方向。
 
 **每轮都要**：
-- 更新 manifest `phases.testing.rounds`。
+- 更新该 task 的 `task.yaml` 的 `phases.testing.rounds`（旧项目才写 manifest）。
 - 从测试报告收集 memory_candidates。
 - 如果发现 `product_contradiction`，记录下来在验收阶段重点关注。
 
@@ -380,11 +380,13 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish \
 6. 更新 task 的 `task.yaml` 的 `phases.distill.memories_created`（旧项目则 `manifest.yaml` 的对应字段）和 `memorant.distilled`。
 
 **Memorant 不可用时**：
-1. 写 `docs/retrospective.md`，包含：做了什么、怎么做的、遇到什么问题、怎么解决的、下次注意什么。
+1. 写 `.devflow/retrospective.md`（不要写 `docs/retrospective.md`），包含：做了什么、怎么做的、遇到什么问题、怎么解决的、下次注意什么。DELIVERY 若尚未归档，把此文件纳入下一次 publish。
+
+**蒸馏结束后**：把 `current_phase` 改回 `delivery`，停着等 PR 合并。不要停在 `distill`（Stop hook 会空转续跑），也不要进入 DONE（会提前清理）。
 
 ### 阶段 11：DONE
 
-**返回主仓库 / 清理**：只在 **PR 已合并** 之后执行。未合并则停在这里，等用户合并后再 `/devflow next`。
+**返回主仓库 / 清理**：只在 **PR 已合并** 之后执行。未合并则保持 `delivery`，等用户合并后再 `/devflow next`。
 1. 若该 task 在后来者 worktree：`git worktree remove <worktree>`（有未提交改动先问用户，不默认 `--force`）。
 2. 若该 task 在主工作区：不要 `worktree remove`。
 3. `git branch -d <branch>`（未合并需 `-D` 且先问用户）。
@@ -466,7 +468,7 @@ Memorant：
 
 ## 安全与边界
 
-- Manager 不直接写业务代码。需要修改 manifest 或 `.devflow/` 下的状态文件时可以直接写。
+- Manager 不直接写业务代码。需要修改 `project.yaml`、当前 task 的 `task.yaml` 或 `.devflow/` 下的状态文件时可以直接写（旧项目才写 manifest）。
 - 不替用户做产品决策。Gate 必须等人批准。
 - 不在未确认的情况下删除文件、执行数据库迁移、commit/push。
 - 不读取或记录敏感文件（.env*、*.pem、secrets.*）。
