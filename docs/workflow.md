@@ -131,4 +131,4 @@ bugfix 与 chore 跳过重环节，只保留根因诊断与实现闭环：
 4. **验收签字** —— 最终确认
 5. **交付确认（三合一：commit + push + PR）** —— 验收签字后一次确认提交、推送、创建 PR（PR 创建后暂停不自动合并）
 
-自动阶段结束时，Stop Hook 会尝试阻止会话结束并提示 Manager 继续；如果宿主仍结束会话，运行 `/devflow next` 恢复。Gate 阶段始终等待人工审批。
+自动阶段由 Stop hook 拦住结束，模型继续用工具干到下一个 Gate，不要让用户打 `/devflow next` 才能往下走。`/devflow next` 只用于会话中断恢复，以及 PR 合并后的 DONE 清理。Gate 阶段始终等待人工审批。

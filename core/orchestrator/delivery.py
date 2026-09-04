@@ -43,6 +43,7 @@ DELIVERY_ARTIFACT_FILES = frozenset({
     ".devflow/frontend-task-report.md",
     ".devflow/pr.md",
     ".devflow/delivery.yaml",
+    ".devflow/retrospective.md",
 })
 
 # Files that are produced by the Manager/agents but must never enter the

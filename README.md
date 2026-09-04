@@ -6,12 +6,12 @@ English | [中文](README.zh-CN.md)
 
 DevFlow is a lifecycle orchestrator for AI-assisted software development. It turns a request into a structured path through planning, architecture, implementation, testing, human review, and pull-request delivery.
 
-It adapts to the repository instead of assuming every project is a backend/frontend application, and coordinates specialized agents with isolated task worktrees and explicit safety gates.
+It adapts to the repository instead of assuming every project is a backend/frontend application, and coordinates specialized agents on a feature branch — isolating a latercomer only when the main workspace is already busy.
 
 ```mermaid
 flowchart LR
     A["Idea or bug"] --> M["DevFlow Manager<br/>classify · plan · dispatch"]
-    M --> W["Isolated task<br/>branch + worktree"]
+    M --> W["Feature branch<br/>in-place by default"]
     W --> T["Implement + test"]
     T --> H["Human gates"]
     H --> P["Commit · push · PR"]
@@ -23,7 +23,7 @@ flowchart LR
 
 - **Adaptive workflow** — detects the repository type and enables only relevant work.
 - **Coordinated roles** — a Manager routes work between product, architecture, implementation, and testing agents.
-- **Safe isolation** — every feature or bugfix gets its own branch and worktree.
+- **Safe isolation** — the current demand uses a feature branch in the main workspace; a second unfinished task gets a worktree so the first one is not moved.
 - **Human checkpoints** — people approve important decisions; routine work continues automatically.
 - **Delivery-ready output** — acceptance leads to an explicit commit, push, and PR flow without automatic merging.
 
@@ -66,13 +66,13 @@ For a bug or maintenance change:
 /devflow fix "Login submission returns HTTP 500"
 ```
 
-Use `/devflow status` to inspect progress and `/devflow next --task <task-id>` to resume an interrupted task.
+Use `/devflow status` to inspect progress. Automatic phases continue to the next Gate without `/devflow next`. Use `/devflow next --task <task-id>` to resume after an interrupted session or to clean up after a merged PR.
 
 ## How it works
 
 1. **Classify** — DevFlow identifies the repository type and chooses a suitable workflow.
 2. **Clarify and plan** — product and architecture work produces a PRD, scope, and implementation plan when needed.
-3. **Isolate and implement** — the task runs on its own branch and worktree; agents work within defined boundaries.
+3. **Branch and implement** — the first unfinished task stays in the main workspace on a feature branch; a latercomer that would collide gets a worktree. Agents stay inside defined boundaries.
 4. **Test and review** — tests run in layers and failures are routed back for correction.
 5. **Accept** — a human reviews the result against the agreed requirements.
 6. **Deliver** — one confirmation covers the allow-listed commit, branch push, and PR creation.

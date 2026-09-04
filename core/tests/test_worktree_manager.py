@@ -2,6 +2,7 @@
 """Tests for isolated DevFlow task state and Git worktree creation."""
 from __future__ import annotations
 
+import json
 import subprocess
 import tempfile
 import unittest
@@ -61,6 +62,25 @@ class WorktreeManagerTest(unittest.TestCase):
             self.assertEqual(load_task(root / ".devflow" / "task.yaml").kind, "feature")
             self.assertEqual(load_task(Path(bugfix.worktree) / ".devflow" / "task.yaml").source_task_id, feature.task_id)
             self.assertEqual({record.task_id for record in discover_tasks(root)}, {feature.task_id, bugfix.task_id})
+
+    def test_context_json_includes_workspace_from_project_yaml(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._repository(temp_dir)
+            (root / ".devflow").mkdir(exist_ok=True)
+            (root / ".devflow" / "project.yaml").write_text(
+                "workspace:\n"
+                "  root: \".\"\n"
+                "  backend:\n"
+                "    path: \"server\"\n"
+                "  frontend:\n"
+                "    path: \"web\"\n",
+                encoding="utf-8",
+            )
+            record = create_task(root, "Add workspace context", "feature")
+            ctx = json.loads((root / ".devflow" / "context.json").read_text(encoding="utf-8"))
+            self.assertEqual(ctx["workspace"]["backend"], "server")
+            self.assertEqual(ctx["workspace"]["frontend"], "web")
+            self.assertEqual(ctx["task_id"], record.task_id)
 
     def test_dirty_in_place_task_does_not_block_latercomer_worktree(self):
         with tempfile.TemporaryDirectory() as temp_dir:

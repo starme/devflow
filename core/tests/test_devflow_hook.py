@@ -231,6 +231,42 @@ class DevFlowHookLifecycleTest(unittest.TestCase):
             self.assertFalse((devflow / "migration.yaml").exists())
             self.assertFalse((devflow / "tasks").exists())
 
+    def test_session_start_uses_payload_cwd_not_process_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "task"
+            other = Path(temp_dir) / "other"
+            root.mkdir()
+            other.mkdir()
+            devflow = root / ".devflow"
+            devflow.mkdir()
+            self.write_task_yaml(devflow, "development")
+
+            result = subprocess.run(
+                [sys.executable, str(HOOK)],
+                input=json.dumps({
+                    "hook_event_name": "SessionStart",
+                    "cwd": str(root),
+                }),
+                text=True,
+                capture_output=True,
+                cwd=other,
+                check=True,
+            )
+            ctx = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("phase: development", ctx)
+            self.assertIn("type: feature", ctx)
+
+    def test_user_prompt_flags_product_qa(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            devflow = root / ".devflow"
+            devflow.mkdir()
+            self.write_task_yaml(devflow, "product_qa")
+
+            data = json.loads(run_event(root, "UserPromptSubmit").stdout)
+            ctx = data["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("product_qa", ctx)
+
 
 class NewestPluginDirTest(unittest.TestCase):
     def test_prefers_higher_version_over_older_mtime(self) -> None:
