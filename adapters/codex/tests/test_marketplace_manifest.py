@@ -1,34 +1,38 @@
 import json
-import tempfile
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[3]
 MARKETPLACE = ROOT / ".agents" / "plugins" / "marketplace.json"
-PLUGIN = ROOT / "plugins" / "devflow" / ".codex-plugin" / "plugin.json"
+PLUGIN = ROOT / ".codex-plugin" / "plugin.json"
 SKILL = ROOT / "plugins" / "devflow" / "skills" / "devflow" / "SKILL.md"
 
 
 class MarketplaceManifestTest(unittest.TestCase):
-    def test_repository_marketplace_manifest_points_to_plugin(self):
+    def test_repository_marketplace_manifest_points_to_repo_root(self):
         marketplace = json.loads(MARKETPLACE.read_text(encoding="utf-8"))
         self.assertEqual(marketplace["name"], "devflow-marketplace")
         plugin = marketplace["plugins"][0]
         self.assertEqual(plugin["name"], "devflow")
-        self.assertEqual(plugin["source"]["path"], "./plugins/devflow")
+        self.assertEqual(plugin["source"]["path"], ".")
 
     def test_plugin_manifest_exposes_devflow_skill(self):
         plugin = json.loads(PLUGIN.read_text(encoding="utf-8"))
         self.assertEqual(plugin["name"], "devflow")
-        self.assertEqual(plugin["version"], "1.0.0")
-        self.assertEqual(plugin["skills"], "./skills/")
+        self.assertEqual(plugin["version"], "1.0.1")
+        self.assertEqual(plugin["author"]["name"], "starme")
+        self.assertEqual(plugin["skills"], "./plugins/devflow/skills/")
         self.assertTrue(SKILL.is_file())
 
-    def test_marketplace_source_stays_inside_repository(self):
+    def test_marketplace_source_includes_core_and_codex_manifest(self):
         source = json.loads(MARKETPLACE.read_text(encoding="utf-8"))["plugins"][0]["source"]["path"]
-        self.assertFalse((ROOT / source).resolve().relative_to(ROOT.resolve()).parts == ())
-        self.assertTrue((ROOT / source / ".codex-plugin" / "plugin.json").is_file())
+        plugin_root = (ROOT / source).resolve()
+        self.assertEqual(plugin_root, ROOT.resolve())
+        self.assertTrue((plugin_root / ".codex-plugin" / "plugin.json").is_file())
+        self.assertTrue((plugin_root / "core" / "orchestrator").is_dir())
+        self.assertTrue((plugin_root / "core" / "orchestrator" / "delivery.py").is_file())
+        self.assertTrue((plugin_root / "core" / "orchestrator" / "artifact_publish.py").is_file())
 
 
 if __name__ == "__main__":

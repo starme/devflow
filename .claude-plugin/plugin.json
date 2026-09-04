@@ -1,8 +1,8 @@
 {
   "name": "devflow",
-  "version": "1.0.0",
-  "description": "DevFlow: 多 Agent 协作的全栈应用开发生命周期编排器。Manager 协调产品/架构/后端/前端/测试 5 个专职 Agent，支持新功能完整流程和 bug 修复精简流程，集成 Memorant 经验沉淀。",
-  "author": { "name": "tal" },
+  "version": "1.0.1",
+  "description": "DevFlow: 多 Agent 协作的研发生命周期编排器。人只在 Gate 拍板，中间自动把需求做完并开出 PR；适配任意 git 仓库。",
+  "author": { "name": "starme", "url": "https://github.com/starme" },
   "hooks": {
     "SessionStart": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/devflow-hook.sh" }] }],
     "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/devflow-hook.sh" }] }],

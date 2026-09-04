@@ -5,7 +5,11 @@ description: Adaptive DevFlow lifecycle orchestration for applications, AI agent
 
 # DevFlow for Codex
 
-Read the repository's `.devflow/project.yaml` and the current task's `.devflow/task.yaml`/`.devflow/context.json` before acting. If only `.devflow/manifest.yaml` exists, perform the idempotent legacy metadata migration: create `project.yaml`, `tasks/legacy/task.yaml`, and `migration.yaml` without modifying or deleting the manifest. New `start` and `fix` tasks must use isolated worktrees.
+Read the repository's `.devflow/project.yaml` and the current task's `.devflow/task.yaml`/`.devflow/context.json` before acting. If only `.devflow/manifest.yaml` exists, perform the idempotent legacy metadata migration during `init`/`next` (not in a lifecycle hook): create `project.yaml`, `tasks/legacy/task.yaml`, and `migration.yaml` without modifying or deleting the manifest.
+
+Default isolation is in-place: the first unfinished task works on a feature branch in the main workspace. Only a latercomer that would collide with that unfinished task gets a `.devflow-worktrees/<repo>/<task-id>` worktree. Pin `cwd` to the task workspace. Process artifacts are published only in DELIVERY to `.devflow/tasks/<task-id>/`.
+
+Core scripts (`delivery.py`, `artifact_publish.py`, `worktree_manager.py`) live at `$DEVFLOW_CORE_ROOT` or `<plugin-root>/core/orchestrator/`. This marketplace package is the repository root so those scripts are installed with the skill.
 
 ## Commands
 

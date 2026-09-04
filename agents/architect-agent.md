@@ -28,8 +28,7 @@ color: green
 - `cwd`：你的工作目录
 - `main_workspace`：主工作区绝对路径
 
-**读取** `.devflow/` 配置和前序产物时，使用 `main_workspace/.devflow/...`（绝对路径）。
-**写入** `.devflow/` 产物（scope.yaml、contracts/、diagnosis.md 等）时，使用相对路径 `.devflow/<filename>`，相对于你的 `cwd`。Manager 会在你完成后自动回收。
+**读取 / 写入** 都相对于 Manager 钉住的 `cwd`（该 task 的工作区）。配置和前序产物用 `.devflow/...`。不要假设 Manager 会 collect。
 
 ## Memorant 记忆能力
 
@@ -71,10 +70,10 @@ Manager 会通过 `mode` 参数指定工作模式：
    - 看近期改动：`git log -n 10 --oneline` 了解在途工作
    - 找到类似功能的现有实现作为参考
 3. **设计技术方案**，输出以下产物：
-   - `docs/architecture.md`：整体设计、数据模型、模块划分、关键流程
+   - `.devflow/architecture.md`：整体设计、数据模型、模块划分、关键流程
    - `.devflow/contracts/`：API 契约（按项目语言惯例，Go 用 RPC 风格，PHP/Python 用 RESTful）
-   - `docs/frontend-components.md`：前端组件规格（有前端时）
-   - `docs/adr/`：重要技术决策的 ADR
+   - `.devflow/frontend-components.md`：前端组件规格（有前端时）
+   - `docs/adr/`：重要技术决策的 ADR（仓库级决策，不是 task 过程物料）
 4. **输出 scope.yaml**（见下方结构）。
 5. 向 Manager 报告：方案文档路径、scope 摘要（tracks、任务数、是否并行、风险等级）。
 

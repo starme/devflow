@@ -23,16 +23,16 @@ flowchart TD
 
         TEST["🧪 测试与验收<br/>单元 → 集成 → 契约检查<br/>Lint → 安全扫描 → 构建验证"]
         ACCEPT{"✅ 验收签字<br/>对照 PRD 验收标准"}
-        DELIVERY["🚀 交付闭环<br/>commit + push + PR<br/>本地清理 / 切回 base_ref"]
+        DELIVERY["🚀 交付闭环<br/>commit + push + PR"]
         GD{{"Gate: 交付确认<br/>三合一：commit+push+PR"}}
-        DONE["🎉 完成"]
+        DISTILL["💎 蒸馏<br/>经验写入 Memorant"]
+        DONE["🎉 完成<br/>PR 合并后清理"]
     end
 
     subgraph fixmode["修复模式"]
         F1["🔍 症状确认<br/>复现步骤 + 错误信息"]
         F2["🔬 根因定位<br/>Memorant 召回 + 代码分析"]
-        F3["🔧 修复实施<br/>回归测试 + 根因修复"]
-        F4["💎 记忆捕获<br/>结构化根因+解决叙事"]
+        F3["🔧 修复实施<br/>根因修复"]
     end
 
     MEM["💎 Memorant<br/>事件采集 · A/B 记忆蒸馏<br/>经验召回 · 信任路由"]
@@ -48,18 +48,19 @@ flowchart TD
     TEST --> ACCEPT
     ACCEPT -->|人签字| DELIVERY
     DELIVERY --> GD
-    GD -->|人确认| DONE
+    GD -->|人确认| DISTILL
+    DISTILL --> DONE
     GD -->|要求调整| DELIVERY
 
-    FIX --> F1 --> F2 --> F3 --> F4
+    FIX --> F1 --> F2 --> F3
+    F3 --> TEST
 
     TEST -.->|失败自动修复循环| P2
     TEST -.->|失败自动修复循环| P3
     ACCEPT -.->|要求修改| P2
     ACCEPT -.->|要求修改| P3
 
-    DONE -->|自动蒸馏经验| MEM
-    F4 -->|写入高质量记忆| MEM
+    DISTILL -->|写入高质量记忆| MEM
     MEM -.->|经验注入 & 避坑召回| G1
     MEM -.->|技术选型 ADR| ARCH
     MEM -.->|Bug 解决方案| TEST
@@ -79,8 +80,8 @@ flowchart TD
     class ARCH,P2,P3,DELIVERY,DONE auto
     class G1,G2,GD gate
     class TEST test
-    class F1,F2,F3,F4 fix
-    class MEM memorant
+    class F1,F2,F3 fix
+    class DISTILL,MEM memorant
 ```
 
 **图例：** 紫色边框 = 需要人决策 ｜ 黄色虚线框 = 质量门禁 ｜ 绿色 = 测试阶段 ｜ 橙色 = 修复模式 ｜ 紫色虚线 = Memorant 学习闭环
@@ -98,7 +99,7 @@ IDLE → CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE
 - **内层循环（实现流水线）**：`DEVELOPMENT ↔ TESTING`。任务由研发 Agent 按 scope 实现（可并行），每个 task 自带 VALIDATE 门控自检；测试 Agent 做全量回归。
 - **收尾**：`ACCEPTANCE → DELIVERY → GATE_DELIVERY → DISTILL → DONE`。产品 Agent 对照 PRD 验收；签字后进入交付闭环（提交 commit + 推送分支 + 创建 PR，PR 创建后暂停不自动合并），随后蒸馏经验到 Memorant（或写 `docs/retrospective.md`）。
 
-- **产物发布（publish）**：`DELIVERY` 阶段在提交/推送之外，还需把 task 产物正式发布到主工作区的 `docs/tasks/<task-id>/` 命名空间（收集白名单内的 PRD、架构、scope、测试与验收产物，PRD 发布为 `prd-<task-slug>.md`，其余保持固定名）。发布是幂等操作，目标内容未变则跳过；内容不同则拒绝覆盖并报告冲突。发布完成的产物与 task.yaml 中的 `artifacts` 引用形成「worktree 临时路径 + 已发布路径」双路径对照。
+- **产物发布（publish）**：只在 `DELIVERY` 把过程物料归档到 `.devflow/tasks/<task-id>/`（PRD 为 `prd-<task-slug>.md`），用来追溯做过什么、方案、完成度、测试和验收。幂等：内容未变则跳过，内容不同则冲突不覆盖。
 
 ## 内外循环边界
 

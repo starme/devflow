@@ -38,6 +38,9 @@ DELIVERY_ARTIFACT_FILES = frozenset({
     ".devflow/acceptance-report.md",
     ".devflow/acceptance-scenarios.md",
     ".devflow/test-report.md",
+    ".devflow/task-report.md",
+    ".devflow/backend-task-report.md",
+    ".devflow/frontend-task-report.md",
     ".devflow/pr.md",
     ".devflow/delivery.yaml",
 })

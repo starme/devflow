@@ -48,18 +48,28 @@ class WorktreeManagerTest(unittest.TestCase):
         )
         return root
 
-    def test_creates_independent_feature_and_bugfix_worktrees(self):
+    def test_first_task_is_in_place_second_gets_worktree(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = self._repository(temp_dir)
             feature = create_task(root, "Add weekly report", "feature")
             bugfix = create_task(root, "Fix completed report bug", "bugfix", source_task_id=feature.task_id)
 
-            self.assertNotEqual(feature.worktree, bugfix.worktree)
+            self.assertEqual(Path(feature.worktree).resolve(), root.resolve())
+            self.assertIn(".devflow-worktrees", bugfix.worktree)
             self.assertNotEqual(feature.branch, bugfix.branch)
             self.assertEqual(feature.base_commit, bugfix.base_commit)
-            self.assertEqual(load_task(Path(feature.worktree) / ".devflow" / "task.yaml").kind, "feature")
+            self.assertEqual(load_task(root / ".devflow" / "task.yaml").kind, "feature")
             self.assertEqual(load_task(Path(bugfix.worktree) / ".devflow" / "task.yaml").source_task_id, feature.task_id)
             self.assertEqual({record.task_id for record in discover_tasks(root)}, {feature.task_id, bugfix.task_id})
+
+    def test_dirty_in_place_task_does_not_block_latercomer_worktree(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._repository(temp_dir)
+            feature = create_task(root, "Add weekly report", "feature")
+            (root / "README.md").write_text("wip\n", encoding="utf-8")
+            bugfix = create_task(root, "Prod hotfix", "bugfix", source_task_id=feature.task_id)
+            self.assertIn(".devflow-worktrees", bugfix.worktree)
+            self.assertTrue((Path(bugfix.worktree) / ".devflow" / "task.yaml").is_file())
 
     def test_untracked_files_do_not_block_task_creation(self):
         # AC-15: an untracked file (e.g. a prior task's unpublished artifacts)

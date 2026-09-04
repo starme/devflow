@@ -76,8 +76,8 @@ phases:
     scope_path: ".devflow/scope.yaml"
     diagnosis_path: ".devflow/diagnosis.md"
     api_contracts_path: ".devflow/contracts/"
-    architecture_doc_path: "docs/architecture.md"
-    component_spec_path: "docs/frontend-components.md"
+    architecture_doc_path: ".devflow/architecture.md"
+    component_spec_path: ".devflow/frontend-components.md"
     adrs_path: "docs/adr/"
 
   gate_arch:

@@ -1,6 +1,6 @@
 # DevFlow
 
-**Version: 1.0.0**
+**Version: 1.0.1**
 
 English | [中文](README.zh-CN.md)
 
@@ -94,7 +94,7 @@ You only need to make decisions at five points:
 After you approve the result, DevFlow shows the allow-listed files, commit message, push target, and PR preview in one confirmation. A plain approval executes `commit + push + create PR`; other instructions can narrow or adjust those actions.
 
 - Only code and explicitly listed task artifacts are committed; runtime context, audit logs, and temporary files are excluded.
-- On delivery, task artifacts are archived to the `docs/tasks/<task-id>/` namespace (the PRD is published as `prd-<task-slug>.md`, other artifacts keep fixed names); source metadata is recorded in that directory's `README.md`. See [the publishing decision](docs/adr/0003-task-artifact-publishing.md).
+- On delivery, task artifacts are archived to `.devflow/tasks/<task-id>/` (the PRD is published as `prd-<task-slug>.md`, other artifacts keep fixed names) so you can trace what was planned, completed, tested, and accepted. See [the archive decision](docs/adr/0004-task-archive-convergence.md).
 - PR creation pauses the task. DevFlow never merges the PR automatically.
 - After the PR is merged, run `/devflow next --task <task-id>` to remove the local task worktree and local branch, keep the remote branch, and return to the task's base branch.
 - See [the delivery decision](docs/adr/0002-delivery-lifecycle.md) for recovery details.

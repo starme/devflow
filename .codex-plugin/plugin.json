@@ -10,7 +10,7 @@
   "repository": "https://github.com/starme/devflow",
   "license": "MIT",
   "keywords": ["devflow", "agent", "plugin", "skill", "mcp", "codex"],
-  "skills": "./skills/",
+  "skills": "./plugins/devflow/skills/",
   "interface": {
     "displayName": "DevFlow",
     "shortDescription": "Adaptive AI project lifecycle orchestration",

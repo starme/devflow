@@ -2,7 +2,7 @@
 
 ## 状态
 
-已提议（Proposed）——本 ADR 与 `docs/architecture.md` 一并作为功能方案冻结，待 GATE_ARCH 审批后落地。
+已被取代（Superseded）——2026-09-04 由 [ADR-0004](0004-task-archive-convergence.md) 取代。目标路径从 `docs/tasks/<task-id>/` 改为 `.devflow/tasks/<task-id>/`。下文保留原决策原文，便于追溯「为什么曾经选 docs/tasks/」。
 
 ## 背景
 

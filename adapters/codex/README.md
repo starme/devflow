@@ -29,7 +29,7 @@ Those extension points do not establish a generic, synchronous pre-execution den
 
 ## Version and updates
 
-The current DevFlow adapter release is **1.0.0**. Refresh the configured Marketplace before checking for updates:
+The current DevFlow adapter release is **1.0.1**. Refresh the configured Marketplace before checking for updates:
 
 ```bash
 codex plugin marketplace upgrade devflow-marketplace
@@ -56,7 +56,7 @@ codex plugin list --marketplace devflow-marketplace
 codex plugin add devflow@devflow-marketplace
 ```
 
-The package lives under `plugins/devflow/`. The manual Skill-copy procedure in `install.md` is a fallback for older hosts or development experiments.
+The marketplace source is the repository root so Codex also gets `core/` (orchestrator scripts, hooks, templates). The Skill lives under `plugins/devflow/skills/`. The nested `plugins/devflow/` package remains as a Skill-only fallback. The manual Skill-copy procedure in `install.md` is for older hosts or development experiments.
 
 
 | DevFlow command | Codex integration |
@@ -64,8 +64,8 @@ The package lives under `plugins/devflow/`. The manual Skill-copy procedure in `
 | `devflow init` | Start a turn with the `devflow` skill and run repository analysis. |
 | `devflow start <request>` | Start a turn with `$devflow` and the feature request. |
 | `devflow fix <bug>` | Start a turn with `$devflow` in bugfix mode. |
-| `devflow status` | Read `.devflow/manifest.yaml` and report state. |
-| `devflow next` | Resume the phase recorded in `.devflow/manifest.yaml`. |
+| `devflow status` | Read `.devflow/project.yaml` plus the current `.devflow/task.yaml` (legacy: `manifest.yaml`) and report state. |
+| `devflow next` | Resume the phase recorded in `.devflow/task.yaml` (legacy: `manifest.yaml`). |
 
 The adapter does not invent a Codex slash-command API. Hosts may expose the mapping as a shell alias, a Codex Skill, or an app-server `turn/start` request.
 

@@ -29,7 +29,7 @@ fi
 # -B -S keep the run offline / venv-free; the hook needs no third-party deps.
 CMD=(python3 -B -S "$HOOK_PY")
 
-python3 - "${DEVFLOW_HOOK_TIMEOUT_SECONDS:-1.0}" "$INPUT" "$OUTPUT" \
+python3 - "${DEVFLOW_HOOK_TIMEOUT_SECONDS:-5.0}" "$INPUT" "$OUTPUT" \
   "${CMD[@]}" <<'PY' || emit_empty
 import subprocess
 import sys

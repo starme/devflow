@@ -5,8 +5,14 @@
   "current_agent": "manager",
   "cwd": "{{WORKTREE}}",
   "project_root": "{{PROJECT_ROOT}}",
+  "repo_root": "{{REPO_ROOT}}",
   "task_root": "{{WORKTREE}}/.devflow",
   "branch": "{{BRANCH}}",
+  "workspace": {
+    "root": "{{PROJECT_ROOT}}",
+    "backend": "",
+    "frontend": ""
+  },
   "adapter": {
     "name": "{{ADAPTER_NAME}}",
     "capability": "{{ADAPTER_CAPABILITY}}"

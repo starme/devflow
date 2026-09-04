@@ -149,6 +149,39 @@ class RedlineGuardBoundaryTest(unittest.TestCase):
         proc = _run_hook(self.root, "Write", {"file_path": str(target)}, str(self.backend))
         self.assertEqual(_decision(proc), "deny")
 
+    def test_bash_cp_to_forbidden_denied(self):
+        self._write_context(self.backend)
+        proc = _run_hook(
+            self.root, "Bash", {"command": "cp notes.txt .env"}, str(self.root)
+        )
+        self.assertEqual(_decision(proc), "deny")
+
+    def test_bash_mv_to_forbidden_denied(self):
+        self._write_context(self.backend)
+        proc = _run_hook(
+            self.root, "Bash", {"command": "mv notes.txt .env"}, str(self.root)
+        )
+        self.assertEqual(_decision(proc), "deny")
+
+    def test_bash_python_c_to_forbidden_denied(self):
+        self._write_context(self.backend)
+        proc = _run_hook(
+            self.root,
+            "Bash",
+            {"command": "python3 -c \"open('.env','w').write('x')\""},
+            str(self.root),
+        )
+        self.assertEqual(_decision(proc), "deny")
+
+    def test_bash_git_apply_forbidden_denied(self):
+        self._write_context(self.backend)
+        patch = self.root / "secret.patch"
+        patch.write_text("--- a/.env\n+++ b/.env\n@@\n-old\n+new\n", encoding="utf-8")
+        proc = _run_hook(
+            self.root, "Bash", {"command": "git apply secret.patch"}, str(self.root)
+        )
+        self.assertEqual(_decision(proc), "deny")
+
     def test_forbidden_file_read_denied(self):
         self._write_context(self.backend)
         target = self.root / ".env"
@@ -404,6 +437,35 @@ class WorktreeSyncTest(unittest.TestCase):
         self.assertFalse((self.root / ".devflow" / "leaked.md").exists())
         synced_files = [path for wt in result["synced"] for path in wt["files"]]
         self.assertNotIn("leaked.md", synced_files)
+
+
+class ProjectYamlContextTest(unittest.TestCase):
+    def test_load_context_reads_project_yaml_workspace_and_task_phase(self):
+        hooks_dir = Path(__file__).resolve().parent.parent / "hooks"
+        sys.path.insert(0, str(hooks_dir))
+        from devflow_guard_common import load_context
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            devflow = root / ".devflow"
+            devflow.mkdir()
+            (devflow / "project.yaml").write_text(
+                "workspace:\n"
+                "  root: \".\"\n"
+                "  backend:\n"
+                "    path: \"server\"\n"
+                "  frontend:\n"
+                "    path: \"web\"\n",
+                encoding="utf-8",
+            )
+            (devflow / "task.yaml").write_text(
+                "task:\n  current_phase: \"development\"\n",
+                encoding="utf-8",
+            )
+            ctx = load_context(root)
+            self.assertEqual(ctx["workspace"]["backend"], "server")
+            self.assertEqual(ctx["workspace"]["frontend"], "web")
+            self.assertEqual(ctx["current_phase"], "development")
 
 
 if __name__ == "__main__":

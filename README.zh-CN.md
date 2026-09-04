@@ -1,6 +1,6 @@
 # DevFlow
 
-**版本：1.0.0**
+**版本：1.0.1**
 
 [English](README.md) | 中文
 
@@ -94,7 +94,7 @@ Bug 或维护类改动使用：
 你批准结果后，DevFlow 会一次性展示白名单文件、commit message、推送目标和 PR 预览。直接确认时，默认执行 `commit + push + create PR`；如果提出其他要求，也可以缩小或调整执行范围。
 
 - 只提交代码和明确列入 task 产物清单的文档；运行时上下文、审计日志和临时文件都会排除。
-- 交付时，task 产物会归档到 `docs/tasks/<task-id>/` 命名空间（PRD 发布为 `prd-<task-slug>.md`，其余产物保持固定名），来源元数据记录在该目录的 `README.md` 中。详见[产物发布决策](docs/adr/0003-task-artifact-publishing.md)。
+- 交付时，task 产物会归档到 `.devflow/tasks/<task-id>/`（PRD 发布为 `prd-<task-slug>.md`，其余保持固定名），用来追溯方案、完成度、测试和验收。详见[归档决策](docs/adr/0004-task-archive-convergence.md)。
 - 创建 PR 后流程暂停，DevFlow 不会自动合并 PR。
 - PR 合并后，执行 `/devflow next --task <task-id>`，删除本地 task worktree 和本地分支，保留远程分支，并返回该 task 的基准分支。
 - 详细恢复规则见[交付决策](docs/adr/0002-delivery-lifecycle.md)。
