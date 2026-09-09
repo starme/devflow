@@ -468,5 +468,82 @@ class ProjectYamlContextTest(unittest.TestCase):
             self.assertEqual(ctx["current_phase"], "development")
 
 
+class DeliveryArchiveGateTest(unittest.TestCase):
+    """Delivery-phase archive gate: commit is blocked until artifacts are
+    published to .devflow/tasks/<task-id>/."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp(prefix="devflow-archive-gate-")
+        self.root = Path(self._tmp) / "project"
+        (self.root / ".devflow").mkdir(parents=True)
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _write_task(self, task_id="task-abc"):
+        (self.root / ".devflow" / "task.yaml").write_text(
+            "schema_version: 1\n"
+            "task:\n"
+            f'  id: "{task_id}"\n'
+            '  slug: "test"\n'
+            '  kind: "feature"\n'
+            '  description: "test"\n'
+            '  current_phase: "delivery"\n'
+            '  status: "active"\n',
+            encoding="utf-8",
+        )
+
+    def _write_context(self, phase="delivery"):
+        (self.root / ".devflow" / "context.json").write_text(
+            json.dumps({"current_phase": phase, "cwd": str(self.root)}),
+            encoding="utf-8",
+        )
+
+    def _write_archive_index(self, task_id="task-abc"):
+        index = self.root / ".devflow" / "tasks" / task_id / "README.md"
+        index.parent.mkdir(parents=True, exist_ok=True)
+        index.write_text("# Task Artifacts\n", encoding="utf-8")
+
+    def _run_commit(self):
+        return _run_hook(
+            self.root,
+            "Bash",
+            {"command": 'git commit -m "feat: test"'},
+            str(self.root),
+        )
+
+    def test_delivery_commit_blocked_when_not_archived(self):
+        self._write_task()
+        self._write_context()
+        self.assertEqual(_decision(self._run_commit()), "deny")
+
+    def test_delivery_commit_allowed_when_archived(self):
+        self._write_task()
+        self._write_context()
+        self._write_archive_index()
+        self.assertEqual(_decision(self._run_commit()), "allow")
+
+    def test_legacy_manifest_without_task_yaml_not_blocked(self):
+        # No task.yaml → no formal-task archive → the gate must not fire.
+        (self.root / ".devflow" / "manifest.yaml").write_text(
+            "project:\n  current_phase: delivery\n", encoding="utf-8"
+        )
+        self._write_context()
+        self.assertEqual(_decision(self._run_commit()), "allow")
+
+    def test_non_delivery_phase_not_blocked(self):
+        self._write_task()
+        self._write_context(phase="development")
+        self.assertEqual(_decision(self._run_commit()), "allow")
+
+    def test_non_commit_command_not_blocked(self):
+        self._write_task()
+        self._write_context()
+        proc = _run_hook(self.root, "Bash", {"command": "git status"}, str(self.root))
+        self.assertEqual(_decision(proc), "allow")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

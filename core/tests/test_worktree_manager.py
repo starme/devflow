@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -36,8 +37,8 @@ class TaskStateTest(unittest.TestCase):
 
 
 class WorktreeManagerTest(unittest.TestCase):
-    def _repository(self, temp_dir):
-        root = Path(temp_dir) / "repo"
+    def _repository(self, temp_dir, name="repo"):
+        root = Path(temp_dir) / name
         root.mkdir()
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
         (root / "README.md").write_text("initial\n", encoding="utf-8")
@@ -133,6 +134,68 @@ class WorktreeManagerTest(unittest.TestCase):
             (root / "debug.log").write_text("ignored\n", encoding="utf-8")
             record = create_task(root, "Ignored task", "feature")
             self.assertEqual(record.kind, "feature")
+
+    def _multi_repo_fixture(self, temp_dir):
+        """Create an anchor backend repo plus a separated frontend repo, and a
+        ``project.yaml`` declaring the ``workspaces:`` endpoint list."""
+        anchor = self._repository(temp_dir, name="backend")
+        frontend = self._repository(temp_dir, name="frontend")
+        (anchor / ".devflow").mkdir(exist_ok=True)
+        (anchor / ".devflow" / "project.yaml").write_text(
+            "workspaces:\n"
+            f"  - track: \"backend\"\n"
+            f"    git_root: \"{anchor}\"\n"
+            f"  - track: \"frontend\"\n"
+            f"    git_root: \"{frontend}\"\n",
+            encoding="utf-8",
+        )
+        return anchor, frontend
+
+    def test_multi_repo_creates_same_branch_in_each_endpoint(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, frontend = self._multi_repo_fixture(temp_dir)
+            record = create_task(anchor, "Cross repo feature", "feature")
+
+            # Anchor (where .devflow lives) is not re-listed as an endpoint.
+            self.assertEqual(len(record.endpoints), 1)
+            ep = record.endpoints[0]
+            self.assertEqual(ep.track, "frontend")
+            self.assertEqual(ep.git_root, str(frontend.resolve()))
+            self.assertEqual(ep.branch, record.branch)
+
+            # Both repositories carry the same branch name.
+            be_branches = subprocess.run(
+                ["git", "branch", "--list", record.branch], cwd=anchor,
+                text=True, capture_output=True, check=True,
+            ).stdout.strip()
+            fe_branches = subprocess.run(
+                ["git", "branch", "--list", record.branch], cwd=frontend,
+                text=True, capture_output=True, check=True,
+            ).stdout.strip()
+            self.assertIn(record.branch, be_branches)
+            self.assertIn(record.branch, fe_branches)
+
+            # Each endpoint froze its own base commit.
+            self.assertTrue(ep.base_commit)
+
+            # context.json carries the endpoint list.
+            ctx = json.loads((anchor / ".devflow" / "context.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(ctx["endpoints"]), 1)
+            self.assertEqual(ctx["endpoints"][0]["track"], "frontend")
+
+    def test_multi_repo_rolls_back_endpoint_branch_on_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, frontend = self._multi_repo_fixture(temp_dir)
+            # Break the frontend repo's git so the endpoint branch checkout fails.
+            shutil.rmtree(frontend / ".git")
+            with self.assertRaises(WorktreeError):
+                create_task(anchor, "Broken cross repo", "feature")
+            # The anchor's own branch must have been rolled back too.
+            current = subprocess.run(
+                ["git", "branch", "--show-current"], cwd=anchor,
+                text=True, capture_output=True, check=True,
+            ).stdout.strip()
+            self.assertEqual(current, "main")
 
 
 if __name__ == "__main__":

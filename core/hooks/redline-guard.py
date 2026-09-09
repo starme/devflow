@@ -37,11 +37,13 @@ from devflow_guard_common import (
     get_target_paths,
     infer_track,
     is_devflow_artifact,
+    is_git_commit,
     is_test_file,
     is_within_boundary,
     load_context,
     load_redlines,
     path_in_redline_category,
+    task_needs_archive,
 )
 
 
@@ -175,7 +177,21 @@ def check_bash_operation(tool_input, project_root, context, redlines):
     if danger:
         deny(f"[DevFlow Redline] Dangerous command blocked: {danger}")
 
-    # 2. Check shell redirect / tee / sed -i targets against redlines
+    # 2. Delivery archive gate: in the delivery phase, refuse to commit until
+    #    the task's process artifacts have been published to .devflow/tasks/.
+    #    The archive index (README.md) is written as the terminal step of
+    #    ``artifact_publish.publish``, so its absence means the publish step
+    #    was skipped and the artifacts would otherwise be lost when the
+    #    worktree is cleaned up.
+    phase = context.get("current_phase", "")
+    if phase == "delivery" and is_git_commit(command) and task_needs_archive(project_root):
+        deny(
+            "[DevFlow Redline] Delivery blocked: task artifacts are not yet "
+            "archived. Run `artifact_publish.py publish` first so PRD / scope / "
+            "reports / contracts land in .devflow/tasks/<task-id>/ before committing."
+        )
+
+    # 3. Check shell redirect / tee / sed -i targets against redlines
     targets = get_target_paths("Bash", tool_input, project_root, cwd)
     for rel_path, abs_path in targets:
         if path_in_redline_category(

@@ -130,6 +130,8 @@ Agent 参数必须显式包含 `task_id`、`task_root`、`main_workspace` 和 `c
 - `repo_root`：git 仓库根，给后来者 worktree 定位用
 - Agent 读写 `.devflow/<filename>` 相对于自己的 cwd（已钉在 task 工作区）
 
+**多仓库（前后端分离）**：当 `project.yaml` 声明 `workspaces:` 端点列表时，该 task 跨多个独立 git 仓库。每个端点记录在 `task.yaml` 的 `git.endpoints` 与 `context.json` 的 `endpoints`。派发研发 Agent 时 `cwd` 钉在**对应端点的 `git_root`**（backend-dev 钉 backend 仓，frontend-dev 钉 frontend 仓），不是锚点仓库的子目录。`.devflow/` 过程物料仍统一落在锚点仓库（`.devflow/` 所在目录）。
+
 ---
 
 ## 阶段执行逻辑
@@ -359,6 +361,8 @@ python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish \
 1. `git commit`（白名单内文件）。
 2. `git push -u origin <branch>`（首次）；已存在上游则 `git push origin <branch>`。
 3. 创建 PR：Claude Code 用 `gh pr create`（用户已认证 gh）；Codex 走 `router` mode，由 host 回传 `gh_pr_url`（Codex 不伪造 PR 能力）。PR 创建成功后写 `.devflow/pr.md`。
+
+**多仓库交付**：跨仓库 task 需为**每个改动过的端点**重复「commit → push → 创建 PR」，每个端点在自己的 `git_root` 内执行，PR URL 收集进 `delivery.yaml` 的 `delivery.repos`（每项 `track/git_root/commit/pushed/pr_url`）。三合一确认一次汇总列出所有端点的待提交清单与 PR 预览；任一端点失败时向用户**逐仓报告**哪个成功哪个失败，不伪造整体成功。
 
 **关键边界**：PR 创建后**暂停，不自动合并**。合并是用户的 review 决策，DevFlow 不越权。
 

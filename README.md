@@ -72,7 +72,7 @@ Use `/devflow status` to inspect progress. Automatic phases continue to the next
 
 1. **Classify** — DevFlow identifies the repository type and chooses a suitable workflow.
 2. **Clarify and plan** — product and architecture work produces a PRD, scope, and implementation plan when needed.
-3. **Branch and implement** — the first unfinished task stays in the main workspace on a feature branch; a latercomer that would collide gets a worktree. Agents stay inside defined boundaries.
+3. **Branch and implement** — the first unfinished task stays in the main workspace on a feature branch; a latercomer that would collide gets a worktree. Agents stay inside defined boundaries. For a multi-repository project (separated backend/frontend declared in `project.yaml`), the same feature branch is created across every repository and each gets its own pull request.
 4. **Test and review** — tests run in layers and failures are routed back for correction.
 5. **Accept** — a human reviews the result against the agreed requirements.
 6. **Deliver** — one confirmation covers the allow-listed commit, branch push, and PR creation.

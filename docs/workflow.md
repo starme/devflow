@@ -97,7 +97,7 @@ IDLE → CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE
 
 - **外层循环（需求确认）**：`IDLE → CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH`。这一层每一步都可能暂停，等待人类输入（分类确认、需求澄清、PRD 审批、架构审批）。
 - **内层循环（实现流水线）**：`DEVELOPMENT ↔ TESTING`。任务由研发 Agent 按 scope 实现（可并行），每个 task 自带 VALIDATE 门控自检；测试 Agent 做全量回归。
-- **收尾**：`ACCEPTANCE → DELIVERY → GATE_DELIVERY → DISTILL → DONE`。产品 Agent 对照 PRD 验收；签字后进入交付闭环（提交 commit + 推送分支 + 创建 PR，PR 创建后暂停不自动合并），随后蒸馏经验到 Memorant（或写 `docs/retrospective.md`）。
+- **收尾**：`ACCEPTANCE → DELIVERY → GATE_DELIVERY → DISTILL → DONE`。产品 Agent 对照 PRD 验收；签字后进入交付闭环（提交 commit + 推送分支 + 创建 PR，PR 创建后暂停不自动合并），随后蒸馏经验到 Memorant（或写 `.devflow/retrospective.md`）。
 
 - **产物发布（publish）**：只在 `DELIVERY` 把过程物料归档到 `.devflow/tasks/<task-id>/`（PRD 为 `prd-<task-slug>.md`），用来追溯做过什么、方案、完成度、测试和验收。幂等：内容未变则跳过，内容不同则冲突不覆盖。
 

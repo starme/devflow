@@ -294,6 +294,52 @@ class WhitelistTest(unittest.TestCase):
         rels = ap.iter_publishable_files(wt)
         self.assertEqual(rels, ["test_reports/a.json"])
 
+    def test_frontend_components_and_impact_analysis_publishable(self):
+        f = _Fixture(tempfile.mkdtemp())
+        wt = f.make_task("t-20", "t-20")
+        f.artifact(wt, "frontend-components.md", "components")
+        f.artifact(wt, "impact-analysis.md", "impact")
+        f.artifact(wt, "architecture.md", "arch")
+
+        rels = ap.iter_publishable_files(wt)
+        self.assertIn("frontend-components.md", rels)
+        self.assertIn("impact-analysis.md", rels)
+
+    def test_contracts_dir_walked_recursively(self):
+        f = _Fixture(tempfile.mkdtemp())
+        wt = f.make_task("t-21", "t-21")
+        f.artifact(wt, "contracts/actions.md", "# actions")
+        f.artifact(wt, "architecture.md", "arch")
+
+        rels = ap.iter_publishable_files(wt)
+        self.assertIn("contracts/actions.md", rels)
+
+    def test_missing_archived_artifacts_returns_unpublished(self):
+        f = _Fixture(tempfile.mkdtemp())
+        wt = f.make_task("t-22", "t-22")
+        f.artifact(wt, "architecture.md", "arch")
+        f.artifact(wt, "scope.yaml", "scope")
+
+        missing = ap.missing_archived_artifacts(wt, f.project_root)
+        self.assertEqual(missing, ["architecture.md", "scope.yaml"])
+
+    def test_missing_archived_artifacts_empty_after_publish(self):
+        f = _Fixture(tempfile.mkdtemp())
+        wt = f.make_task("t-23", "t-23")
+        f.artifact(wt, "architecture.md", "arch")
+        result = ap.publish(f.project_root, wt)
+        self.assertEqual(result["errors"], [])
+
+        missing = ap.missing_archived_artifacts(wt, f.project_root)
+        self.assertEqual(missing, [])
+
+    def test_missing_archived_artifacts_no_artifacts_is_empty(self):
+        f = _Fixture(tempfile.mkdtemp())
+        wt = f.make_task("t-24", "t-24")
+
+        missing = ap.missing_archived_artifacts(wt, f.project_root)
+        self.assertEqual(missing, [])
+
 
 class ContentHashTest(unittest.TestCase):
     def test_directory_hash_order_independent(self):
