@@ -155,6 +155,29 @@ class DiscoveryTest(unittest.TestCase):
         found = ap.discover_task(f.repo, task_id="t-2")
         self.assertEqual(found, wt.resolve())
 
+    def test_discover_by_task_id_in_place(self):
+        # In-place form: task.yaml lives directly under repo_root/.devflow/ with
+        # no .devflow-worktrees/ tree.  --task must fall back to repo_root.
+        f = _Fixture(tempfile.mkdtemp(), form_a=True)
+        devflow = f.repo / ".devflow"
+        devflow.mkdir(parents=True)
+        (devflow / "task.yaml").write_text(
+            _task_yaml("t-inplace", "t-inplace"), encoding="utf-8"
+        )
+        found = ap.discover_task(f.repo, task_id="t-inplace")
+        self.assertEqual(found, f.repo.resolve())
+
+    def test_discover_by_task_id_in_place_id_mismatch(self):
+        # A stale in-place task.yaml naming a different task must not match.
+        f = _Fixture(tempfile.mkdtemp(), form_a=True)
+        devflow = f.repo / ".devflow"
+        devflow.mkdir(parents=True)
+        (devflow / "task.yaml").write_text(
+            _task_yaml("t-actual", "t-actual"), encoding="utf-8"
+        )
+        with self.assertRaises(ValueError):
+            ap.discover_task(f.repo, task_id="t-other")
+
     def test_discover_all_tasks(self):
         f = _Fixture(tempfile.mkdtemp())
         f.make_task("t-3", "t-3")

@@ -35,6 +35,11 @@ Usage:
     python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root> --task <id>
     python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root> --worktree <path>
     python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root> --all-tasks [--dry-run]
+
+``--task`` resolves a task by id in either form: a formal worktree under
+``.devflow-worktrees/<repo>/<task-id>/`` (checked first), or the in-place
+default where ``repo_root/.devflow/task.yaml`` holds the task and its artifacts
+live directly under ``repo_root/.devflow/``.
 """
 from __future__ import annotations
 
@@ -136,6 +141,23 @@ def _has_legal_task_yaml(worktree: Path) -> bool:
     return True
 
 
+def _in_place_task_id_matches(repo_root: Path, task_id: str) -> bool:
+    """Return True when ``repo_root`` holds an in-place task whose id matches.
+
+    The in-place form keeps ``.devflow/task.yaml`` directly under the repo root
+    (no ``.devflow-worktrees/`` tree).  There is at most one active in-place
+    task, so an id comparison guards against a stale file that names a
+    different task.
+    """
+    task_file = repo_root / ".devflow" / "task.yaml"
+    if not task_file.is_file():
+        return False
+    try:
+        return load_task(task_file).task_id == task_id
+    except (OSError, ValueError):
+        return False
+
+
 def discover_task(
     repo_root: Path,
     task_id: Optional[str] = None,
@@ -162,9 +184,13 @@ def discover_task(
 
     if task_id:
         candidate = _worktree_root(repo_root, task_id)
-        if not _has_legal_task_yaml(candidate):
-            raise ValueError(f"formal task worktree not found for task id: {task_id}")
-        return candidate
+        if _has_legal_task_yaml(candidate):
+            return candidate
+        # In-place fallback: the default task form keeps artifacts directly in
+        # ``repo_root/.devflow/`` rather than under ``.devflow-worktrees/``.
+        if _in_place_task_id_matches(repo_root, task_id):
+            return repo_root
+        raise ValueError(f"formal task worktree not found for task id: {task_id}")
 
     if all_tasks:
         task_files = find_task_files(repo_root)
