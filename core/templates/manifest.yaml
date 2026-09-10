@@ -125,7 +125,6 @@ phases:
   distill:
     status: "pending"
     memories_created: []
-    retrospective_path: "docs/retrospective.md"
 
   done:
     status: "pending"
@@ -195,6 +194,3 @@ memorant:
     auto_promote: true
     merge_duplicates: true
     deprecate_invalid: true
-
-  # Memorant 不可用时的降级文件
-  fallback_path: "docs/devflow-memories.md"

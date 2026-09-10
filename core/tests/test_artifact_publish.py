@@ -155,6 +155,29 @@ class DiscoveryTest(unittest.TestCase):
         found = ap.discover_task(f.repo, task_id="t-2")
         self.assertEqual(found, wt.resolve())
 
+    def test_discover_by_task_id_in_place(self):
+        # In-place form: task.yaml lives directly under repo_root/.devflow/ with
+        # no .devflow-worktrees/ tree.  --task must fall back to repo_root.
+        f = _Fixture(tempfile.mkdtemp(), form_a=True)
+        devflow = f.repo / ".devflow"
+        devflow.mkdir(parents=True)
+        (devflow / "task.yaml").write_text(
+            _task_yaml("t-inplace", "t-inplace"), encoding="utf-8"
+        )
+        found = ap.discover_task(f.repo, task_id="t-inplace")
+        self.assertEqual(found, f.repo.resolve())
+
+    def test_discover_by_task_id_in_place_id_mismatch(self):
+        # A stale in-place task.yaml naming a different task must not match.
+        f = _Fixture(tempfile.mkdtemp(), form_a=True)
+        devflow = f.repo / ".devflow"
+        devflow.mkdir(parents=True)
+        (devflow / "task.yaml").write_text(
+            _task_yaml("t-actual", "t-actual"), encoding="utf-8"
+        )
+        with self.assertRaises(ValueError):
+            ap.discover_task(f.repo, task_id="t-other")
+
     def test_discover_all_tasks(self):
         f = _Fixture(tempfile.mkdtemp())
         f.make_task("t-3", "t-3")
@@ -293,6 +316,52 @@ class WhitelistTest(unittest.TestCase):
 
         rels = ap.iter_publishable_files(wt)
         self.assertEqual(rels, ["test_reports/a.json"])
+
+    def test_frontend_components_and_impact_analysis_publishable(self):
+        f = _Fixture(tempfile.mkdtemp())
+        wt = f.make_task("t-20", "t-20")
+        f.artifact(wt, "frontend-components.md", "components")
+        f.artifact(wt, "impact-analysis.md", "impact")
+        f.artifact(wt, "architecture.md", "arch")
+
+        rels = ap.iter_publishable_files(wt)
+        self.assertIn("frontend-components.md", rels)
+        self.assertIn("impact-analysis.md", rels)
+
+    def test_contracts_dir_walked_recursively(self):
+        f = _Fixture(tempfile.mkdtemp())
+        wt = f.make_task("t-21", "t-21")
+        f.artifact(wt, "contracts/actions.md", "# actions")
+        f.artifact(wt, "architecture.md", "arch")
+
+        rels = ap.iter_publishable_files(wt)
+        self.assertIn("contracts/actions.md", rels)
+
+    def test_missing_archived_artifacts_returns_unpublished(self):
+        f = _Fixture(tempfile.mkdtemp())
+        wt = f.make_task("t-22", "t-22")
+        f.artifact(wt, "architecture.md", "arch")
+        f.artifact(wt, "scope.yaml", "scope")
+
+        missing = ap.missing_archived_artifacts(wt, f.project_root)
+        self.assertEqual(missing, ["architecture.md", "scope.yaml"])
+
+    def test_missing_archived_artifacts_empty_after_publish(self):
+        f = _Fixture(tempfile.mkdtemp())
+        wt = f.make_task("t-23", "t-23")
+        f.artifact(wt, "architecture.md", "arch")
+        result = ap.publish(f.project_root, wt)
+        self.assertEqual(result["errors"], [])
+
+        missing = ap.missing_archived_artifacts(wt, f.project_root)
+        self.assertEqual(missing, [])
+
+    def test_missing_archived_artifacts_no_artifacts_is_empty(self):
+        f = _Fixture(tempfile.mkdtemp())
+        wt = f.make_task("t-24", "t-24")
+
+        missing = ap.missing_archived_artifacts(wt, f.project_root)
+        self.assertEqual(missing, [])
 
 
 class ContentHashTest(unittest.TestCase):

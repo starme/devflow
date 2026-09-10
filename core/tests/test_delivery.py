@@ -124,6 +124,30 @@ class DeliveryStateTest(unittest.TestCase):
             self.assertTrue(path.exists())
             self.assertEqual(delivery.load_delivery_state(path).pr_url, "https://x")
 
+    def test_render_and_load_multi_repo_round_trip(self):
+        state = DeliveryState(
+            commit="be-commit",
+            pushed=True,
+            pr_url="https://github.com/x/be/pull/1",
+            repos=(
+                delivery.RepoDelivery("backend", "/abs/be", "be-commit", True, "https://github.com/x/be/pull/1"),
+                delivery.RepoDelivery("frontend", "/abs/fe", "fe-commit", False, None),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "delivery.yaml"
+            path.write_text(delivery.render_delivery_yaml(state), encoding="utf-8")
+            loaded = delivery.load_delivery_state(path)
+            self.assertEqual(loaded.repos, state.repos)
+            self.assertEqual(loaded.repos[0].pr_url, "https://github.com/x/be/pull/1")
+            self.assertIsNone(loaded.repos[1].pr_url)
+
+    def test_load_multi_repo_absent_repos_defaults_empty(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "delivery.yaml"
+            path.write_text(delivery.render_delivery_yaml(DeliveryState(commit="c")), encoding="utf-8")
+            self.assertEqual(delivery.load_delivery_state(path).repos, ())
+
 
 if __name__ == "__main__":
     unittest.main()

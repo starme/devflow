@@ -35,6 +35,11 @@ Usage:
     python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root> --task <id>
     python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root> --worktree <path>
     python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root> --all-tasks [--dry-run]
+
+``--task`` resolves a task by id in either form: a formal worktree under
+``.devflow-worktrees/<repo>/<task-id>/`` (checked first), or the in-place
+default where ``repo_root/.devflow/task.yaml`` holds the task and its artifacts
+live directly under ``repo_root/.devflow/``.
 """
 from __future__ import annotations
 
@@ -61,6 +66,8 @@ from task_state import find_task_files, load_task
 # config or read-only references.
 PUBLISHABLE_ARTIFACTS = frozenset({
     "architecture.md",
+    "frontend-components.md",  # frontend component spec (architect, when a frontend track exists)
+    "impact-analysis.md",  # chore impact analysis (architect)
     "scope.yaml",
     "diagnosis.md",
     "acceptance-report.md",
@@ -74,6 +81,7 @@ PUBLISHABLE_ARTIFACTS = frozenset({
 # Artifact directories (relative to ``.devflow/``) walked recursively on publish.
 PUBLISHABLE_ARTIFACT_DIRS = frozenset({
     "test_reports",
+    "contracts",  # API contracts (e.g. actions.md) produced by the architect
 })
 
 # PRD is the only artifact renamed on publish.  Source (worktree) keeps the
@@ -133,6 +141,23 @@ def _has_legal_task_yaml(worktree: Path) -> bool:
     return True
 
 
+def _in_place_task_id_matches(repo_root: Path, task_id: str) -> bool:
+    """Return True when ``repo_root`` holds an in-place task whose id matches.
+
+    The in-place form keeps ``.devflow/task.yaml`` directly under the repo root
+    (no ``.devflow-worktrees/`` tree).  There is at most one active in-place
+    task, so an id comparison guards against a stale file that names a
+    different task.
+    """
+    task_file = repo_root / ".devflow" / "task.yaml"
+    if not task_file.is_file():
+        return False
+    try:
+        return load_task(task_file).task_id == task_id
+    except (OSError, ValueError):
+        return False
+
+
 def discover_task(
     repo_root: Path,
     task_id: Optional[str] = None,
@@ -159,9 +184,13 @@ def discover_task(
 
     if task_id:
         candidate = _worktree_root(repo_root, task_id)
-        if not _has_legal_task_yaml(candidate):
-            raise ValueError(f"formal task worktree not found for task id: {task_id}")
-        return candidate
+        if _has_legal_task_yaml(candidate):
+            return candidate
+        # In-place fallback: the default task form keeps artifacts directly in
+        # ``repo_root/.devflow/`` rather than under ``.devflow-worktrees/``.
+        if _in_place_task_id_matches(repo_root, task_id):
+            return repo_root
+        raise ValueError(f"formal task worktree not found for task id: {task_id}")
 
     if all_tasks:
         task_files = find_task_files(repo_root)
@@ -363,6 +392,29 @@ def plan_publish(worktree: Path, target_dir: Path) -> Tuple[List[Dict[str, str]]
     return actions, published_map
 
 
+def missing_archived_artifacts(worktree: Path, project_root: Path) -> List[str]:
+    """Return the list of publishable artifacts that have not yet been archived.
+
+    A publishable artifact is "missing" when it exists in the worktree's
+    ``.devflow/`` but its published counterpart under ``<project_root>/.devflow/tasks/<task-id>/``
+    is either absent or has different content.  The Stop hook uses this at the
+    ``delivery`` phase to block delivery until every artifact is archived, so a
+    task can never be committed with process artifacts left un-archived.
+
+    *project_root* is the archive authority (the directory holding ``.devflow/``),
+    matching the ``publish`` command's ``--root`` argument.
+
+    Returns the worktree-relative source paths (e.g. ``"architecture.md"``) of
+    the artifacts that still need publishing; an empty list means everything is
+    archived (or there are no publishable artifacts at all).
+    """
+    target_dir = resolve_archive_root(project_root) / read_task_meta(worktree)["task_id"]
+    actions, _ = plan_publish(worktree, target_dir)
+    return [
+        action["source"] for action in actions if action["action"] != ACTION_SKIP
+    ]
+
+
 # ---------------------------------------------------------------------------
 # README index
 # ---------------------------------------------------------------------------
@@ -373,6 +425,8 @@ def plan_publish(worktree: Path, target_dir: Path) -> Tuple[List[Dict[str, str]]
 _README_ARTIFACT_KEYS = [
     ("prd.md", "prd"),
     ("architecture.md", "architecture"),
+    ("frontend-components.md", "frontend_components"),
+    ("impact-analysis.md", "impact_analysis"),
     ("scope.yaml", "scope"),
     ("diagnosis.md", "diagnosis"),
     ("acceptance-report.md", "acceptance_report"),
@@ -381,6 +435,7 @@ _README_ARTIFACT_KEYS = [
     ("task-report.md", "task_report"),
     ("retrospective.md", "retrospective"),
     ("test_reports/", "test_reports"),
+    ("contracts/", "contracts"),
 ]
 
 
@@ -403,6 +458,8 @@ def render_readme(meta: Dict[str, str], published_map: Dict[str, str]) -> str:
         target_name = published.rsplit("/", 1)[-1]
         if key == "test_reports":
             target_name = "test_reports/"
+        elif key == "contracts":
+            target_name = "contracts/"
         artifact_lines += f'  {key}: "{target_name}"\n'
 
     return (

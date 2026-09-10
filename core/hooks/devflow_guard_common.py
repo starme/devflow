@@ -248,6 +248,64 @@ def _parse_manifest_workspace(project_root):
     return legacy
 
 
+def _parse_workspaces(project_root):
+    """Parse the multi-repo ``workspaces:`` list from ``project.yaml``.
+
+    Returns a list of ``{"track": ..., "git_root": ...}`` dicts (absolute
+    git_root).  An absent or single-repo project yields ``[]``.  This is the
+    multi-repo counterpart of ``_parse_workspace_yaml``: each endpoint maps a
+    track to an independent git repository rather than a subdirectory of the
+    anchor root.
+    """
+    manifest = project_root / ".devflow" / "project.yaml"
+    if not manifest.is_file():
+        return []
+    try:
+        lines = manifest.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+
+    endpoints = []
+    in_workspaces = False
+    current = None
+    for raw in lines:
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        if indent == 0 and stripped == "workspaces:":
+            in_workspaces = True
+            current = None
+            continue
+        if in_workspaces:
+            if indent == 0 and stripped.endswith(":"):
+                break
+            if indent == 2 and stripped.startswith("- "):
+                if current and current.get("track") and current.get("git_root"):
+                    endpoints.append(current)
+                _, _, track_val = stripped[2:].partition(":")
+                current = {"track": track_val.strip().strip('"').strip("'")}
+                continue
+            if indent >= 4 and current is not None and ":" in stripped:
+                key, _, val = stripped.partition(":")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key == "git_root" and val:
+                    current["git_root"] = val
+    if current and current.get("track") and current.get("git_root"):
+        endpoints.append(current)
+
+    resolved = []
+    for ep in endpoints:
+        git_root = Path(ep["git_root"])
+        if not git_root.is_absolute():
+            git_root = (project_root / git_root).resolve()
+        else:
+            git_root = git_root.resolve()
+        resolved.append({"track": ep["track"], "git_root": str(git_root)})
+    return resolved
+
+
 def _parse_task_phase(project_root):
     """Read ``task.current_phase`` from ``task.yaml`` if present."""
     try:
@@ -271,6 +329,67 @@ def _parse_task_phase(project_root):
     except Exception:
         pass
     return ""
+
+
+def _parse_task_id(project_root):
+    """Read ``task.id`` from ``task.yaml`` if present.
+
+    Mirrors :func:`_parse_task_phase` — the id nests under the ``task:``
+    section, so a top-level scan would miss it.  Returns ``""`` when the
+    task.yaml is absent or malformed.
+    """
+    try:
+        task_path = project_root / ".devflow" / "task.yaml"
+        if not task_path.is_file():
+            return ""
+        content = task_path.read_text(encoding="utf-8", errors="replace")
+        in_task = False
+        for raw_line in content.splitlines():
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            indent = len(raw_line) - len(raw_line.lstrip())
+            if indent == 0 and stripped == "task:":
+                in_task = True
+                continue
+            if in_task and indent == 0 and stripped.endswith(":"):
+                break
+            if in_task and stripped.startswith("id:"):
+                return stripped.split(":", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return ""
+
+
+def archived_index_path(project_root):
+    """Return the archive index path for the current task, or ``None``.
+
+    ``artifact_publish.publish`` writes ``<project_root>/.devflow/tasks/<task-id>/README.md``
+    as the terminal step of a successful publish, so the index file is the
+    lightweight "archived" signal the delivery guard uses — no content hashing.
+    Returns ``None`` when the task id cannot be read (legacy manifest or missing
+    task.yaml).
+    """
+    task_id = _parse_task_id(project_root)
+    if not task_id:
+        return None
+    return project_root / ".devflow" / "tasks" / task_id / "README.md"
+
+
+def task_needs_archive(project_root):
+    """Return ``True`` when the current task has process artifacts that must
+    still be published before delivery can commit.
+
+    True only for formal tasks (a ``task.yaml`` with a readable id) whose archive
+    index ``.devflow/tasks/<task-id>/README.md`` does not yet exist.  Legacy
+    manifest projects (no task.yaml) have no formal-task archive, so they return
+    ``False`` and are never blocked — the archive gate applies only to the
+    isolated-task workflow that ``artifact_publish`` targets.
+    """
+    index = archived_index_path(project_root)
+    if index is None:
+        return False
+    return not index.is_file()
 
 
 def _parse_manifest_phase(project_root):
@@ -330,6 +449,15 @@ def load_context(project_root):
         for k, v in manifest_ws.items():
             if k not in ctx["workspace"] or not ctx["workspace"][k]:
                 ctx["workspace"][k] = v
+
+    # 2b. Attach multi-repo endpoints (if declared) for track boundary checks.
+    # ``endpoints`` is only set when a ``workspaces:`` list exists; absent on
+    # single-repo projects so boundary checks keep using backend/frontend dirs.
+    endpoints = _parse_workspaces(project_root)
+    if endpoints:
+        ctx["workspace"]["endpoints"] = endpoints
+    elif "endpoints" not in ctx["workspace"]:
+        ctx["workspace"]["endpoints"] = []
 
     # 3. Phase fallback: task.yaml, then legacy manifest
     if not ctx.get("current_phase"):
@@ -521,7 +649,6 @@ def path_in_redline_category(rel_path, patterns, negations):
 # only the architect (who has no track boundary) writes them.
 _DEVFLOW_ARTIFACT_PREFIXES = (
     ".devflow/runs/",
-    ".devflow/impact-analysis/",
     ".devflow/sessions/",
     ".devflow/tasks/",
 )
@@ -529,6 +656,8 @@ _DEVFLOW_ARTIFACT_FILES = frozenset({
     ".devflow/scope.yaml",
     ".devflow/diagnosis.md",
     ".devflow/architecture.md",
+    ".devflow/frontend-components.md",
+    ".devflow/impact-analysis.md",
     ".devflow/prd.md",
     ".devflow/backend-task-report.md",
     ".devflow/frontend-task-report.md",
@@ -776,6 +905,10 @@ def infer_track(cwd, workspace):
     Code worktree, the worktree prefix is stripped before comparing against
     workspace paths so that ``.../agent-xxx/server/`` correctly maps to the
     ``server`` backend directory.
+
+    Multi-repo projects declare ``workspace["endpoints"]`` — a list of
+    ``{track, git_root}`` — which is preferred over the legacy backend/frontend
+    subdirectory paths.
     """
     if not workspace or not cwd:
         return None
@@ -790,6 +923,18 @@ def infer_track(cwd, workspace):
         if wt_root and main_root:
             cwd_path = Path(map_worktree_path(str(cwd_path), wt_root, main_root))
             root = main_root
+
+        endpoints = workspace.get("endpoints") or []
+        for ep in endpoints:
+            track = ep.get("track")
+            git_root = ep.get("git_root")
+            if not track or not git_root:
+                continue
+            try:
+                cwd_path.relative_to(Path(git_root).resolve())
+                return track
+            except ValueError:
+                pass
 
         backend = workspace.get("backend", "")
         frontend = workspace.get("frontend", "")
@@ -833,6 +978,13 @@ def is_within_boundary(abs_path, workspace, track, cwd=None):
         if wt_root and main_root:
             target = Path(map_worktree_path(str(target), wt_root, main_root))
             root = main_root
+
+        # Multi-repo: the track maps to an independent git root, not a
+        # subdirectory of the anchor root.
+        for ep in workspace.get("endpoints") or []:
+            if ep.get("track") == track and ep.get("git_root"):
+                target.relative_to(Path(ep["git_root"]).resolve())
+                return True
 
         track_dir = workspace.get(track, "")
         if not track_dir:
@@ -884,3 +1036,18 @@ def check_dangerous_command(command):
     except Exception:
         pass
     return None
+
+
+_GIT_COMMIT = re.compile(r"\bgit\s+commit\b", re.IGNORECASE)
+
+
+def is_git_commit(command):
+    """Return ``True`` when *command* invokes ``git commit``.
+
+    Delivery lifecycle runs the commit through the Bash tool so the guard hooks
+    can audit it; this matcher lets the delivery phase gate on it.
+    """
+    try:
+        return bool(_GIT_COMMIT.search(command))
+    except Exception:
+        return False

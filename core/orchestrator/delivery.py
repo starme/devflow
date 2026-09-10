@@ -117,11 +117,29 @@ def dirty_files(root: Optional[Path] = None) -> list[str]:
 
 
 @dataclass(frozen=True)
+class RepoDelivery:
+    """Per-repository delivery sub-state for a multi-repo task.
+
+    Each endpoint gets its own commit/push/PR independently so a separated
+    backend/frontend pair produces two PRs under the same task.
+    """
+    track: str
+    git_root: str
+    commit: Optional[str] = None
+    pushed: bool = False
+    pr_url: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class DeliveryState:
     """Independent delivery sub-state persisted to ``.devflow/delivery.yaml``.
 
     Every field is independently determinable so ``/devflow next`` can resume
     idempotently — already-completed steps are skipped, never repeated.
+
+    ``repos`` holds the per-repository entries for a multi-repo task; the flat
+    scalar fields (``commit``/``pushed``/``pr_url``) remain for single-repo
+    tasks and as a legacy-compatible summary.
     """
     commit: Optional[str] = None
     pushed: bool = False
@@ -131,6 +149,7 @@ class DeliveryState:
     worktree_removed: bool = False
     branch_deleted: bool = False
     returned_to_main: bool = False
+    repos: tuple[RepoDelivery, ...] = ()
 
 
 def _yaml_bool(value: bool) -> str:
@@ -146,19 +165,28 @@ def _yaml_quote(value: Optional[str]) -> str:
 
 def render_delivery_yaml(state: DeliveryState) -> str:
     """Render the delivery sub-state as human-readable YAML."""
-    return (
-        "schema_version: 1\n"
-        "\n"
-        "delivery:\n"
-        f"  commit: {_yaml_quote(state.commit)}\n"
-        f"  pushed: {_yaml_bool(state.pushed)}\n"
-        f"  remote: {_yaml_quote(state.remote)}\n"
-        f"  pr_url: {_yaml_quote(state.pr_url)}\n"
-        f"  pr_title: {_yaml_quote(state.pr_title)}\n"
-        f"  worktree_removed: {_yaml_bool(state.worktree_removed)}\n"
-        f"  branch_deleted: {_yaml_bool(state.branch_deleted)}\n"
-        f"  returned_to_main: {_yaml_bool(state.returned_to_main)}\n"
-    )
+    lines = [
+        "schema_version: 1",
+        "",
+        "delivery:",
+        f"  commit: {_yaml_quote(state.commit)}",
+        f"  pushed: {_yaml_bool(state.pushed)}",
+        f"  remote: {_yaml_quote(state.remote)}",
+        f"  pr_url: {_yaml_quote(state.pr_url)}",
+        f"  pr_title: {_yaml_quote(state.pr_title)}",
+        f"  worktree_removed: {_yaml_bool(state.worktree_removed)}",
+        f"  branch_deleted: {_yaml_bool(state.branch_deleted)}",
+        f"  returned_to_main: {_yaml_bool(state.returned_to_main)}",
+    ]
+    if state.repos:
+        lines.append("  repos:")
+        for repo in state.repos:
+            lines.append(f"    - track: {_yaml_quote(repo.track)}")
+            lines.append(f"      git_root: {_yaml_quote(repo.git_root)}")
+            lines.append(f"      commit: {_yaml_quote(repo.commit)}")
+            lines.append(f"      pushed: {_yaml_bool(repo.pushed)}")
+            lines.append(f"      pr_url: {_yaml_quote(repo.pr_url)}")
+    return "\n".join(lines) + "\n"
 
 
 def _read_scalar(content: str, key: str) -> Optional[str]:
@@ -179,6 +207,77 @@ def _read_bool(content: str, key: str) -> bool:
     return value == "true"
 
 
+def _unquote(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        return value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1]
+    return value
+
+
+def _read_repos(content: str) -> tuple[RepoDelivery, ...]:
+    """Parse the optional ``delivery.repos`` list into ``RepoDelivery`` tuples.
+
+    Fail-safe: malformed entries are skipped; an absent section yields ``()``.
+    """
+    repos = []
+    lines = content.splitlines()
+    in_delivery = False
+    in_repos = False
+    current: dict = {}
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent == 0 and stripped.endswith(":"):
+            in_delivery = stripped[:-1] == "delivery"
+            in_repos = False
+            continue
+        if not in_delivery:
+            continue
+        if indent == 2 and stripped == "repos:":
+            in_repos = True
+            continue
+        if in_repos:
+            if indent == 2 and stripped.endswith(":") and stripped != "repos:":
+                in_repos = False
+                continue
+            if indent == 4 and stripped.startswith("- "):
+                if current:
+                    repos.append(_repo_from(current))
+                _, _, track_val = stripped[2:].partition(":")
+                current = {"track": _unquote(track_val.strip())}
+                continue
+            if indent >= 6 and current is not None:
+                key, _, val = stripped.partition(":")
+                key = key.strip()
+                if key == "git_root":
+                    current[key] = _unquote(val)
+                elif key in ("commit", "pr_url"):
+                    current[key] = _unquote(val) if val.strip() not in {"null", "~"} else None
+                elif key == "pushed":
+                    current[key] = val.strip() == "true"
+    if current:
+        repos.append(_repo_from(current))
+    return tuple(r for r in repos if r is not None)
+
+
+def _repo_from(fields: dict) -> Optional[RepoDelivery]:
+    track = fields.get("track", "")
+    git_root = fields.get("git_root", "")
+    if not track or not git_root:
+        return None
+    return RepoDelivery(
+        track=track,
+        git_root=git_root,
+        commit=fields.get("commit"),
+        pushed=bool(fields.get("pushed", False)),
+        pr_url=fields.get("pr_url"),
+    )
+
+
 def load_delivery_state(path: Path) -> DeliveryState:
     """Load the delivery sub-state, returning defaults when absent or
     malformed (fail-safe)."""
@@ -195,6 +294,7 @@ def load_delivery_state(path: Path) -> DeliveryState:
         worktree_removed=_read_bool(content, "worktree_removed"),
         branch_deleted=_read_bool(content, "branch_deleted"),
         returned_to_main=_read_bool(content, "returned_to_main"),
+        repos=_read_repos(content),
     )
 
 

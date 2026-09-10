@@ -30,6 +30,8 @@ argument-hint: <需求描述>
 5. **后来者**：若主仓库已有未完成 `task.yaml`，为新 task 建 `../.devflow-worktrees/<repo>/<task-id>/`，复制 `project.yaml` / `redlines.yaml` / `rules/`，先到的需求不搬家。
 6. 向用户报告 task id、branch、工作区路径（主仓库或 worktree）和 base commit。
 
+**多仓库（前后端分离）**：当 `project.yaml` 声明 `workspaces:` 端点列表时，`create_task` 在**每个端点仓库**建同名 `feature/<slug>-<short-id>` 分支，各自固化独立的 `base_commit`。锚点仓库（`.devflow/` 所在目录）走 in-place checkout 或 latercomer worktree；其余端点只 checkout 分支不建 worktree。`task.yaml` 的 `git.endpoints` 列表和 `context.json` 的 `endpoints` 数组记录每个端点的 `track/git_root/base_ref/base_commit/branch`。DELIVERY 阶段每个改动过的端点各开一个 PR。
+
 只读对照主分支（查线上）不要用本命令，用临时 `git worktree add` 或 `git show`。
 
 ## 执行
