@@ -1,6 +1,6 @@
 {
   "name": "devflow",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Adaptive lifecycle orchestration for traditional applications, AI agents, Agent Plugins, Skills, and MCP servers.",
   "author": {
     "name": "starme",

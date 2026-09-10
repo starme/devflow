@@ -1,6 +1,6 @@
 # DevFlow
 
-**Version: 1.0.1**
+**Version: 1.1.0**
 
 English | [中文](README.zh-CN.md)
 
