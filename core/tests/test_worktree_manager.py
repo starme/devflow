@@ -2,7 +2,6 @@
 """Tests for isolated DevFlow task state and Git worktree creation."""
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 import tempfile
@@ -64,24 +63,23 @@ class WorktreeManagerTest(unittest.TestCase):
             self.assertEqual(load_task(Path(bugfix.worktree) / ".devflow" / "task.yaml").source_task_id, feature.task_id)
             self.assertEqual({record.task_id for record in discover_tasks(root)}, {feature.task_id, bugfix.task_id})
 
-    def test_context_json_includes_workspace_from_project_yaml(self):
+    def test_create_task_writes_v2_state_without_context_json(self):
+        # ADR-0005: task.yaml is self-sufficient; the runtime context.json is
+        # retired. The state file carries the v2 initial phase "qa".
         with tempfile.TemporaryDirectory() as temp_dir:
             root = self._repository(temp_dir)
             (root / ".devflow").mkdir(exist_ok=True)
             (root / ".devflow" / "project.yaml").write_text(
                 "workspace:\n"
-                "  root: \".\"\n"
-                "  backend:\n"
-                "    path: \"server\"\n"
-                "  frontend:\n"
-                "    path: \"web\"\n",
+                "  root: \".\"\n",
                 encoding="utf-8",
             )
-            record = create_task(root, "Add workspace context", "feature")
-            ctx = json.loads((root / ".devflow" / "context.json").read_text(encoding="utf-8"))
-            self.assertEqual(ctx["workspace"]["backend"], "server")
-            self.assertEqual(ctx["workspace"]["frontend"], "web")
-            self.assertEqual(ctx["task_id"], record.task_id)
+            create_task(root, "Add v2 state", "feature")
+            self.assertFalse((root / ".devflow" / "context.json").exists())
+            content = (root / ".devflow" / "task.yaml").read_text(encoding="utf-8")
+            self.assertIn('current_phase: "qa"', content)
+            self.assertIn("card: null", content)
+            self.assertIn("verification: null", content)
 
     def test_dirty_in_place_task_does_not_block_latercomer_worktree(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -178,10 +176,10 @@ class WorktreeManagerTest(unittest.TestCase):
             # Each endpoint froze its own base commit.
             self.assertTrue(ep.base_commit)
 
-            # context.json carries the endpoint list.
-            ctx = json.loads((anchor / ".devflow" / "context.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(ctx["endpoints"]), 1)
-            self.assertEqual(ctx["endpoints"][0]["track"], "frontend")
+            # task.yaml (not the retired context.json) carries the endpoint list.
+            anchor_task = load_task(anchor / ".devflow" / "task.yaml")
+            self.assertEqual(len(anchor_task.endpoints), 1)
+            self.assertEqual(anchor_task.endpoints[0].track, "frontend")
 
     def test_multi_repo_rolls_back_endpoint_branch_on_failure(self):
         with tempfile.TemporaryDirectory() as temp_dir:

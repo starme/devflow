@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """DevFlow worktree artifact sync.
 
+DEPRECATED (ADR-0005, v2): the v2 flow dispatches no role agents into
+``.claude/worktrees/agent-*`` worktrees, so there is nothing to collect.
+Kept in place for legacy agent-worktree recovery until physical removal is
+explicitly approved; its tests remain the safety net until then.
+
 Claude Code's Task tool runs subagents in isolated git worktrees under
 ``.claude/worktrees/agent-<id>/``.  Agents write their ``.devflow/``
 artifacts (scope.yaml, task reports, test reports, contracts, etc.) inside

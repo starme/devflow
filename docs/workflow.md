@@ -1,6 +1,7 @@
 # DevFlow 工作流程详解
 
-> 本文件承接 README 中下沉的完整 Mermaid 工作流程图，并补充阶段状态机、内外循环边界与 bugfix/chore 裁剪说明，供需要了解逐阶段细节的读者参考。README 只保留一张扁平宣传型架构图。
+> 本文件承接 README 中的流程概览，补充状态机、锚定协议、Gate 定义与 bugfix 精简路径。
+> v2 校准的决策依据见 [ADR-0005](adr/0005-orchestration-recalibration.md)。
 
 ## 完整工作流程图
 
@@ -12,123 +13,128 @@ flowchart TD
     NEW --> STARTFEATURE["/devflow start<br/>启动需求"]
     START --> FIX["/devflow fix<br/>修 bug / 日常维护"]
 
-    subgraph full["全流程模式"]
-        P1["💡 产品设计<br/>苏格拉底追问 → Grilling<br/>产出: PRD 文档"]
-        G1{{"Gate: PRD 评审<br/>+ Memorant 相似项目召回"}}
-        ARCH["🏗️ 架构设计<br/>API 契约 + 组件拆分<br/>产出: SDD 技术方案"]
-
-        P2["⚙️ 后端开发<br/>SDD 方案 → TDD 编码<br/>任务分级: 机械/单模块/跨模块"]
-        G2{{"Gate: 联调对齐<br/>API 契约一致性校验"}}
-        P3["🎨 前端开发<br/>明确边界 → 定向微调<br/>样式/交互/状态数据流"]
-
-        TEST["🧪 测试与验收<br/>单元 → 集成 → 契约检查<br/>Lint → 安全扫描 → 构建验证"]
-        ACCEPT{"✅ 验收签字<br/>对照 PRD 验收标准"}
-        DELIVERY["🚀 交付闭环<br/>commit + push + PR"]
-        GD{{"Gate: 交付确认<br/>三合一：commit+push+PR"}}
+    subgraph full["功能路径（feature）"]
+        QA["💡 锚定 Q&A<br/>冻结原话 · 填空式追问 · 每轮 running summary"]
+        PRD["📄 PRD<br/>≤1.5 页 · 每条需求标注来源"]
+        G1{{"GATE-1: PRD 漂移聚焦审查<br/>核心诉求复述 + 超出原话的条目清单"}}
+        CARD["🗂️ 方案卡<br/>方案要点 · 影响范围 · 风险<br/>验收标准表（cmd/ai/manual → R#）"}}
+        G2{{"GATE-2: 方案卡评审<br/>批准即方案与验收标准冻结"}}
+        DEV["⚙️ 主线程实现<br/>功能分支 · 勾选进度 · 记录偏差"]
+        V["🔍 devflow-verifier<br/>逐条执行验收标准 + 回归<br/>无证据不得 PASS"]
+        G3{{"GATE-3: 交付三合一确认<br/>附验证报告 + manual 项<br/>commit + push + PR"}}
         DISTILL["💎 蒸馏<br/>经验写入 Memorant"]
         DONE["🎉 完成<br/>PR 合并后清理"]
     end
 
-    subgraph fixmode["修复模式"]
-        F1["🔍 症状确认<br/>复现步骤 + 错误信息"]
-        F2["🔬 根因定位<br/>Memorant 召回 + 代码分析"]
-        F3["🔧 修复实施<br/>根因修复"]
+    subgraph fixmode["修复路径（bugfix / chore）"]
+        DIAG["🔍 诊断<br/>冻结原话症状 · 复现 · 根因"]
+        FCARD["🗂️ 诊断卡（方案卡瘦版）<br/>根因 · 修复方案 · 回归标准"]
+        FG{{"GATE: 诊断卡评审（单 Gate）"}}
     end
 
-    MEM["💎 Memorant<br/>事件采集 · A/B 记忆蒸馏<br/>经验召回 · 信任路由"]
+    MEM["💎 Memorant<br/>召回 · 蒸馏 · 信任路由"]
 
-    STARTFEATURE --> P1
-    P1 --> G1
-    G1 -->|人审批| ARCH
-    ARCH --> P2
-    ARCH --> P3
-    P2 --> G2
-    P3 --> G2
-    G2 --> TEST
-    TEST --> ACCEPT
-    ACCEPT -->|人签字| DELIVERY
-    DELIVERY --> GD
-    GD -->|人确认| DISTILL
+    STARTFEATURE --> QA
+    QA --> PRD
+    PRD --> G1
+    G1 -->|人批准| CARD
+    G1 -->|要求修改| QA
+    CARD --> G2
+    G2 -->|人批准| DEV
+    G2 -->|要求修改| CARD
+    DEV --> V
+    V -->|FAIL| DEV
+    V -->|全 PASS| G3
+    G3 -->|人确认| DISTILL
+    G3 -->|要求调整| DEV
     DISTILL --> DONE
-    GD -->|要求调整| DELIVERY
 
-    FIX --> F1 --> F2 --> F3
-    F3 --> TEST
+    FIX --> DIAG
+    DIAG --> FCARD
+    FCARD --> FG
+    FG -->|人批准| DEV
 
-    TEST -.->|失败自动修复循环| P2
-    TEST -.->|失败自动修复循环| P3
-    ACCEPT -.->|要求修改| P2
-    ACCEPT -.->|要求修改| P3
-
-    DISTILL -->|写入高质量记忆| MEM
-    MEM -.->|经验注入 & 避坑召回| G1
-    MEM -.->|技术选型 ADR| ARCH
-    MEM -.->|Bug 解决方案| TEST
-    MEM -.->|相似 bug 召回| F2
-    MEM -.->|错误即时召回| F3
+    MEM -.->|相似需求/漂移教训| QA
+    MEM -.->|相似 bug| DIAG
+    MEM -.->|测试经验| V
+    DISTILL -.->|写入记忆| MEM
 
     classDef human fill:#f0edff,stroke:#6c5ce7,stroke-width:2px,color:#1a1a2e
     classDef auto fill:#f7f7fc,stroke:#e2e2f0,stroke-width:1px,color:#1a1a2e
     classDef gate fill:#fffbf0,stroke:#fdcb6e,stroke-width:1.5px,color:#1a1a2e
-    classDef test fill:#e6fff9,stroke:#00b894,stroke-width:1.5px,color:#1a1a2e
+    classDef verify fill:#e6fff9,stroke:#00b894,stroke-width:1.5px,color:#1a1a2e
     classDef fix fill:#fff0ed,stroke:#e17055,stroke-width:1.5px,color:#1a1a2e
     classDef memorant fill:#f0edff,stroke:#6c5ce7,stroke-width:1.5px,stroke-dasharray:5 3,color:#6c5ce7
     classDef entry fill:#e8e8f0,stroke:#4a4a68,stroke-width:2px,color:#1a1a2e
 
     class START,NEW,FIX entry
-    class P1,ACCEPT human
-    class ARCH,P2,P3,DELIVERY,DONE auto
-    class G1,G2,GD gate
-    class TEST test
-    class F1,F2,F3 fix
-    class DISTILL,MEM memorant
+    class QA,G1,G2,G3,FG human
+    class PRD,CARD,DEV,DISTILL,DONE auto
+    class DIAG,FCARD fix
+    class V verify
+    class MEM memorant
 ```
 
-**图例：** 紫色边框 = 需要人决策 ｜ 黄色虚线框 = 质量门禁 ｜ 绿色 = 测试阶段 ｜ 橙色 = 修复模式 ｜ 紫色虚线 = Memorant 学习闭环
+**图例：** 紫色 = 需要人决策 ｜ 黄色 = 等待人工批准的 Gate ｜ 绿色 = 机器验证 ｜ 橙色 = 修复路径 ｜ 紫色虚线 = Memorant 记忆闭环
 
-## 阶段状态机
+## 状态机
 
-DevFlow 的完整阶段序列如下（源自 `core/orchestrator/SKILL.md`）：
+`task.yaml` 的 `task.current_phase` 只有 6 个值，只用于提示注入，**hook 永不拦截**：
 
 ```text
-IDLE → CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE
-      → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DELIVERY → GATE_DELIVERY → DISTILL → DONE
+qa → prd_review → plan_review → working → deliver_confirm → done
 ```
 
-- **外层循环（需求确认）**：`IDLE → CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH`。这一层每一步都可能暂停，等待人类输入（分类确认、需求澄清、PRD 审批、架构审批）。
-- **内层循环（实现流水线）**：`DEVELOPMENT ↔ TESTING`。任务由研发 Agent 按 scope 实现（可并行），每个 task 自带 VALIDATE 门控自检；测试 Agent 做全量回归。
-- **收尾**：`ACCEPTANCE → DELIVERY → GATE_DELIVERY → DISTILL → DONE`。产品 Agent 对照 PRD 验收；签字后进入交付闭环（提交 commit + 推送分支 + 创建 PR，PR 创建后暂停不自动合并），随后蒸馏经验到 Memorant（或写 `.devflow/retrospective.md`）。
+| 值 | 含义 | 停还是干 |
+|---|------|---------|
+| `qa` | 需求澄清（锚定协议）或 bug 诊断 | 与用户多轮交互 |
+| `prd_review` | GATE-1 等 PRD 批准（仅 feature） | 等用户 |
+| `plan_review` | GATE-2 等方案卡批准 | 等用户 |
+| `working` | 实现 + GATE-V 机器验证 | 主线程连续干完 |
+| `deliver_confirm` | GATE-3 等交付三合一确认 | 等用户 |
+| `done` | PR 已合并、清理完成 | — |
 
-- **产物发布（publish）**：只在 `DELIVERY` 把过程物料归档到 `.devflow/tasks/<task-id>/`（PRD 为 `prd-<task-slug>.md`），用来追溯做过什么、方案、完成度、测试和验收。幂等：内容未变则跳过，内容不同则冲突不覆盖。
+bugfix / chore 跳过 `prd_review`：诊断结论并入方案卡，只走一个 Gate（plan_review）。
+v1 的 bugfix/chore 阶段裁剪规则表不再需要——统一方案卡的瘦版天然覆盖。
 
-## 内外循环边界
+## 需求锚定协议（为什么这样设计）
 
-- **内层自动流转**：`DEVELOPMENT ↔ TESTING` 之间的失败只在内部绕，不打扰用户。每个 task 的 VALIDATE 是第一道门控，测试 Agent 的全量回归是第二道门控。
-- **突破到外层**只发生在三种情况：测试 3 轮仍失败、发现需求矛盾或 PRD 问题、用户在 Gate 要求修改方案。此时停止自动流程，报告用户决策。
-- **方案冻结**：`GATE_ARCH` 通过即"方案冻结"，scope.yaml 中的任务、契约、文件范围是内层循环的执行依据；研发 Agent 的任何偏差都必须在实现报告中记录。
+漂移的三个根因，每个对应一条强制纪律：
 
-## bugfix / chore 裁剪路径
+| 根因 | 症状 | 对策 |
+|------|------|------|
+| 原话没有锚定物 | 每轮转述都是有损拷贝，越问越偏 | 原话逐字冻结进 PRD 第 1 节；第一轮复述核心诉求并确认 |
+| 加法式提问 | "要不要也支持 X？"把没提过的东西种进需求 | 只做填空式提问；模型补充只能以 `[推断]` 条目存在，显式确认前不得进入需求 |
+| 合成太晚、审查面太大 | 漂移烤熟了才被看见 | 每轮展示 running summary；GATE-1 只看"超出原话的条目清单" |
 
-bugfix 与 chore 跳过重环节，只保留根因诊断与实现闭环：
+## 产物
 
-| 工作类型 | 保留的阶段 | 跳过的阶段 |
-|---------|-----------|-----------|
-| **feature**（新功能） | CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DELIVERY → GATE_DELIVERY → DISTILL → DONE | 无 |
-| **bugfix**（修 bug） | CLASSIFY → ARCHITECTURE（根因分析）→ DEVELOPMENT → TESTING → DELIVERY → GATE_DELIVERY → DISTILL | PRODUCT_QA、PRD_WRITING、GATE_PRD、GATE_ARCH、ACCEPTANCE |
-| **chore**（杂项） | CLASSIFY → ARCHITECTURE（影响分析）→ DEVELOPMENT → TESTING → DELIVERY → GATE_DELIVERY → DISTILL | PRODUCT_QA、PRD_WRITING、GATE_PRD、GATE_ARCH、ACCEPTANCE |
+| 产物 | 路径（task 工作区） | 归档（`.devflow/tasks/<task-id>/`） |
+|------|--------------------|-----------------------------------|
+| PRD | `.devflow/prd.md` | `prd-<task-slug>.md` |
+| 方案卡 | `.devflow/card.md` | `card.md` |
+| 验证报告 | `.devflow/verification-report.md` | `verification-report.md` |
+| 交付状态 | `.devflow/delivery.yaml` | `delivery.yaml` |
 
-- **bugfix** 从 CLASSIFY 直接进入 ARCHITECTURE，架构 Agent 以 `diagnosis` 模式做根因分析而不是完整技术方案。
-- **ACCEPTANCE（验收）** 被替换为回归确认：Manager 检查测试报告中的相关测试是否全部通过，向用户报告"修复已通过回归测试"即可。
-- **DELIVERY（交付）** 是三种 work_type 都走的闭环：feature 在验收签字后、bugfix/chore 在回归确认通过后，走 commit + push + PR，PR 创建后暂停不自动合并。
+追溯链：**原话 → 需求 R# → 验收标准 A# → verifier 证据**。方案卡的每条验收标准
+必须映射 R#；verifier 的每条结论必须带证据——用证据链替代流程完整性。
 
-## 人类介入点
+## GATE-V：唯一 subagent
 
-全流程中人类只需在 5 个点介入（其余自动执行）：
+`devflow-verifier`（从 v1 tester 改造）以干净上下文独立验证：
 
-1. **需求澄清（Q&A）** —— 苏格拉底式追问，明确要做什么
-2. **PRD 评审** —— 审批产品需求文档
-3. **架构评审** —— 审批技术方案和范围
-4. **验收签字** —— 最终确认
-5. **交付确认（三合一：commit + push + PR）** —— 验收签字后一次确认提交、推送、创建 PR（PR 创建后暂停不自动合并）
+- 只测不改；`Write` 仅限验证报告
+- 逐条执行验收标准：`cmd`（exit 0 即 PASS）/ `ai`（必须附文件行号或 grep 匹配）/ `manual`（留给 GATE-3）
+- 无证据不得 PASS；环境缺失标 BLOCKED，不在范围标 SKIP
+- 回归命令从项目配置识别，识别不出标 BLOCKED，不猜
+- FAIL → 主线程自己修复重验（连续 3 轮失败停下报告用户）；无路由仪式
 
-自动阶段由 Stop hook 拦住结束，模型继续用工具干到下一个 Gate，不要让用户打 `/devflow next` 才能往下走。`/devflow next` 只用于会话中断恢复，以及 PR 合并后的 DONE 清理。Gate 阶段始终等待人工审批。
+## 人工介入点（4 个）
+
+1. **需求澄清（Q&A）**——锚定协议下的多轮交互
+2. **PRD 评审（GATE-1）**——漂移聚焦审查，批准前待确认项清零
+3. **方案卡评审（GATE-2）**——批准方案与验收标准（冻结）
+4. **交付确认（GATE-3）**——三合一（commit + push + PR），附验证报告与 manual 项；PR 创建后暂停不自动合并
+
+Gate 之外的阶段由主线程连续推进到下一个 Gate，不需要用户打 `/devflow next`。
+`/devflow next` 只用于会话中断恢复和 PR 合并后的 done 清理。

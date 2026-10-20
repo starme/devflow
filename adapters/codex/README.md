@@ -29,7 +29,7 @@ Those extension points do not establish a generic, synchronous pre-execution den
 
 ## Version and updates
 
-The current DevFlow adapter release is **1.0.1**. Refresh the configured Marketplace before checking for updates:
+The current DevFlow adapter release is **1.1.0**. Refresh the configured Marketplace before checking for updates:
 
 ```bash
 codex plugin marketplace upgrade devflow-marketplace

@@ -4,10 +4,10 @@
 Fail-open: any exception results in empty JSON output so the user
 is never blocked.
 
-For automatic phases the Stop hook keeps blocking so the main Agent continues
-with tools until the next Gate. ``delivery`` is the nested confirmation Gate
-(commit + push + PR): Stop is allowed so the user can answer. ``stop_hook_active``
-does not release an unfinished automatic phase.
+v2 (ADR-0005): hooks only *inform*, never *block*. The Stop event is no
+longer registered — the model is trusted to continue working to the next
+Gate on its own. SessionStart injects task context, UserPromptSubmit hints
+when a Gate is waiting for the user, PreCompact preserves task state.
 """
 import glob
 import json
@@ -294,7 +294,7 @@ def read_tasks_summary(manifest_path, phase):
     return ''
 
 
-def emit(context, event_name='Stop'):
+def emit(context, event_name='SessionStart'):
     """Emit JSON hook output.
 
     Claude Code requires hookEventName inside hookSpecificOutput to
@@ -312,14 +312,6 @@ def emit(context, event_name='Stop'):
         }))
     except Exception:
         print('{}')
-
-
-def emit_stop_block(reason):
-    """Prevent Stop so the main Agent can continue an automatic phase."""
-    try:
-        print(json.dumps({"decision": "block", "reason": reason}))
-    except Exception:
-        print("{}")
 
 
 def emit_text(text):
@@ -346,7 +338,7 @@ def handle_session_start(data):
         ctx = f"[DevFlow] Active project: {project_root.name} | type: {work_type} | phase: {phase}."
         if tasks:
             ctx += f" Tasks: {tasks}."
-        ctx += " Automatic phases continue to the next Gate; /devflow status for details."
+        ctx += " Gates wait for your approval; /devflow status for details."
         return emit(ctx, 'SessionStart')
     except Exception:
         return emit('', 'SessionStart')
@@ -358,7 +350,9 @@ def handle_user_prompt(data):
         if not manifest_path:
             return emit('', 'UserPromptSubmit')
         phase = read_state_phase(manifest_path)
+        # v2 Gate/waiting statuses plus legacy manifest phases (old projects).
         gate_phases = {
+            'qa', 'prd_review', 'plan_review', 'deliver_confirm',
             'classify', 'product_qa', 'gate_prd', 'gate_arch',
             'acceptance', 'delivery',
         }
@@ -370,28 +364,6 @@ def handle_user_prompt(data):
         return emit('', 'UserPromptSubmit')
     except Exception:
         return emit('', 'UserPromptSubmit')
-
-
-def handle_stop(data):
-    try:
-        manifest_path, _ = find_manifest(data.get('cwd'))
-        if not manifest_path:
-            return emit('', 'Stop')
-        phase = read_state_phase(manifest_path)
-        auto_phases = {
-            'prd_writing', 'architecture', 'development',
-            'testing', 'distill',
-        }
-        if phase in auto_phases:
-            return emit_stop_block(
-                f"[DevFlow] Automatic phase '{phase}' is not finished. "
-                "Do not stop and do not wait for /devflow next. "
-                "Continue with tools until the next Gate "
-                "(gate_prd, gate_arch, acceptance, or delivery confirmation)."
-            )
-        return emit('', 'Stop')
-    except Exception:
-        return emit('', 'Stop')
 
 
 def handle_pre_compact(data):
@@ -430,7 +402,6 @@ def main():
         handlers = {
             'SessionStart': handle_session_start,
             'UserPromptSubmit': handle_user_prompt,
-            'Stop': handle_stop,
             'PreCompact': handle_pre_compact,
         }
 

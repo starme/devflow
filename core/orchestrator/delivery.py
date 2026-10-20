@@ -33,6 +33,8 @@ from typing import Optional
 DELIVERY_ARTIFACT_FILES = frozenset({
     ".devflow/scope.yaml",
     ".devflow/prd.md",
+    ".devflow/card.md",
+    ".devflow/verification-report.md",
     ".devflow/architecture.md",
     ".devflow/diagnosis.md",
     ".devflow/acceptance-report.md",

@@ -66,10 +66,15 @@ def _render_endpoint_lines(record: TaskRecord) -> list[str]:
     return lines
 
 
-def render_task_yaml(record: TaskRecord, current_phase: str = "classify") -> str:
-    """Render the stable task state as human-readable YAML."""
+def render_task_yaml(record: TaskRecord, current_phase: str = "qa") -> str:
+    """Render the stable task state as human-readable YAML.
+
+    v2 (ADR-0005): ``current_phase`` takes one of six values
+    (qa / prd_review / plan_review / working / deliver_confirm / done);
+    hooks read it for hints only and never block on it.
+    """
     lines = [
-        "schema_version: 1",
+        "schema_version: 2",
         "",
         "task:",
         f"  id: {_yaml_quote(record.task_id)}",
@@ -91,18 +96,10 @@ def render_task_yaml(record: TaskRecord, current_phase: str = "classify") -> str
         f"parent_task_id: {_yaml_quote(record.parent_task_id)}",
         f"source_task_id: {_yaml_quote(record.source_task_id)}",
         "",
-        "project_snapshot:",
-        "  source: \".devflow/project.yaml\"",
-        "",
-        "workflow:",
-        "  selected_tracks: []",
-        "",
         "artifacts:",
         "  prd: null",
-        "  architecture: null",
-        "  scope: \".devflow/scope.yaml\"",
-        "  test_reports: []",
-        "  acceptance_report: null",
+        "  card: null",
+        "  verification: null",
         "  delivery: \".devflow/delivery.yaml\"",
     ])
     return "\n".join(lines) + "\n"

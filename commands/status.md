@@ -5,8 +5,6 @@ argument-hint: [--task <task-id>] [--all]
 
 # /devflow status
 
-DevFlow 将项目级配置与 task 状态分开读取。
-
 ## 输出范围
 
 - `/devflow status`：当前 worktree 的 task；主仓库只有一个活动 task 时显示它。
@@ -16,22 +14,19 @@ DevFlow 将项目级配置与 task 状态分开读取。
 
 ## 输出内容
 
-### 项目级（来自 `.devflow/project.yaml`）
+### 项目级（`.devflow/project.yaml`）
 
-1. 项目名称、类别、置信度和证据摘要
-2. capabilities、workspace 路径和支持的 adapters
-3. redline 能力和 Memorant 状态
+1. 项目名称、类别、capabilities、workspace 路径、adapter 与 redline 能力、Memorant 状态
 
-### task/分支级（来自目标 worktree 的 `.devflow/task.yaml`）
+### task 级（目标 worktree 的 `.devflow/task.yaml`）
 
-4. task id、kind、描述、当前阶段和状态
-5. branch、worktree、base_ref、固化的 base_commit
-6. 当前需求实际启用的 `workflow.selected_tracks`
-7. PRD、架构、scope、测试和验收产物（每条产物需同时显示两个路径：
-   - **task 内临时路径**：worktree 内的 `.devflow/<name>`（如 `.devflow/prd.md`）
-   - **主工作区已发布路径**：`.devflow/tasks/<task-id>/<target>`（PRD 发布为 `prd-<task-slug>.md`，其余保持固定名）
-   已发布与未发布的产物要明确区分，避免把 task 内草稿误认为归档成果。）
-8. 测试轮次、blocked 项和下一步操作
-9. 交付状态（来自 task.yaml `delivery` 段或 `.devflow/delivery.yaml`）：PR URL（未创建为 null）、分支 pushed 状态、worktree 清理状态。DELIVERY 交付闭环的进度标记为：commit short hash、pushed、remote、PR URL、worktree 是否清理、是否已切回主分支
+2. task id、kind、描述、`current_phase`（qa / prd_review / plan_review / working / deliver_confirm / done）
+3. branch、worktree、base_ref、固化 base_commit
+4. 产物（区分工作区草稿与已归档 `.devflow/tasks/<task-id>/` 两个路径，已发布与未发布明确区分）：
+   - PRD：`.devflow/prd.md`（归档名 `prd-<task-slug>.md`）
+   - 方案卡：`.devflow/card.md`（含进度勾选与偏差记录）
+   - 验证报告：`.devflow/verification-report.md`（含各轮结论）
+   - 交付状态：`.devflow/delivery.yaml`（commit、pushed、remote、PR URL、清理状态）
+5. 验证结论摘要（最近一轮 overall 与 FAIL / SKIP / MANUAL 数）与下一步操作
 
-不同 task 的阶段、产物和测试状态必须分别显示，不得从共享 manifest 推断。
+不同 task 的状态必须分别显示，不得从共享文件推断。

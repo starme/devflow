@@ -1,5 +1,12 @@
 # DevFlow 架构说明
 
+> **v2 校准注记（2026-10-20）**：本文写作于 v1 交付生命周期设计期。v2（ADR-0005）之后：
+> 角色 Agent 全部退役（仅存 `devflow-verifier`）、`current_phase` 收敛为 6 值
+> （`qa → prd_review → plan_review → working → deliver_confirm → done`）、
+> scope.yaml/context.json 退役、Stop hook 不再拦截。本文的**交付机制**（白名单、
+> 三合一确认、幂等恢复、PR 不自动合并）在 v2 原样有效；涉及阶段名与角色 Agent
+> 的段落按上述映射阅读。
+
 DevFlow 是 Claude Code 上的生命周期编排插件（命令、Agent、Hook、YAML 契约）。人只在 Gate 拍板；中间自动把一个需求做完并开出 PR。任意 git 仓库都能编，`backend` / `frontend` 是可选 track。
 
 核心结构：
