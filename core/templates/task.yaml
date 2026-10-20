@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 
 # One requirement or standalone bugfix per task worktree.
 task:
@@ -7,8 +7,8 @@ task:
   title: "{{TASK_TITLE}}"
   kind: "{{TASK_KIND}}" # feature | bugfix | chore
   description: "{{TASK_DESCRIPTION}}"
-  current_phase: "classify"
-  status: "active"
+  current_phase: "qa" # qa | prd_review | plan_review | working | deliver_confirm | done
+  status: "active" # active | done (lifecycle flag; current_phase is the flow state)
 
 git:
   base_ref: "{{BASE_REF}}"
@@ -20,18 +20,8 @@ git:
 parent_task_id: null
 source_task_id: null
 
-project_snapshot:
-  source: ".devflow/project.yaml"
-  category: null
-  capabilities: []
-
-workflow:
-  selected_tracks: []
-
 artifacts:
-  prd: null
-  architecture: null
-  scope: ".devflow/scope.yaml"
-  test_reports: []
-  acceptance_report: null
+  prd: null # .devflow/prd.md once written
+  card: null # .devflow/card.md once written
+  verification: null # .devflow/verification-report.md once written
   delivery: ".devflow/delivery.yaml"

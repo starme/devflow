@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import json
 import re
 import shutil
 import subprocess
@@ -71,41 +70,6 @@ def _active_in_place_task(root: Path) -> bool:
     return status != "done"
 
 
-def _workspace_snapshot(repo_root: Path) -> dict:
-    """Read workspace paths from project.yaml (legacy: manifest.yaml)."""
-    ws = {"root": str(repo_root), "backend": "", "frontend": ""}
-    for name in ("project.yaml", "manifest.yaml"):
-        path = repo_root / ".devflow" / name
-        if not path.is_file():
-            continue
-        current = None
-        try:
-            for raw in path.read_text(encoding="utf-8").splitlines():
-                stripped = raw.strip()
-                indent = len(raw) - len(raw.lstrip())
-                if indent == 0 and stripped == "workspace:":
-                    current = "workspace"
-                    continue
-                if current == "workspace" and indent == 0 and stripped.endswith(":"):
-                    break
-                if current == "workspace" and indent == 2 and ":" in stripped:
-                    key, _, val = stripped.partition(":")
-                    key, val = key.strip(), val.strip().strip("\"'")
-                    if key == "root" and val:
-                        ws["root"] = val
-                    elif key in ("backend", "frontend"):
-                        current = key
-                        if val:
-                            ws[key] = val
-                elif current in ("backend", "frontend") and indent >= 4 and stripped.startswith("path:"):
-                    ws[current] = stripped.split(":", 1)[1].strip().strip("\"'")
-                    current = "workspace"
-        except OSError:
-            continue
-        break
-    return ws
-
-
 def _resolve_endpoints(repo_root: Path) -> list[dict]:
     """Resolve the multi-repo endpoints declared in ``project.yaml``.
 
@@ -171,6 +135,12 @@ def _resolve_endpoints(repo_root: Path) -> list[dict]:
 
 
 def _seed_task_devflow(repo_root: Path, dest_devflow: Path, record: TaskRecord, copy_config: bool) -> None:
+    """Seed the task's ``.devflow/`` directory.
+
+    v2 (ADR-0005): only ``task.yaml`` is written. The runtime
+    ``context.json`` is retired — ``task.yaml`` (with ``git.endpoints`` for
+    multi-repo tasks) is self-sufficient.
+    """
     dest_devflow.mkdir(parents=True, exist_ok=True)
     src = repo_root / ".devflow"
     if copy_config and src.is_dir():
@@ -182,31 +152,6 @@ def _seed_task_devflow(repo_root: Path, dest_devflow: Path, record: TaskRecord, 
         if rules.is_dir():
             shutil.copytree(rules, dest_devflow / "rules", dirs_exist_ok=True)
     (dest_devflow / "task.yaml").write_text(render_task_yaml(record), encoding="utf-8")
-    ctx = {
-        "task_id": record.task_id,
-        "current_phase": "classify",
-        "current_agent": "manager",
-        "cwd": record.worktree,
-        "project_root": str(repo_root),
-        "repo_root": str(repo_root),
-        "task_root": str(dest_devflow),
-        "branch": record.branch,
-        "workspace": _workspace_snapshot(repo_root),
-    }
-    if record.endpoints:
-        ctx["endpoints"] = [
-            {
-                "track": ep.track,
-                "git_root": ep.git_root,
-                "branch": ep.branch,
-                "base_ref": ep.base_ref,
-                "base_commit": ep.base_commit,
-            }
-            for ep in record.endpoints
-        ]
-    (dest_devflow / "context.json").write_text(
-        json.dumps(ctx, indent=2) + "\n", encoding="utf-8"
-    )
 
 
 def create_task(

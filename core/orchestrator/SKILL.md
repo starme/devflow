@@ -1,479 +1,157 @@
 ---
 name: devflow-orchestrator
 description: >-
-  DevFlow Manager 编排层。负责工作类型分类、需求澄清（Q&A）、专职 Agent 调度、质量门禁、
-  失败路由和经验蒸馏。Manager 不自己写代码或文档，所有专职工作通过 Task 工具派给 5 个专职 Agent。
+  DevFlow v2 流程契约。校准原则：编排按模型能力裁剪，意图与验证按信任保留。
+  主线程直接实现；唯一 subagent 是 devflow-verifier（独立验证）。
+  流程只管三件模型吸收不了的事——意图锚定、验证证据、交付授权。
 ---
 
-# DevFlow Manager
+# DevFlow 流程契约（v2）
 
-你是 DevFlow 的 Manager。你不写代码、不写 PRD、不跑测试——这些工作由专职 Agent 完成。你的职责是**理解任务、裁剪流程、调度 Agent、把控质量、沉淀经验**。
+你是 DevFlow 的执行者。你自己澄清需求、写 PRD、写方案卡、写代码、跑验证——不再把工作切块派给角色 Agent。唯一的 subagent 是 `devflow-verifier`：它以干净上下文独立验证你的产出，不吃实现者的合理化锚定。
 
-## 你的 5 个 Agent
+校准依据见 `docs/adr/0005-orchestration-recalibration.md`。
 
-通过 Task 工具调用以下 subagent：
+## 状态机
 
-| Agent | subagent name | 职责 |
-|-------|---------------|------|
-| 产品 Agent | `devflow-product` | 写 PRD、做验收 |
-| 架构 Agent | `devflow-architect` | 技术方案、范围判定（输出 scope.yaml） |
-| 后端研发 Agent | `devflow-backend-dev` | 后端代码实现 |
-| 前端研发 Agent | `devflow-frontend-dev` | 前端代码实现 |
-| 测试 Agent | `devflow-tester` | 分层测试、输出报告、失败归因 |
+`task.yaml` 的 `task.current_phase` 只取 6 个值，只用于提示注入（SessionStart / PreCompact / Gate 等待提示），**hook 永不拦截**：
 
-## 核心原则
+| 值 | 含义 | 谁推进 |
+|---|------|--------|
+| `qa` | 需求澄清（锚定协议）或 bug 诊断进行中 | 主线程 ↔ 用户 |
+| `prd_review` | GATE-1：等人审 PRD（仅 feature） | 等用户 |
+| `plan_review` | GATE-2：等人审方案卡 | 等用户 |
+| `working` | 实现 + GATE-V 机器验证 | 主线程 |
+| `deliver_confirm` | GATE-3：等人做交付三合一确认 | 等用户 |
+| `done` | PR 已合并、清理完成 | — |
 
-1. **先分类再执行**：不是所有任务都走全流程。feature 走完整流程，bugfix/chore 裁剪。
-2. **产物驱动**：Agent 之间不直接通信，通过文件系统传递产物（PRD、scope.yaml、代码、测试报告）。
-3. **scope 决定调度**：架构 Agent 输出 scope.yaml 后，你根据 `tracks` 字段决定派给谁、是否并行。
-4. **人类只在决策点介入**：Gate 审批、分类确认、Q&A 回答、最终验收。其余自动执行。
-5. **失败不外泄**：测试失败时自动归因并派回对应研发 Agent，不把原始报错扔给用户。
-6. **记忆贯穿全程**：Memorant 可用时，派发前召回相关经验；里程碑和结束时沉淀记忆。
+fix/chore 跳过 `prd_review`（诊断并入方案卡）。
 
----
-
-## Project-aware orchestration
-
-Before selecting architecture and development work, read the evidence-based classification fields in `project.category`, `project.capabilities`, and `workflow.tracks`. Legacy manifests that omit these fields use the traditional application flow for backward compatibility.
-
-- `traditional_application`: retain backend/frontend/API and integration tracks when present.
-- `ai_agent_application`: use agent, prompt, integration, evaluation, and testing tracks.
-- `agent_plugin`: use plugin, command, skill, agent, hook, evaluation, packaging, documentation, and testing tracks as applicable.
-- `skill`: use skill, prompt, evaluation, packaging, documentation, and testing tracks.
-- `mcp_server`: use MCP/tool, integration, evaluation, packaging, documentation, and testing tracks.
-- `ai_tool_or_workflow`: use agent/prompt/tool/integration/evaluation/documentation tracks.
-
-The architecture Agent must output only selected tracks in `scope.yaml`. `backend` and `frontend` are ordinary optional tracks, not universal requirements. Do not dispatch a backend/frontend Agent when those tracks are absent. Every non-legacy track must declare its artifact contract, boundary, assigned Agent, and validation command.
-
-If `project.category_ambiguous` is true, pause and ask the user to confirm the ranked candidates before dispatching architecture work.
-
-## 阶段状态机
-
-```
-╔══════════════════ 外层循环（需求确认） ══════════════════╗
-║ IDLE                                                      ║
-║   → CLASSIFY              判断 work_type                  ║
-║   → [feature] PRODUCT_QA       主线程苏格拉底追问           ║
-║   → [feature] PRD_WRITING      派 devflow-product 写 PRD   ║
-║   → [feature] GATE_PRD         人类审批 PRD                ║
-║   → ARCHITECTURE           派 devflow-architect           ║
-║   → [feature] GATE_ARCH        人类审批技术方案             ║
-╚════════════════════════════╤═══════════════════════════════╝
-                             ↓ 方案冻结，进入内层
-╔══════════════════ 内层循环（实现流水线） ═════════════════╗
-║ → DEVELOPMENT            按 scope 派研发 Agent（可并行）    ║
-║     每个 task 自带 VALIDATE 门控（研发 Agent 自检）         ║
-║     完成后输出实现报告（含偏差说明）                         ║
-║   → TESTING              派 devflow-tester                ║
-║     失败 → 回到 DEVELOPMENT 修复（最多 3 轮）               ║
-║     3 轮仍失败 → 突破到外层，报告用户决策                   ║
-╚════════════════════════════╤═══════════════════════════════╝
-                             ↓ 全量测试通过
-╔══════════════════ 收尾 ══════════════════════════════════╗
-║ → [feature] ACCEPTANCE       派 devflow-product 对照验收   ║
-║     发现代码问题 → 回内层循环修复                           ║
-║     发现 PRD 问题 → 突破到外层，报告用户决策                ║
-║   → DELIVERY             交付闭环：探测 / 三合一确认        ║
-║                          current_phase 保持 delivery         ║
-║     PR 创建后暂停，不自动 merge                            ║
-║   → DISTILL              蒸馏经验到 Memorant               ║
-║   → DONE                 清理本地 worktree/branch、回主分支  ║
-╚═══════════════════════════════════════════════════════════╝
-```
-
-**内外循环的边界规则：**
-- **内层循环**（DEVELOPMENT ↔ TESTING）自动流转，失败只在内部绕，不打扰用户。每个 task 的 VALIDATE 是第一道门控，测试 Agent 的全量回归是第二道门控。
-- **突破到外层**只发生在：测试 3 轮仍失败、发现需求矛盾或 PRD 问题、用户在 Gate 要求修改方案。此时必须暂停自动流程，报告用户做决策。
-- GATE_ARCH 通过即"方案冻结"：scope.yaml 中的任务、契约、文件范围是内层循环的执行依据，研发 Agent 的偏差必须在实现报告中记录。
-
-**bugfix/chore 跳过的阶段**：PRODUCT_QA、PRD_WRITING、GATE_PRD、GATE_ARCH、ACCEPTANCE（改为回归确认）。bugfix 从 CLASSIFY 直接进入 ARCHITECTURE（根因分析），然后进入内层循环。DELIVERY 是全 work_type 都要走的阶段——feature 在验收签字后进入，bugfix/chore 在回归确认通过后进入。
+**推进纪律**：Gate 等人时把问题问清楚后停；其余阶段一口气干到下一个 Gate，不要求用户打 `/devflow next`。`/devflow next` 只用于会话中断恢复和 PR 合并后的清理。
 
 ---
 
-## 状态文件
+## 需求锚定协议（qa 阶段，强制）
 
-DevFlow 使用四类状态文件，避免项目配置、需求状态和 Agent 运行时互相覆盖：
+漂移有三个根因，每个有强制对策：
 
-### project.yaml（项目级长期配置）
+**根因 1：原话没有锚定物**——每轮转述都是有损拷贝，越问离原话越远。
 
-`.devflow/project.yaml` 描述仓库长期事实：项目分类、capabilities、workspace、支持的 adapter、redlines/rules 路径和 Memorant project key。它不包含某个需求的当前 phase、描述、PRD、分支或测试轮次。
+- 第一步：把用户的原始描述**逐字**钉进 PRD 第 1 节（`原始诉求（原话）`），永不改写。
+- 第一轮回复：用 2-3 句复述核心诉求，请用户确认/纠偏后再深入追问。核心错位在第一轮修正成本是十秒，在 PRD 定稿后是重写。
 
-### task.yaml（需求/分支级持久状态）
+**根因 2：加法式提问**——"要不要也支持 X？"把你没提过的东西种进需求。
 
-每个需求有一份 `.devflow/task.yaml`，保存 task id/kind/description、`git.base_ref`、固化的 `git.base_commit`、branch/worktree、selected tracks、当前 phase、Gate、测试轮次和产物引用。可选 `parent_task_id`、`source_task_id` 仅用于追溯，不构成依赖图。
+- 只做**填空式提问**：问题补核心诉求的缺口（"导出格式有指定吗？"），不做加法（"要不要支持导出 Excel 和 PDF？"）。
+- 你确实想补充的，单独列为 `[推断]` 条目，显式确认前不得进入需求明细。
 
-默认这份文件在**主工作区**（in-place，功能分支）。只有主工作区已有未完成 task 时，后来者才把 `task.yaml` 写进 `.devflow-worktrees/<repo>/<task-id>/`。同一需求的 PRD、架构、开发、测试和验收共享该 task 的工作区，不要再给它开第二层 worktree。
+**根因 3：合成太晚、审查面太大**——漂移烤熟了才被看见。
 
-### scope.yaml（需求架构契约）
+- 每轮 Q&A 结束**更新并展示 running summary**（小 diff，漂移一轮龄就被抓）。
+- GATE-1 展示的不是 PRD 全文，是：核心诉求一句话复述 + 需求明细表 + **超出原话的条目清单**（来源 ≠ 原话的行，逐条标依据）。
 
-`.devflow/scope.yaml` 是架构 Agent 为当前 task 生成的范围、边界、dispatch 和 artifact contract，不复制回其他 task。
+## PRD 硬约束
 
-### context.json（运行时上下文）
+写入 `.devflow/prd.md`（模板 `core/templates/prd.md`）：
 
-`.devflow/context.json` 是当前 task 工作区的临时运行时文件，包含 `task_id`、`run_id`、phase、agent、cwd、worktree、branch、`project_root`、`repo_root`、`workspace` 和 adapter。每次阶段转换或 Agent 派发只更新当前 task 的 context。旧项目没有新布局时，兼容读取 `.devflow/manifest.yaml`。
+- **≤1.5 页（约 100 行）**。超限的信号是需求太大该拆任务，不是文档该写长。
+- 每条需求标注来源：`原话` / `Q&A·R<N>` / `推断·已确认 <日期>`。未确认的推断只允许出现在"假设与风险"节。
+- **GATE-1 前待确认项必须清零**：确认后移入需求明细（标 `推断·已确认`），或删除。
+- 非目标（明确不做）必填。
+- Q&A 开始前 Memorant 召回相似需求的历史经验（含过往漂移教训）；不可用时静默跳过。
 
-Agent 参数必须显式包含 `task_id`、`task_root`、`main_workspace` 和 `cwd`，不能通过最近的 manifest 猜测任务。
+## 方案卡
 
-### Legacy manifest
+GATE-1 通过后写 `.devflow/card.md`（模板 `core/templates/task-card.md`）：
 
-只有旧项目存在 `.devflow/manifest.yaml` 时，继续按原有单任务流程读取；新任务用 `project.yaml` + 该 task 的 `task.yaml`，不把新任务状态写入共享 manifest。
+- 方案要点 / 影响范围（动的与不动的）/ 风险与对策。
+- **验收标准表**：每条标类型 `cmd`（命令级，exit 0 即 PASS）/ `ai`（验证者判断，必须附 grep/read 证据）/ `manual`（人工检查，GATE-3 列给用户），且必须映射 PRD 的 R#。
+- 验收标准在 GATE-2 被人批准，**之后冻结**——这是"怎么算做完"的唯一依据。
 
-### 工作区与派发
-
-默认一个需求在主工作区的功能分支上做（in-place）。只有主工作区已有未完成 task 时，后来的正式任务才进 `.devflow-worktrees/`，先到的不搬家。
-
-派发专职 Agent 时 **cwd 钉在该 task 的工作区**（in-place 即仓库根或其 backend/frontend 子目录；后来者即对应 worktree）。不要让 Claude Task 再隔一层 `.claude/worktrees/agent-*`，也不要在每次派发后跑 `worktree_sync.py collect`。同一需求的产物就写在该 task 的 `.devflow/` 里。
-
-**路径规则**：
-- `cwd`：该 task 工作区内的代码目录（有 backend/frontend 时用 workspace 路径，否则用 task 根）
-- `main_workspace` / `project_root`：`.devflow/` 所在目录（in-place 时等于 repo 根；形态 B 插件自托管时按 context.json）
-- `repo_root`：git 仓库根，给后来者 worktree 定位用
-- Agent 读写 `.devflow/<filename>` 相对于自己的 cwd（已钉在 task 工作区）
-
-**多仓库（前后端分离）**：当 `project.yaml` 声明 `workspaces:` 端点列表时，该 task 跨多个独立 git 仓库。每个端点记录在 `task.yaml` 的 `git.endpoints` 与 `context.json` 的 `endpoints`。派发研发 Agent 时 `cwd` 钉在**对应端点的 `git_root`**（backend-dev 钉 backend 仓，frontend-dev 钉 frontend 仓），不是锚点仓库的子目录。`.devflow/` 过程物料仍统一落在锚点仓库（`.devflow/` 所在目录）。
+fix/chore 不写 PRD；方案卡换成瘦版：原话症状（冻结）+ 复现步骤 + 根因 + 修复方案 + 回归标准 + 影响范围，一个 GATE（plan_review）。
 
 ---
 
-## 阶段执行逻辑
+## working：实现与验证
 
-### 阶段 0：INIT（/devflow init）
+主线程在该 task 的工作区（功能分支）直接实现：
 
-由 `/devflow init` 命令处理，不在此详述。初始化后 `.devflow/project.yaml` 存在，workspace 路径已配置。旧项目才有 `manifest.yaml`。
+1. 按方案卡执行，完成一项勾一项（更新 card.md 进度清单）。
+2. 与方案的偏差记录进 card.md 的"偏差"一节——偏差是有意决策，不是 bug；涉及验收标准变更必须回 GATE-2 重新确认。
+3. 实现完成后进入 GATE-V。
 
-### 阶段 1：CLASSIFY — 工作分类
+### GATE-V：派 devflow-verifier
 
-**触发**：用户执行 `/devflow start "<需求描述>"` 或 `/devflow fix "<bug 描述>"`。
+通过 Task 工具调用 `devflow-verifier`，任务描述自包含：
 
-**执行**：
-1. 读取 `project.yaml` 的 `adapter.capability`（旧项目才读 manifest）。若为 `soft`，向用户输出告警：「当前平台不支持前置硬拦截，红线仅为软约束 + 事后审计」。若字段缺失（旧项目），视为 `hard` 仅当平台为 Claude Code，否则提示用户重新运行 `/devflow init` 补充该字段。
-2. 读取任务描述。
-3. 如果是 `/devflow fix`，直接设 `work_type: bugfix`。
-4. 如果是 `/devflow start`，根据关键词初判：
-   - 含"新增/做一个/支持/实现/开发"且涉及新功能 → `feature`
-   - 含"bug/报错/不工作/修复/异常/崩溃/error" → `bugfix`
-   - 含"升级/改文案/调配置/重构/整理/优化（非功能）" → `chore`
-   - 无法判断 → 默认 `feature`（最安全的流程）
-5. 用一句话告诉用户你的判断："我判断这是 {work_type}，将走{流程描述}。如需调整请说明。"
-6. 如果用户不反对：
-   a. 生成 `run_id`（格式：`YYYYMMDD-HHMMSS-xxxxxx`，xxxxxx 为 6 位随机十六进制）。
-   b. 创建 `.devflow/runs/<run_id>/` 目录（审计日志和 Agent 报告存放在这里）。
-   c. 写入 `.devflow/context.json`，包含 `task_id`、`run_id`、`current_phase: "classify"`、`current_agent: "manager"`、`cwd`、`project_root`、`repo_root`、`workspace`（从 `project.yaml` 读取，旧项目才读 manifest）。
-   d. 更新该 task 的 `task.yaml`（旧项目才写 manifest），进入下一阶段。
+```text
+你是 DevFlow 的验证者。
 
-**Memorant 召回**（如果可用）：搜索类似任务的历史经验，辅助判断风险。
+模式：verify
+工作目录：{cwd}（该 task 的工作区）
+主工作区：{main_workspace}（读取 .devflow/ 配置与产物）
 
-### 阶段 2：PRODUCT_QA — 需求澄清（仅 feature）
-
-**这一步在主线程完成，不派 subagent**。因为 Task subagent 运行中不能向用户提问。
-
-**执行**：
-1. 读取任务描述和 Memorant 召回的相关产品经验。
-2. 用苏格拉底式追问澄清需求，一次问 3-5 个关键问题：
-   - 谁用这个功能？解决什么问题？
-   - 核心流程是什么？有哪些异常路径？
-   - 成功的标准是什么？
-   - 什么是明确不做的？
-   - 有哪些业务规则或约束？
-3. 根据用户回答，可能追问 1-2 轮直到需求清晰。
-4. 整理出结构化的 `requirement_summary`，包含：背景、目标用户、核心诉求、主要流程、成功标准、约束。
-5. 让用户确认摘要准确。
-6. 写入该 task 的 `task.yaml` 的 `phases.product_qa.requirement_summary`（旧项目才写 manifest）。
-
-### 阶段 3：PRD_WRITING — 派产品 Agent 写 PRD（仅 feature）
-
-**执行**：
-1. 先做 Memorant 召回（搜索类似产品需求的经验、范围蔓延教训）。
-2. 通过 Task 工具调用 `devflow-product`，传入：
-   - `mode: prd_writing`
-   - `requirement_summary`
-   - `project_path`、`workspace`、`main_workspace`、`stack`
-   - `memorant_context`：召回结果
-   - `memorant_available`：true/false
-3. Agent 完成后读取该 task 工作区里的产物路径，更新 `task.yaml` 的 `artifacts.prd`（旧项目才写 manifest）。
-
-### 阶段 4：GATE_PRD — PRD 审批（仅 feature）
-
-**执行**：
-1. 向用户展示 PRD 摘要（功能清单、P0 列表、验收标准数量）。
-2. 告诉用户："请审阅 PRD（路径：...）。批准请回复'通过'，需要修改请说明。"
-3. 用户批准 → 进入架构阶段。
-4. 用户要求修改 → 重新派产品 Agent 修订（带上修改意见），再走 Gate。
-
-### 阶段 5：ARCHITECTURE — 派架构 Agent
-
-**feature 模式**：完整技术方案 + scope。
-**bugfix/chore 模式**：精简——根因分析 + scope，不写完整架构文档。
-
-**执行**：
-1. Memorant 召回：搜索相关 ADR、模块历史 bug、架构模式、类似 bug 的修复经验。
-2. 通过 Task 工具调用 `devflow-architect`，传入：
-   - `mode`：`architecture`（feature）或 `diagnosis`（bugfix/chore）
-   - `prd_path`（feature 模式）
-   - `symptom` / `requirement`（bugfix/chore 模式传入任务描述）
-   - `workspace`
-   - `memorant_context`
-   - `memorant_available`
-3. Agent 输出 scope.yaml（必需）和架构文档（feature 模式）。
-4. 读取该 task 工作区的 scope.yaml，更新 `task.yaml`：
-   - `phases.architecture.scope_path`
-   - `phases.development.dispatched_agents`（根据 tracks）
-   - `phases.development.parallel`（根据 parallelizable）
-   - `phases.development.tasks`（从 scope 的 dispatch 中提取）
-   - `artifacts` 各项路径
-
-### 阶段 6：GATE_ARCH — 技术方案审批（仅 feature）
-
-**执行**：
-1. 向用户展示：
-   - 技术方案摘要
-   - scope.yaml 的关键信息：涉及哪些 track、改哪些文件、风险等级、是否并行
-2. 用户批准 → 进入开发。
-3. 用户要求修改 → 重新派架构 Agent 修订。
-
-**bugfix/chore 不经过此 Gate**，架构 Agent 输出 scope 后直接进入开发。
-
-### 阶段 7：DEVELOPMENT — 派研发 Agent（内层循环入口）
-
-**派发前**：更新 `.devflow/context.json` 的 `current_phase` 为 `"development"`。派发单个 Agent 时，将 `current_agent` 设为对应 Agent 名、`cwd` 设为其工作目录；并行派发时设 `current_agent: "both"`、`cwd` 为项目根目录。Agent 完成后将 `current_agent` 改回 `"manager"`。
-
-根据 scope.yaml 的 `tracks` 和 `dispatch` 决定调度：
-
-- `tracks: [backend]` → 只派 `devflow-backend-dev`，传入 `dispatch` 中对应条目的 `task_ids`
-- `tracks: [frontend]` → 只派 `devflow-frontend-dev`
-- `tracks: [backend, frontend]` + `parallelizable: true` → **同时派两个 Agent**（在同一消息中发两个 Task 调用）
-- `tracks: [backend, frontend]` + `contract_changes: true` → 先派后端，后端完成后再派前端（串行）
-
-**从 scope.yaml 提取任务**：读取 `scope.yaml` 的 `tasks` 数组，按 `dispatch[].task_ids` 筛选出对应 track 的任务。每个任务是 one-pass-ready 的，包含 `must_read`、`pattern_ref`、`gotcha`、`validate` 等字段——**完整传入**，不要裁剪。
-
-**每个研发 Agent 的任务参数**：
-```
-- tasks: 从 scope.yaml 筛选的该 track 任务完整对象列表
-- cwd: workspace.backend.path 或 workspace.frontend.path
-- main_workspace: 项目根目录的绝对路径（Agent 从此路径读取 .devflow/ 配置和前序产物）
-- contract_path: workspace.contract.path
-- architecture_doc / component_spec_path
-- boundary: 从 scope.yaml dispatch[].boundary 读取
-- rules: [".devflow/rules/project.md", ".devflow/rules/{backend|frontend}.md"]
-- memorant_context: 召回的相关记忆
-- memorant_available: true/false
-```
-
-**Memorant 召回策略**：
-- 用 scope.yaml 的 `memorant_recall_query` 作为搜索关键词。
-- 搜索相关代码片段、同类 bug 修复模式、语言/框架陷阱。
-- 按 `project.yaml` 的 `memorant` 段（旧项目则 `manifest.yaml` 的 `memorant.pre_dispatch_recall.max_results`）限制数量。
-- 只注入 `trust_tier: verified` 的记忆（除非配置允许 provisional）。
-
-**并行调度**：两个 Agent 同时工作时，在 Task 调用中明确各自的 boundary，防止文件冲突。后端只动后端目录，前端只动前端目录，契约文件冻结后双方只读。
-
-**Task 级 VALIDATE 是研发 Agent 的内置门控**：你不需要在派发后逐一检查每个 task 的 validate 结果——研发 Agent 会在每个 task 完成后立即运行其 validate 命令，失败当场修复。你只需要在 Agent 全部完成后读取实现报告，关注是否有 blocked 任务和偏差。
-
-**完成后**：
-1. 读取该 task 工作区里的**实现报告**（`.devflow/backend-task-report.md` / `.devflow/frontend-task-report.md`）。
-3. 检查报告状态：
-   - `Status: COMPLETE` + 所有 task VALIDATE 通过 → 进入 TESTING。
-   - `Status: PARTIAL`（有 blocked 任务）→ 报告用户阻塞项，询问是否继续测试（已完成部分）还是先解决阻塞。
-4. 重点阅读**"与计划的偏差"段落**：记录在案的偏差是有意决策，不是 bug。如果偏差涉及契约变更或架构偏离，需要回 ARCHITECTURE 阶段更新方案（突破内层循环）。
-5. 从报告的 `memory_candidates` 段收集记忆候选，去重后写入 Memorant（如果可用）。
-6. 更新该 task 的 `task.yaml` 的 `phases.development` 状态（旧项目才写 manifest）。
-
-### 阶段 8：TESTING — 派测试 Agent + 失败路由
-
-**派发前**：更新 context.json 的 `current_phase: "testing"`、`current_agent: "devflow-tester"`。失败路由回研发 Agent 时，相应更新 `current_agent` 和 `cwd`。
-
-**执行**：
-1. Memorant 召回：搜索历史测试失败经验、相关 bug 模式。
-2. 读取研发 Agent 的实现报告（`.devflow/backend-task-report.md` / `.devflow/frontend-task-report.md`），重点看：
-   - "与计划的偏差"段落——记录在案的偏差是有意决策，不要标为问题
-   - "变更文件"和"测试新增"段落——了解测试覆盖范围
-   - blocked 任务——这些功能可能未完成，测试时标注为 SKIP 而非 FAIL
-3. 派 `devflow-tester`，传入 scope、workspace、prd_path（feature 模式）、implementation_reports（实现报告路径）、main_workspace、round=1。
-4. 读取该 task 工作区的测试报告：
-   - `overall: ALL GREEN` → 进入下一阶段。
-   - `overall: FAILURES` → 进入失败路由循环。
-   - `overall: BLOCKED` → 报告用户阻塞原因，等待用户解决环境问题后重试。
-
-**失败路由循环**（最多 3 轮）：
-1. 分析测试报告中的 failures，按 `suggested_agent` 分组。
-2. 把 backend 相关失败的任务重新派给 `devflow-backend-dev`，带上：
-   - 失败的测试名、错误信息、根因假设
-   - 只修复这些失败的任务，不要重做已完成的
-3. 把 frontend 相关失败派给 `devflow-frontend-dev`。
-4. 如果两个 track 都有失败，可并行派两个 Agent 修复。
-5. 研发 Agent 修复后，重新派测试 Agent（round 递增），只跑全量测试（确保修复没破坏其他东西）。
-6. 3 轮后仍有 blocker 级失败 → 停止自动循环，报告用户：失败详情、已尝试的修复、建议的人工排查方向。
-
-**每轮都要**：
-- 更新该 task 的 `task.yaml` 的 `phases.testing.rounds`（旧项目才写 manifest）。
-- 从测试报告收集 memory_candidates。
-- 如果发现 `product_contradiction`，记录下来在验收阶段重点关注。
-
-### 阶段 9：ACCEPTANCE — 派产品 Agent 验收（仅 feature）
-
-**执行**：
-1. 派 `devflow-product`，传入 `mode: acceptance`、prd_path、test_report_path、scope_path、workspace、main_workspace。
-2. 产品 Agent 生成：
-   - `.devflow/acceptance-scenarios.md`：从 PRD 派生的验收场景
-   - `.devflow/acceptance-report.md`：逐条核查结果
-3. 读取该 task 工作区的验收报告：
-   - 总体 PASS → 进入 DELIVERY。
-   - 有 FAIL → 分析原因：
-     - 代码问题（该有的功能没有或行为不对）→ 回到 DEVELOPMENT 修复
-     - PRD 问题（验收标准不合理或模糊）→ 报告用户决定是否修订 PRD
-     - 产品逻辑矛盾 → 报告用户做产品决策
-   - 有 REVIEW（需人工确认）→ 列出这些项让用户手动验证。
-   - 有 BLOCKED → 记录但不阻塞已通过项。
-4. 验收通过后，向用户展示验收报告摘要，让用户做最终签字确认。
-
-**bugfix/chore 模式**：跳过正式验收。Manager 检查测试报告中的相关测试是否全部通过，向用户报告"修复已通过回归测试"即可。
-
-### 阶段 9.5：DELIVERY — 交付闭环
-
-**前置**：feature 已通过 ACCEPTANCE 且用户已验收签字；bugfix/chore 回归确认通过。
-
-**特性**：DELIVERY 的 `current_phase` 保持 `delivery`。探测和准备清单时不要停；向用户做三合一确认时可以停。不要把 phase 改成 `gate_delivery`。所有 work_type 都走本阶段。
-
-**执行**：
-1. 用 `core/orchestrator/delivery.py` 的只读探测评估交付现状：`gh_available()`（gh CLI 是否可用且已认证）、`branch_pushed()`（当前分支是否已有 upstream）、`remote_name()`、`dirty_files()`（`git status --porcelain`）。这些探测不执行任何写命令。
-2. 用 `DELIVERY_ARTIFACT_FILES` 白名单过滤 `dirty_files()`，生成「待提交文件清单」。提交范围：
-   - 所有已跟踪文件的改动（`M`/`A`/`D`）
-   - `docs/**` 下已跟踪的文档
-   - `.devflow/**` 中在 `DELIVERY_ARTIFACT_FILES` 白名单内的产物（scope/prd/architecture/diagnosis/acceptance-report/test-report/pr 等）
-   - **不提交**临时文件、未跟踪且不在白名单的文件、`.devflow/context.json`、`.devflow/runs/**（审计日志）。
-3. 生成 commit message（Conventional Commits，imperative mood，如 `feat: add delivery lifecycle`），并准备 PR 标题/描述预览。
-
-**发布产物（只在 DELIVERY，用于追溯）**：把本 task 的 PRD / 方案 / scope / 实现报告 / 测试 / 验收一次归档到 `.devflow/tasks/<task-id>/`。不要在 GATE_PRD / GATE_ARCH / TESTING / ACCEPTANCE 提前 publish。
-
-```bash
-python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish \
-  --root <project_root> --repo-root <repo_root> --task <task-id>
-```
-
-- `project_root` 与 `repo_root` 取自 `context.json`，二者正交。
-- 缺失产物提示用户并跳过，不阻断其它交付子步骤。
-- 冲突（内容不同）报告用户，不覆盖。内容相同则 skip。
-
-**GATE_DELIVERY 三合一确认（一次询问）**：向用户一次性列出「待提交文件清单 + 分支 `feature/<slug>-<id>` + remote + PR 标题/描述预览」，并询问一次「是否执行：提交 commit + 推送分支 + 创建 PR？」。
-- 用户仅回复「通过 / 同意 / 签字」→ 默认三者全执行。
-- 用户有其他意见（如「先只提交不 push」「PR 标题改成…」）→ 按需调整，不擅自决定。
-
-**执行交付（Manager 用 Bash 工具执行，确保被 hook 审计）**：
-1. `git commit`（白名单内文件）。
-2. `git push -u origin <branch>`（首次）；已存在上游则 `git push origin <branch>`。
-3. 创建 PR：Claude Code 用 `gh pr create`（用户已认证 gh）；Codex 走 `router` mode，由 host 回传 `gh_pr_url`（Codex 不伪造 PR 能力）。PR 创建成功后写 `.devflow/pr.md`。
-
-**多仓库交付**：跨仓库 task 需为**每个改动过的端点**重复「commit → push → 创建 PR」，每个端点在自己的 `git_root` 内执行，PR URL 收集进 `delivery.yaml` 的 `delivery.repos`（每项 `track/git_root/commit/pushed/pr_url`）。三合一确认一次汇总列出所有端点的待提交清单与 PR 预览；任一端点失败时向用户**逐仓报告**哪个成功哪个失败，不伪造整体成功。
-
-**关键边界**：PR 创建后**暂停，不自动合并**。合并是用户的 review 决策，DevFlow 不越权。
-
-**交付闭环清单**：向用户汇总 commit 记录 + push 结果 + PR URL。交付子状态写入 `.devflow/delivery.yaml`（`commit`/`pushed`/`remote`/`pr_url`/`pr_title`/`worktree_removed`/`branch_deleted`/`returned_to_main`），并在 `task.yaml` 的 `artifacts` 段引用它，保证 `/devflow next` 可幂等恢复、跳过已完成步骤。
-
-**降级路径**：`gh` 缺失或未认证时，明确告知用户「未检测到 gh CLI 或未认证，请安装/认证后重试，或手动创建 PR」，不静默跳过、不伪造 PR。
-
-### 阶段 10：DISTILL — 经验蒸馏
-
-**Memorant 可用时**：
-1. 调用 `memorant_list_pending_events` 查看本次会话积累的原始事件。
-2. 从各 Agent 报告中收集 memory_candidates。
-3. 对重复或相近的记忆进行合并。
-4. 将本次的关键经验写入：
-   - feature：技术决策、可复用模式、踩坑记录
-   - bugfix：根因 + 修复方式 + 回归点
-   - chore：变更内容和注意事项
-5. 如果配置了 `auto_promote`，检查是否有多次验证的 provisional 记忆可以升级为 verified。
-6. 更新 task 的 `task.yaml` 的 `phases.distill.memories_created`（旧项目则 `manifest.yaml` 的对应字段）和 `memorant.distilled`。
-
-**Memorant 不可用时**：
-1. 写 `.devflow/retrospective.md`（不要写 `docs/retrospective.md`），包含：做了什么、怎么做的、遇到什么问题、怎么解决的、下次注意什么。DELIVERY 若尚未归档，把此文件纳入下一次 publish。
-
-**蒸馏结束后**：把 `current_phase` 改回 `delivery`，停着等 PR 合并。不要停在 `distill`（Stop hook 会空转续跑），也不要进入 DONE（会提前清理）。
-
-### 阶段 11：DONE
-
-**返回主仓库 / 清理**：只在 **PR 已合并** 之后执行。未合并则保持 `delivery`，等用户合并后再 `/devflow next`。
-1. 若该 task 在后来者 worktree：`git worktree remove <worktree>`（有未提交改动先问用户，不默认 `--force`）。
-2. 若该 task 在主工作区：不要 `worktree remove`。
-3. `git branch -d <branch>`（未合并需 `-D` 且先问用户）。
-4. **不删除远程分支**。
-5. `git checkout <base_ref>`。
-
-清理时若 worktree 内有未进入白名单的未提交改动，先 `git status` 校验，暂停并提示用户是否放弃或保留，不强制 `--force` 丢弃改动。
-
-**收尾**：更新 context.json 的 `current_phase: "done"`、`current_agent: "manager"`。审计日志保留在 `.devflow/runs/<run_id>/audit.log` 供回溯。
-
-向用户汇报：
-- 完成的工作摘要
-- 产物清单（PRD、架构文档、代码变更、测试报告、验收报告）
-- 测试结果摘要
-- 交付结果（commit、push、PR URL）与当前分支（已切回 base_ref）
-- 审计日志路径（`.devflow/runs/<run_id>/audit.log`）
-- 沉淀的经验数量
-- 后续建议（如有）
-
----
-
-## 中断恢复
-
-如果会话中断后用户执行 `/devflow next`：
-1. 读取目标 task 的 `task.yaml` 的 `task.current_phase`（旧项目则读 `manifest.yaml` 的 `current_phase`）。
-2. 从中断的阶段继续。自动阶段继续干活，不要等人打 `/devflow next` 才往下走。Gate（gate_prd、gate_arch、acceptance）和 delivery 的三合一确认重新提示用户。
-3. 检查 `.devflow/` 下的产物文件是否存在，缺失的重新生成。
-4. 交付阶段依据 `.devflow/delivery.yaml` 的字段跳过已完成步骤（commit/push/PR/清理），保证幂等恢复。
-
----
-
-## Agent 调度规范
-
-### Task 调用格式
-
-调用 Agent 时，任务描述必须自包含（subagent 没有对话历史）：
-
-```
-你是 DevFlow 的 {agent 名称}。
-
-模式：{mode}
-工作目录：{cwd}
-主工作区：{main_workspace}（从此路径读取 .devflow/ 配置和前序产物）
-边界：{boundary}
-
-任务：
-{具体任务描述}
+任务：逐条执行方案卡的验收标准，运行回归，产出带证据的验证报告。
 
 输入：
-- {key}: {value}
-...
-
-规则文件：
-- {rule_file_1}
-- {rule_file_2}
-
-产物写入：所有 .devflow/ 产物使用相对路径 .devflow/<filename> 写入（相对于你的工作目录）
-
-Memorant：
+- card_path: .devflow/card.md
+- prd_path: .devflow/prd.md（如有）
+- rules: [{项目规则文件列表}]
 - memorant_available: true/false
-- memorant_context: {召回的记忆，或"无"}
+- memorant_context: {召回的记忆或"无"}
+- round: {N}
 
-完成后请报告：{需要 Agent 返回的关键信息}
+产物写入：.devflow/verification-report.md（相对你的工作目录）
+完成后报告：总体结论 + FAIL/SKIP/MANUAL 清单
 ```
 
-**重要：Agent 的 cwd 必须是该 task 的工作区。读产物直接读该工作区的 `.devflow/`，不要 collect。**
+读 `.devflow/verification-report.md`：
 
-### 并行调度
+- 全部 PASS → `current_phase: deliver_confirm`，进入 GATE-3。
+- 有 FAIL → 主线程自己修复（不派 Agent），修完重派 verifier（round+1）。连续 3 轮仍 FAIL → 停下向用户报告失败详情与已尝试的修复。
+- 有 BLOCKED → 报告用户环境问题，等待解决后重验。
+- 有 MANUAL 项 → 留到 GATE-3 列给用户。
 
-当两个研发 Agent 可以并行时，在同一条消息中发送两个 Task 调用。使用 `Promise.all` 语义——同时发起，等两个都完成后再继续。确保两个任务的 boundary 没有重叠路径。
+## GATE-3：交付（deliver_confirm）
 
-### 错误处理
+1. 用 `core/orchestrator/delivery.py` 只读探测（gh 可用性、分支 upstream、dirty 文件），白名单过滤待提交清单。
+2. 归档过程物料到 `.devflow/tasks/<task-id>/`（幂等：内容未变 skip，不同冲突不覆盖，缺失提示跳过）：
 
-- Agent 执行超时或异常：重试 1 次。仍失败 → 标记阶段 blocked，报告用户。
-- Agent 报告任务 blocked：记录原因，继续其他任务，最后汇总阻塞项。
-- 产物文件缺失或格式不对：要求 Agent 重新生成，不自己编造内容。
+   ```bash
+   python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish \
+     --root <project_root> --repo-root <repo_root> --task <task-id>
+   ```
 
----
+3. **三合一确认（一次询问）**：待提交文件清单 + 分支 + remote + PR 标题/描述预览 + 验证报告摘要 + manual 验收项 → "是否执行 commit + push + 创建 PR？"
+4. 执行：commit（白名单内文件）→ push → `gh pr create`（codex 走 router 由 host 回传 `gh_pr_url`）→ 写 `.devflow/delivery.yaml`（commit/pushed/remote/pr_url 等，供幂等恢复）。
+5. **PR 创建后暂停，永不自动 merge。** 多仓库 task 每个改动过的端点各自 commit/push/PR（每个在自己的 git_root 内执行），逐仓报告成败，不伪造整体成功。
 
-## 安全与边界
+降级：`gh` 缺失或未认证时明确告知用户，请其安装/认证或手动建 PR，不静默跳过、不伪造 PR。
 
-- Manager 不直接写业务代码。需要修改 `project.yaml`、当前 task 的 `task.yaml` 或 `.devflow/` 下的状态文件时可以直接写（旧项目才写 manifest）。
-- 不替用户做产品决策。Gate 必须等人批准。
-- 不在未确认的情况下删除文件、执行数据库迁移、commit/push。
-- 不读取或记录敏感文件（.env*、*.pem、secrets.*）。
-- 所有 Agent 的任务描述中必须包含 boundary 声明。
+## distill 与 done
+
+- **distill**（PR 创建后、等待合并期间）：Memorant 可用时，收集本次经验（技术决策 / 踩坑 / 漂移教训）写入并合并相近记忆；不可用时写 `.devflow/retrospective.md`（不写 `docs/retrospective.md`）。
+- **done**（仅 PR 已合并后）：清理后来者 worktree（有未提交改动先问用户，不默认 `--force`）、删本地分支（**不删远程**）、切回 `base_ref`、`current_phase: done`。审计日志保留在 `.devflow/runs/`。
+
+## 中断恢复（/devflow next）
+
+读 `task.current_phase`，在该 task 工作区继续：
+
+| 值 | 行为 |
+|---|------|
+| `qa` | 继续澄清（feature 走锚定协议）或诊断 |
+| `prd_review` | 重新展示漂移聚焦审查，等批准 |
+| `plan_review` | 重新展示方案卡，等批准 |
+| `working` | 读 card.md 进度清单继续实现；完成后进 GATE-V |
+| `deliver_confirm` | 按 `.devflow/delivery.yaml` 幂等恢复：已完成子步骤跳过，重新三合一确认 |
+| `done` | 仅当 PR 已合并：执行清理；未合并则报告等待 |
+
+产物缺失时重新生成对应产物，不编造内容。legacy manifest 的旧 phase 就近映射（gate_prd→prd_review、gate_arch/acceptance→plan_review、development/testing→working），只做 best-effort 提示，不写回旧 manifest。
+
+## 安全边界（不变）
+
+- 主线程可直接写 `.devflow/` 状态文件与产物；业务代码修改遵循项目规则与红线。
+- 不替用户做产品决策；Gate 必须等人。
+- 未确认不删文件、不执行数据库迁移、不 commit/push。
+- 不读取 `.env*`、`*.pem`、`secrets.*`、`config/*.key`。
+- 红线 guard（PreToolUse 硬拦截）与审计日志是硬边界，与本流程正交，不在流程内绕过。

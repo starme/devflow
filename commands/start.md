@@ -5,7 +5,7 @@ argument-hint: <需求描述>
 
 # /devflow start
 
-开始一个新功能的完整开发流程。默认在**主工作区**创建 task 和功能分支；只有主工作区已有未完成 task 时，后来者才进隔离 worktree。
+开始一个新功能：锚定 Q&A → PRD → GATE-1 → 方案卡 → GATE-2 → 实现 → GATE-V → GATE-3 交付。
 
 ## 前置检查
 
@@ -26,29 +26,29 @@ argument-hint: <需求描述>
 1. 生成唯一 `task_id` 和 slug。
 2. 默认从当前主分支（或显式 `--base`）解析并固化 `git.base_commit`。
 3. 创建唯一分支 `feature/<slug>-<short-id>`。
-4. **默认 in-place**：在主仓库 `checkout -b`，写入 `.devflow/task.yaml` 和 `context.json`（含 `project_root`、`repo_root`）。
+4. **默认 in-place**：在主仓库 `checkout -b`，写入 `.devflow/task.yaml`（`current_phase: qa`）。
 5. **后来者**：若主仓库已有未完成 `task.yaml`，为新 task 建 `../.devflow-worktrees/<repo>/<task-id>/`，复制 `project.yaml` / `redlines.yaml` / `rules/`，先到的需求不搬家。
 6. 向用户报告 task id、branch、工作区路径（主仓库或 worktree）和 base commit。
 
-**多仓库（前后端分离）**：当 `project.yaml` 声明 `workspaces:` 端点列表时，`create_task` 在**每个端点仓库**建同名 `feature/<slug>-<short-id>` 分支，各自固化独立的 `base_commit`。锚点仓库（`.devflow/` 所在目录）走 in-place checkout 或 latercomer worktree；其余端点只 checkout 分支不建 worktree。`task.yaml` 的 `git.endpoints` 列表和 `context.json` 的 `endpoints` 数组记录每个端点的 `track/git_root/base_ref/base_commit/branch`。DELIVERY 阶段每个改动过的端点各开一个 PR。
+**多仓库（前后端分离）**：`project.yaml` 声明 `workspaces:` 端点列表时，`create_task` 在每个端点仓库建同名分支、各自固化 `base_commit`（记录在 `task.yaml` 的 `git.endpoints`）；交付时每个改动过的端点各开一个 PR。
 
 只读对照主分支（查线上）不要用本命令，用临时 `git worktree add` 或 `git show`。
 
 ## 执行
 
-1. `task.kind` 为 `feature`，`current_phase` 为 `classify`。
-2. 读取项目分类快照与 capabilities；根据当前需求选择 `workflow.selected_tracks`。低置信度分类先要求确认。
-3. 更新该 task 的 `.devflow/context.json`（`task_id`、`run_id`、`project_root`、`repo_root`、`task_root`、工作区路径、`branch`、phase、agent、adapter）。
-4. 加载 `core/orchestrator/SKILL.md`，按 `CLASSIFY → PRODUCT_QA → PRD_WRITING → GATE_PRD → ARCHITECTURE → GATE_ARCH → DEVELOPMENT → TESTING → ACCEPTANCE → DELIVERY → DISTILL → DONE` 推进。
-5. Gate 阶段暂停等待用户审批。自动阶段由 Stop hook 拦住结束，模型继续用工具干到下一个 Gate，不要提示用户打 `/devflow next`。
+加载 `core/orchestrator/SKILL.md` 按流程契约推进：
 
-研发在该 task 的工作区（主仓库或后来者 worktree）进行。收尾「commit + push + 创建 PR」走一次三合一确认（PR 创建后暂停不自动合并）。PR 合并后再 `/devflow next` 做 DONE 清理。
-
-过程物料（PRD / 方案 / 完成度 / 测试 / 验收）在 **DELIVERY** 归档到 `.devflow/tasks/<task-id>/`，不是每个里程碑都发布。
+1. **qa**：需求锚定协议——冻结原话 → 第一轮核心诉求复述确认 → 填空式追问（每轮展示 running summary，`[推断]` 条目显式确认）→ 写 `.devflow/prd.md`（硬约束见契约）。
+2. **prd_review（GATE-1）**：展示漂移聚焦审查（核心诉求复述 + 需求明细表 + 超出原话的条目清单），等用户批准。批准前待确认项必须清零。
+3. 写 `.devflow/card.md`（方案要点 / 影响范围 / 风险 / 验收标准表，每条映射 R#）。
+4. **plan_review（GATE-2）**：展示方案卡，等用户批准。批准即方案与验收标准冻结。
+5. **working**：主线程在该 task 工作区直接实现，勾选 card.md 进度；偏差记录在"偏差"一节。完成后派 `devflow-verifier`（GATE-V），读 `.devflow/verification-report.md`：全 PASS 进 GATE-3；有 FAIL 自己修复重验（连续 3 轮失败停下报告用户）。
+6. **deliver_confirm（GATE-3）**：delivery.py 只读探测 + artifact_publish 归档 + 三合一确认（附验证报告摘要与 manual 验收项）→ commit + push + PR。**PR 创建后暂停，永不自动 merge。**
+7. **distill**：经验写 Memorant（不可用写 `.devflow/retrospective.md`）。PR 合并后 `/devflow next` 做 done 清理。
 
 ## 注意
 
-- 需求澄清在当前会话完成，不派 subagent。
-- 同一需求的各 Agent 共享该 task 的工作区，cwd 钉在那里，不要再派到 `.claude/worktrees/agent-*` 再 collect。
+- 需求澄清在当前会话完成，不派 subagent；唯一派发的 Agent 是 `devflow-verifier`。
+- Gate 等人时停；其余阶段直接干到下一个 Gate，不要求用户打 `/devflow next`。
 - 不自动 merge。交付确认通过后才 push 和创建 PR。
 - Memorant 不可用时静默降级，不阻塞流程。

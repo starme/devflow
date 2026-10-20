@@ -8,7 +8,7 @@ description: Initialize DevFlow project — detect stack, configure paths, gener
 
 ## 定位插件目录
 
-按原有方式定位 `$DEVFLOW_ROOT`，确认 `core/templates/project.yaml`、`core/templates/task.yaml`、`core/templates/context.json` 和 `core/rules/engineering.md` 存在。找不到时提示运行 `bash install.sh`。
+按原有方式定位 `$DEVFLOW_ROOT`，确认 `core/templates/project.yaml`、`core/templates/task.yaml`、`core/templates/prd.md`、`core/templates/task-card.md` 和 `core/rules/engineering.md` 存在。找不到时提示运行 `bash install.sh`。
 
 ## Step 1: Evidence-based project analysis
 
@@ -28,7 +28,7 @@ description: Initialize DevFlow project — detect stack, configure paths, gener
 
 创建 `.devflow/project.yaml`，只写跨需求稳定的内容：项目名称、分类/置信度/证据、capabilities、workspace 路径、支持的 adapter、安全规则和 Memorant project key。`project.yaml` 不得包含当前 phase、需求描述、分支、worktree、PRD、测试轮次或某个 Agent 的 cwd。
 
-将项目能力全集写入 `project.capabilities`。`workflow.selected_tracks` 不写入项目配置；它属于某个 task，由架构阶段根据本次需求选择。
+将项目能力全集写入 `project.capabilities`，供方案卡的"影响范围"参考；v2 不再有 track 派发与 `selected_tracks` 概念。
 
 如果项目已有旧 `.devflow/manifest.yaml`，不删除、不静默覆盖；旧命令通过兼容适配器继续读取。
 
@@ -42,7 +42,7 @@ description: Initialize DevFlow project — detect stack, configure paths, gener
 mkdir -p .devflow/contracts docs docs/adr
 ```
 
-新任务由 `/devflow start` 或 `/devflow fix` 创建：默认在主工作区功能分支上写 `.devflow/task.yaml`；只有主工作区已有未完成 task 时，后来者才进 `.devflow-worktrees/`。`context.json` 和 `runs/` 属于运行时，不应成为共享项目状态。
+新任务由 `/devflow start` 或 `/devflow fix` 创建：默认在主工作区功能分支上写 `.devflow/task.yaml`；只有主工作区已有未完成 task 时，后来者才进 `.devflow-worktrees/`。`runs/` 属于运行时审计，不应成为共享项目状态。
 
 ## Step 5: 兼容说明
 

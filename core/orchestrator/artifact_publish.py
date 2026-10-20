@@ -70,6 +70,8 @@ PUBLISHABLE_ARTIFACTS = frozenset({
     "impact-analysis.md",  # chore impact analysis (architect)
     "scope.yaml",
     "diagnosis.md",
+    "card.md",  # v2 plan card (ADR-0005)
+    "verification-report.md",  # v2 verifier report (ADR-0005)
     "acceptance-report.md",
     "acceptance-scenarios.md",
     "test-report.md",
@@ -424,6 +426,8 @@ def missing_archived_artifacts(worktree: Path, project_root: Path) -> List[str]:
 # ``test_reports`` entry collapses the walked directory into one entry.
 _README_ARTIFACT_KEYS = [
     ("prd.md", "prd"),
+    ("card.md", "card"),
+    ("verification-report.md", "verification"),
     ("architecture.md", "architecture"),
     ("frontend-components.md", "frontend_components"),
     ("impact-analysis.md", "impact_analysis"),
@@ -552,6 +556,8 @@ def update_task_artifact_refs(
     # duplicate YAML keys, silently dropping the first reference.
     ordered = [
         ("prd.md", "prd"),
+        ("card.md", "card"),
+        ("verification-report.md", "verification"),
         ("architecture.md", "architecture"),
         ("scope.yaml", "scope"),
         ("test-report.md", "test_report"),

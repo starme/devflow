@@ -659,6 +659,8 @@ _DEVFLOW_ARTIFACT_FILES = frozenset({
     ".devflow/frontend-components.md",
     ".devflow/impact-analysis.md",
     ".devflow/prd.md",
+    ".devflow/card.md",
+    ".devflow/verification-report.md",
     ".devflow/backend-task-report.md",
     ".devflow/frontend-task-report.md",
     ".devflow/test-report.md",
