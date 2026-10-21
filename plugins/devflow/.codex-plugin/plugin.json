@@ -1,7 +1,7 @@
 {
   "name": "devflow",
-  "version": "1.1.0",
-  "description": "Adaptive lifecycle orchestration for traditional applications, AI agents, Agent Plugins, Skills, and MCP servers.",
+  "version": "2.0.0",
+  "description": "Intent-anchoring, verification-gated lifecycle for AI-assisted development: anchored requirements, executable acceptance criteria, independent verification, and delivery behind explicit approval.",
   "author": {
     "name": "starme",
     "url": "https://github.com/starme"
@@ -13,8 +13,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "DevFlow",
-    "shortDescription": "Adaptive AI project lifecycle orchestration",
-    "longDescription": "Classifies repositories, selects compatible lifecycle tracks, and coordinates safe product, architecture, implementation, testing, and acceptance work.",
+    "shortDescription": "Intent-anchoring development lifecycle",
+    "longDescription": "Anchors requirements against drift (frozen original words, provenance-tagged PRD), executes with a plan card of executable acceptance criteria, verifies against evidence, and gates every commit/push/PR behind explicit approval.",
     "developerName": "starme",
     "category": "Developer Tools",
     "capabilities": ["Interactive", "Write"],

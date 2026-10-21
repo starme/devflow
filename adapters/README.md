@@ -13,17 +13,17 @@ DevFlow 由两部分组成：
 
 | 资源 | 路径 | 消费方式 |
 |------|------|---------|
-| 工作流引擎 | `core/orchestrator/SKILL.md` | 编排逻辑（状态机、流程裁剪、Agent 调度、门禁）。适配层让主 Agent 读取并遵循它；其中 `Task`/子 Agent 派发语法是 Claude 方言，移植时翻译为目标平台的等价机制。 |
+| 工作流引擎 | `core/orchestrator/SKILL.md` | 流程契约（六值状态机、需求锚定协议、Gate、GATE-V 验证、交付守门）。适配层让主 Agent 读取并遵循它；其中 `Task` 派发（仅 `devflow-verifier` 一个 subagent）是 Claude 方言，移植时翻译为目标平台的等价机制，无该机制的平台由主线程自验并在报告标注。 |
 | 红线守护 | `core/hooks/redline-guard.py` | 纯标准库 CLI，从 stdin 读 JSON，向 stdout 输出拦截决策。 |
 | 审计日志 | `core/hooks/audit-log.py` | 纯标准库 CLI，把操作追加到 `.devflow/runs/<run_id>/audit.log`。 |
 | 共享模块 | `core/hooks/devflow_guard_common.py` | 被上面两个脚本导入；负责定位 `core/`、解析 manifest/redlines。 |
 | 编码规则 | `core/rules/` | 语言/框架规则（Markdown）。 |
-| 项目模板 | `core/templates/` | `manifest.yaml`、`redlines.yaml`、`scope.yaml`、规则模板。 |
-| Agent 角色定义 | `agents/*.md`（当前随 Claude 适配） | 角色正文是平台无关的，仅 frontmatter（name/tools/model）是 Claude 专属。移植时复制正文、替换 frontmatter。 |
+| 项目模板 | `core/templates/` | `project.yaml`、`task.yaml`、`prd.md`、`task-card.md`、`redlines.yaml`、规则模板（`manifest.yaml` 为 legacy 兼容格式）。 |
+| 验证 Agent 定义 | `agents/verifier-agent.md`（唯一 subagent，随 Claude 适配） | 正文平台无关，仅 frontmatter（name/tools/model）是 Claude 专属。移植时复制正文、替换 frontmatter；无 subagent 机制的平台不派发，由主线程自验并标注。 |
 
 `core/hooks/*.py` **不 import 任何平台专属模块**，也不假设运行平台。它们通过 `__file__` 自定位 `core/`，并识别 `CLAUDE_PLUGIN_ROOT` 环境变量作为辅助；新增平台可通过设置等价的"插件根目录"环境变量或直接按相对路径调用来复用，无需改动脚本。
 
-项目初始化同样是证据驱动的：`core/project_analyzer.py` 识别传统应用、AI Agent、Agent Plugin、Skill、MCP server 等类别，并为编排器选择适用轨道。适配层只消费分析结果，不应把所有项目强行映射为 backend/frontend。
+项目初始化同样是证据驱动的：`core/project_analyzer.py` 识别传统应用、AI Agent、Agent Plugin、Skill、MCP server 等类别并记录能力。适配层只消费分析结果，不应把所有项目强行映射为 backend/frontend。
 ---
 
 ## 二、一个适配层必须提供的 4 项能力
@@ -34,10 +34,10 @@ DevFlow 由两部分组成：
 
 | 命令 | 行为 |
 |------|------|
-| `devflow init` | 探测技术栈、拷贝 `core/templates/` 到项目 `.devflow/`、生成 manifest/redlines |
-| `devflow start <需求>` | 走完整 feature 流程 |
-| `devflow fix <bug>` | 走精简 bugfix 流程 |
-| `devflow status` | 读取 manifest，报告当前阶段/产物/下一步 |
+| `devflow init` | 探测技术栈与类别，生成 `project.yaml` / `redlines.yaml` / 项目规则 |
+| `devflow start <需求>` | 走 feature 流程（锚定 Q&A → PRD → 方案卡 → 实现 → 验证 → 交付） |
+| `devflow fix <bug>` | 走精简 bugfix 流程（诊断卡 → 修复 → 回归验证 → 交付） |
+| `devflow status` | 读取 `project.yaml` / `task.yaml`，报告当前阶段/产物/下一步 |
 | `devflow next` | 从中断处继续 |
 
 init 需要知道 `core/` 的绝对路径，以便拷贝模板和规则。Claude 适配用 `CLAUDE_PLUGIN_ROOT` 定位；其他平台用各自的"扩展安装目录"变量。
@@ -69,20 +69,20 @@ stdout：
 
 同样的 stdin JSON（工具执行成功后调用）。脚本无关键输出，追加一行审计记录。
 
-### 3. Agent 派发（Agent dispatch）
+### 3. 验证派发（GATE-V）
 
-`core/orchestrator/SKILL.md` 定义了 5 个角色（产品/架构/后端/前端/测试）。适配层需提供一种机制，让 Manager 能以"独立上下文 + 受限工具集"的方式派发这些角色，并在完成后收回控制权。
+v2（ADR-0005）只有唯一 subagent `devflow-verifier`（干净上下文独立验证）。适配层需提供一种机制，让主线程能以"独立上下文 + 受限工具集"的方式派发它，并在完成后收回控制权。
 
 | 平台 | 等价机制 |
 |------|---------|
-| Claude Code | `Task` 工具 + `agents/*.md`（frontmatter 限定 tools/model） |
-| Codex CLI | 待调研（可能是子 agent / role 配置） |
+| Claude Code | `Task` 工具 + `agents/verifier-agent.md`（frontmatter 限定 tools/model） |
+| Codex CLI | 无 subagent 机制——主线程自验，验证报告标注 "main-thread verification, not an independent verifier" |
 | Cursor | 待调研（background agent / custom command） |
 | Trae | 待调研（Skill / agent 机制） |
 
-### 4. 运行时上下文注入
+### 4. 任务状态
 
-编排层在流程开始时生成 `run_id` 并写入 `.devflow/context.json`（字段：`run_id`、`current_phase`、`current_agent`、`cwd`、`workspace`）。适配层在调用 hook 时无需额外传参——脚本自己读这个文件。但适配层**必须保证**主 Agent 在阶段切换/派发 Agent 时更新该文件。
+任务状态自足于 `.devflow/task.yaml`（`task.current_phase` 六值：qa → prd_review → plan_review → working → deliver_confirm → done）。v1 的运行时 `context.json` 已退役（ADR-0005）；适配层调用 hook 时无需额外传参——脚本自行发现状态文件。
 
 ---
 

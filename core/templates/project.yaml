@@ -31,46 +31,23 @@ safety:
   redlines_path: ".devflow/redlines.yaml"
   test_file_protection: true
 
+# v2 (ADR-0005): memory is invoked by the main thread uniformly — the
+# per-agent permission matrix is retired along with the role agents.
 memorant:
   enabled: auto
   project_key: "{{PROJECT_NAME}}"
 
-  # 各 Agent 的记忆权限
-  agents:
-    product:
-      recall: true
-      write: true
-      write_types: [product_decision, scope_clarification]
-    architect:
-      recall: true
-      write: true
-      write_types: [adr, architecture_pattern]
-    backend-dev:
-      recall: true
-      write: true
-      write_types: [bug, snippet, backend_pattern]
-    frontend-dev:
-      recall: true
-      write: true
-      write_types: [bug, snippet, frontend_pattern]
-    tester:
-      recall: true
-      write: true
-      write_types: [test_experience, boundary_case, bug_pattern, product_contradiction]
-
-  # Manager 派发前预测式召回
-  pre_dispatch_recall:
-    enabled: true
+  # Recall before Q&A / planning / verification.
+  recall:
     max_results: 5
     trust_tier: verified
 
-  # 写入设置
+  # Write settings (distillation at task end).
   write:
     default_trust_tier: provisional
     require_evidence: true
     dedup: true
 
-  # 蒸馏设置
   distill:
     enabled: true
     auto_promote: true

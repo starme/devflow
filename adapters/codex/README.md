@@ -20,16 +20,15 @@ Those extension points do not establish a generic, synchronous pre-execution den
 
 ## Files
 
-- `adapter.toml`: machine-readable capability and discovery metadata.
-- `AGENTS.md`: project-level Manager instructions for Codex sessions.
+- `AGENTS.md`: project-level instructions for Codex sessions.
 - `devflow-codex.md`: Skill/turn payload for the five lifecycle commands.
-- `context_bridge.py`: context and core-hook bridge for Codex integrations.
+- `context_bridge.py`: core-hook bridge (payload builder + runner) for Codex integrations; the v1 runtime `context.json` writer is retired (ADR-0005).
 - `install.md`: installation and host integration instructions.
 - `tests/test_context_bridge.py`: stdlib-only contract tests.
 
 ## Version and updates
 
-The current DevFlow adapter release is **1.1.0**. Refresh the configured Marketplace before checking for updates:
+The current DevFlow adapter release is **2.0.0** (matching plugin v2; ADR-0005 recalibration). Refresh the configured Marketplace before checking for updates:
 
 ```bash
 codex plugin marketplace upgrade devflow-marketplace

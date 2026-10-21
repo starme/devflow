@@ -27,7 +27,7 @@ $devflow status
 
 ## Updating
 
-DevFlow release version: **1.1.0**.
+DevFlow release version: **2.0.0** (ADR-0005 recalibration: orchestration retired, intent anchoring + verification gates; breaking change).
 
 Refresh the configured Marketplace and inspect the installed/available versions:
 

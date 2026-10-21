@@ -178,6 +178,33 @@ class DiscoveryTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             ap.discover_task(f.repo, task_id="t-other")
 
+    def test_discover_by_task_id_self_hosted(self):
+        # Self-hosted shape: .devflow/ lives at the project (archive) root while
+        # the git repo is a nested subdirectory (project_root != repo_root).
+        # Without the archive-root hint discovery fails; with it, the in-place
+        # task at the archive root is found.
+        f = _Fixture(tempfile.mkdtemp())
+        devflow = f.project_root / ".devflow"
+        devflow.mkdir(parents=True)
+        (devflow / "task.yaml").write_text(
+            _task_yaml("t-selfhost", "t-selfhost"), encoding="utf-8"
+        )
+        with self.assertRaises(ValueError):
+            ap.discover_task(f.repo, task_id="t-selfhost")
+        found = ap.discover_task(f.repo, task_id="t-selfhost", archive_root=f.project_root)
+        self.assertEqual(found, f.project_root.resolve())
+
+    def test_discover_self_hosted_id_mismatch_rejected(self):
+        # The archive-root fallback is id-guarded like the repo-root one.
+        f = _Fixture(tempfile.mkdtemp())
+        devflow = f.project_root / ".devflow"
+        devflow.mkdir(parents=True)
+        (devflow / "task.yaml").write_text(
+            _task_yaml("t-actual", "t-actual"), encoding="utf-8"
+        )
+        with self.assertRaises(ValueError):
+            ap.discover_task(f.repo, task_id="t-other", archive_root=f.project_root)
+
     def test_discover_all_tasks(self):
         f = _Fixture(tempfile.mkdtemp())
         f.make_task("t-3", "t-3")
@@ -425,6 +452,30 @@ class PublishTest(unittest.TestCase):
         self.assertEqual((target / "prd-t-ten.md").read_text(encoding="utf-8"),
                          "prd body")
 
+    def test_publish_self_hosted_in_place(self):
+        # End-to-end publish for the self-hosted shape: the in-place task's
+        # artifacts sit at project_root/.devflow/, the git repo is nested
+        # inside the project (project_root != repo_root).
+        f = _Fixture(tempfile.mkdtemp())
+        devflow = f.project_root / ".devflow"
+        devflow.mkdir(parents=True)
+        (devflow / "task.yaml").write_text(
+            _task_yaml("t-selfpub", "t-selfpub"), encoding="utf-8"
+        )
+        (devflow / "prd.md").write_text("selfhost prd", encoding="utf-8")
+        (devflow / "card.md").write_text("card body", encoding="utf-8")
+
+        found = ap.discover_task(f.repo, task_id="t-selfpub", archive_root=f.project_root)
+        result = ap.publish(f.project_root, found)
+
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["conflicts"], [])
+        target = f.archive_dir() / "t-selfpub"
+        self.assertTrue((target / "prd-t-selfpub.md").is_file())
+        self.assertTrue((target / "card.md").is_file())
+        # The archive tree itself must not be re-published into the task dir.
+        self.assertFalse((target / "tasks").exists())
+
     def test_publish_is_idempotent(self):
         f = _Fixture(tempfile.mkdtemp())
         wt = f.make_task("t-11", "t-11")
@@ -557,19 +608,6 @@ class TaskYamlRefUpdateTest(unittest.TestCase):
         self.assertIn('delivery: ".devflow/delivery.yaml"', content)
         # Root .devflow/task.yaml must never be created.
         self.assertFalse((f.repo / ".devflow" / "task.yaml").exists())
-
-
-class CollectGuardTest(unittest.TestCase):
-    def test_collect_skips_formal_task_worktree(self):
-        import worktree_sync  # noqa: E402  (imported lazily; same sys.path)
-        f = _Fixture(tempfile.mkdtemp())
-        wt = f.make_task("t-16", "t-sixteen")
-        f.artifact(wt, "prd.md", "prd")
-
-        result = worktree_sync.collect_artifacts(f.repo, worktree=str(wt))
-        self.assertEqual(result["synced"], [])
-        self.assertEqual(len(result["errors"]), 1)
-        self.assertIn("formal task worktree", result["errors"][0])
 
 
 class CliTest(unittest.TestCase):

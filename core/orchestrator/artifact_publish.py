@@ -18,13 +18,10 @@ The archive root derives from ``project_root`` (the directory holding
 ``.devflow/``), while the task worktree location derives from ``repo_root``
 (the git repository root).  These two authorities are orthogonal and are passed
 in explicitly (``--root`` and ``--repo-root`` on the CLI), never inferred from a
-single ambiguous root — form A (project_root == repo_root) and form B
-(project_root == repo_root.parent) both resolve correctly.
-
-``collect`` (``worktree_sync.py``) keeps recycling *agent* worktrees under
-``.claude/worktrees/agent-*``; ``publish`` here only handles *formal* tasks.
-The two never cross: ``collect`` must not flatten formal task artifacts into
-``.devflow/``, and ``publish`` must not touch agent worktrees.
+single ambiguous root — form A (project_root == repo_root), form B
+(project_root == repo_root.parent), and the self-hosted shape
+(project_root == repo_root.parent.parent with the git repo nested inside the
+project) all resolve correctly.
 
 Publishing is idempotent and content-addressed: an identical target is skipped,
 a differing target is *refused* (never last-writer-wins), and already-published
@@ -72,6 +69,7 @@ PUBLISHABLE_ARTIFACTS = frozenset({
     "diagnosis.md",
     "card.md",  # v2 plan card (ADR-0005)
     "verification-report.md",  # v2 verifier report (ADR-0005)
+    "memorant-journal-investigation.md",  # investigation notes (ADR-0005 follow-up)
     "acceptance-report.md",
     "acceptance-scenarios.md",
     "test-report.md",
@@ -165,6 +163,7 @@ def discover_task(
     task_id: Optional[str] = None,
     worktree: Optional[str] = None,
     all_tasks: bool = False,
+    archive_root: Optional[Path] = None,
 ) -> Path:
     """Locate a formal task worktree by precedence: ``--worktree``, ``--task``,
     then ``--all-tasks``.  Only a directory that is both inside the
@@ -172,7 +171,11 @@ def discover_task(
     is accepted — the directory name is never trusted on its own.
 
     *repo_root* is the worktree-location authority (the git repo root); it is
-    independent of the archive root (``project_root``).
+    independent of the archive root (``project_root``).  *archive_root* (the
+    directory holding ``.devflow/``) additionally enables the self-hosted
+    in-place fallback: the active task's ``.devflow/`` may live at the project
+    root while the git repo is a nested subdirectory (``project_root !=
+    repo_root``).
     """
     repo_root = repo_root.resolve()
 
@@ -192,6 +195,10 @@ def discover_task(
         # ``repo_root/.devflow/`` rather than under ``.devflow-worktrees/``.
         if _in_place_task_id_matches(repo_root, task_id):
             return repo_root
+        # Self-hosted fallback: the in-place task's ``.devflow/`` lives at the
+        # archive root while the git repo is nested inside the project.
+        if archive_root is not None and _in_place_task_id_matches(archive_root, task_id):
+            return archive_root.resolve()
         raise ValueError(f"formal task worktree not found for task id: {task_id}")
 
     if all_tasks:
@@ -754,6 +761,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             task_id=args.task,
             worktree=args.worktree,
             all_tasks=args.all_tasks,
+            archive_root=project_root,
         )
     except ValueError as exc:
         print(json.dumps({"error": str(exc)}))
