@@ -25,7 +25,7 @@ curl -fsSL https://chatgpt.com/codex/install.sh | sh
    cp adapters/codex/devflow-codex.md ~/.codex/skills/devflow/SKILL.md
    ```
 
-4. Run the equivalent of `devflow init` from the target repository. Confirm the reported category and tracks when the result is ambiguous.
+4. Run the equivalent of `devflow init` from the target repository. Confirm the reported category and capabilities when the result is ambiguous.
 5. Use the Skill with `devflow start`, `devflow fix`, `devflow status`, and `devflow next` inputs.
 
 ## app-server mode
@@ -34,7 +34,7 @@ Send a `turn/start` request with a text input containing `$devflow` and a skill 
 
 ## Safety
 
-Set Codex sandbox and approval policy according to the host's security requirements. The adapter capability is `soft`: Codex's documented command approval and MCP hooks do not prove a generic file-write pre-tool deny hook. The Manager must display that limitation. Core audit logging remains required after actions.
+Set Codex sandbox and approval policy according to the host's security requirements. The adapter capability is `soft`: Codex's documented command approval and MCP hooks do not prove a generic file-write pre-tool deny hook. The main thread must display that limitation. Core audit logging remains required after actions.
 
 ## Verification
 

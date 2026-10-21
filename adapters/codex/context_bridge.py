@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Small stdlib bridge for Codex context and core audit hooks."""
+"""Small stdlib bridge for Codex core audit/redline hooks.
+
+v2 (ADR-0005): the runtime ``context.json`` writer is retired along with the
+role-agent dispatch — task state is self-sufficient in ``.devflow/task.yaml``.
+This bridge keeps the platform-neutral hook payload builder and runner plus
+the soft-capability warning.
+"""
 from __future__ import annotations
 
 import json
@@ -13,16 +19,6 @@ SOFT_CAPABILITY_WARNING = (
     "Codex adapter capability is soft: generic pre-tool file-write interception "
     "is not verified; use Codex approvals and post-action audit logging."
 )
-
-
-def write_context(project_root: Union[str, Path], context: Dict[str, object]) -> Path:
-    """Persist task-scoped runtime context consumed by core hooks."""
-    root = Path(project_root).resolve()
-    task_root = Path(str(context.get("task_root", root / ".devflow"))).resolve()
-    context_path = task_root / "context.json"
-    context_path.parent.mkdir(parents=True, exist_ok=True)
-    context_path.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return context_path
 
 
 def build_core_payload(tool_name: str, tool_input: Dict[str, object], cwd: Union[str, Path]) -> str:

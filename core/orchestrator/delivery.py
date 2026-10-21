@@ -35,6 +35,7 @@ DELIVERY_ARTIFACT_FILES = frozenset({
     ".devflow/prd.md",
     ".devflow/card.md",
     ".devflow/verification-report.md",
+    ".devflow/memorant-journal-investigation.md",
     ".devflow/architecture.md",
     ".devflow/diagnosis.md",
     ".devflow/acceptance-report.md",

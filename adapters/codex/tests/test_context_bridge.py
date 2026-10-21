@@ -5,21 +5,14 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from context_bridge import build_core_payload, soft_warning, write_context
+from context_bridge import build_core_payload, soft_warning
 
 
 class ContextBridgeTest(unittest.TestCase):
-    def test_writes_runtime_context_to_task_root(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            task_root = root / "task" / ".devflow"
-            path = write_context(root, {"task_root": str(task_root), "task_id": "task-a"})
-            self.assertEqual(path, task_root.resolve() / "context.json")
-            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["task_id"], "task-a")
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            path = write_context(temp_dir, {"current_phase": "testing", "current_agent": "manager"})
-            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["current_phase"], "testing")
+    def test_bridge_has_no_context_writer(self):
+        # v2 (ADR-0005): the runtime context.json writer is retired.
+        import context_bridge
+        self.assertFalse(hasattr(context_bridge, "write_context"))
 
     def test_builds_core_hook_payload(self):
         payload = json.loads(build_core_payload("Bash", {"command": "pytest"}, "/tmp/project"))
