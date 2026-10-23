@@ -253,6 +253,133 @@ class DiscoveryTest(unittest.TestCase):
         self.assertEqual(meta["base_commit"], "deadbeef" * 5)
 
 
+class ArchivedTaskTest(unittest.TestCase):
+    """Completed tasks live on only as an archive directory.
+
+    The live ``task.yaml`` has moved on to a later task, so ``discover_task``
+    cannot find them by id — but status reporting still has to name them, and
+    ``--all-tasks`` must not trip over them.
+    """
+
+    def _archive(self, f: _Fixture, task_id: str, phase: str = "done") -> Path:
+        directory = f.archive_dir() / task_id
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "task.yaml").write_text(
+            render_task_yaml(
+                TaskRecord(
+                    task_id=task_id,
+                    slug=task_id,
+                    kind="chore",
+                    description="archived task",
+                    base_ref="main",
+                    base_commit="deadbeef" * 5,
+                    branch=f"chore/{task_id}",
+                    worktree=str(f.repo),
+                ),
+                current_phase=phase,
+            ),
+            encoding="utf-8",
+        )
+        return directory
+
+    def _stale_in_place(self, f: _Fixture, task_id: str) -> None:
+        """Write an in-place task.yaml naming a *different*, later task.
+
+        Mirrors the real in-place form: the state lives at the git repo root.
+        """
+        devflow = f.repo / ".devflow"
+        devflow.mkdir(parents=True, exist_ok=True)
+        (devflow / "task.yaml").write_text(_task_yaml(task_id, task_id), encoding="utf-8")
+
+    def test_find_archived_task_returns_directory(self):
+        f = _Fixture(tempfile.mkdtemp())
+        archived = self._archive(f, "t-done")
+        self.assertEqual(ap.find_archived_task(f.archive_dir(), "t-done"), archived.resolve())
+
+    def test_find_archived_task_missing_returns_none(self):
+        f = _Fixture(tempfile.mkdtemp())
+        self.assertIsNone(ap.find_archived_task(f.archive_dir(), "t-absent"))
+
+    def test_find_archived_task_rejects_escape(self):
+        # task_id reaches here from the CLI; a traversal must not resolve to a
+        # directory outside the archive root.
+        f = _Fixture(tempfile.mkdtemp())
+        self.assertIsNone(ap.find_archived_task(f.archive_dir(), "../../etc"))
+        self.assertIsNone(ap.find_archived_task(f.archive_dir(), ".."))
+
+    def test_find_archived_task_tolerates_corrupt_state(self):
+        f = _Fixture(tempfile.mkdtemp())
+        directory = f.archive_dir() / "t-broken"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "task.yaml").write_text("schema_version: 2\n", encoding="utf-8")
+        self.assertIsNone(ap.find_archived_task(f.archive_dir(), "t-broken"))
+
+    def test_discover_archived_requires_opt_in(self):
+        f = _Fixture(tempfile.mkdtemp())
+        archived = self._archive(f, "t-done")
+        self._stale_in_place(f, "t-later")
+        with self.assertRaises(ValueError):
+            ap.discover_task(f.repo, task_id="t-done", archive_root=f.project_root)
+        found = ap.discover_task(
+            f.repo, task_id="t-done", archive_root=f.project_root, allow_archived=True
+        )
+        self.assertEqual(found, archived.resolve())
+
+    def test_live_task_still_wins_over_archive(self):
+        # allow_archived must not shadow a task that is genuinely still active.
+        f = _Fixture(tempfile.mkdtemp())
+        self._archive(f, "t-live")
+        wt = f.make_task("t-live", "t-live")
+        found = ap.discover_task(
+            f.repo, task_id="t-live", archive_root=f.project_root, allow_archived=True
+        )
+        self.assertEqual(found, wt.resolve())
+
+    def test_all_tasks_skips_archives(self):
+        f = _Fixture(tempfile.mkdtemp())
+        self._archive(f, "t-done")
+        self._stale_in_place(f, "t-live")
+        found = ap.discover_task(f.repo, all_tasks=True, archive_root=f.project_root)
+        # The in-place task is the only source; the archive must not be picked.
+        self.assertEqual(found, f.repo.resolve())
+        self.assertNotEqual(found, (f.archive_dir() / "t-done").resolve())
+
+    def test_describe_task_archived(self):
+        f = _Fixture(tempfile.mkdtemp())
+        archived = self._archive(f, "t-done")
+        self._stale_in_place(f, "t-later")
+        info = ap.describe_task(f.repo, f.project_root, "t-done")
+        self.assertEqual(info["location"], "archived")
+        self.assertEqual(Path(info["path"]), archived.resolve())
+        self.assertEqual(info["phase"], "done")
+        self.assertFalse(info["publishable"])
+
+    def test_describe_task_worktree(self):
+        f = _Fixture(tempfile.mkdtemp())
+        wt = f.make_task("t-live", "t-live")
+        info = ap.describe_task(f.repo, f.project_root, "t-live")
+        self.assertEqual(info["location"], "worktree")
+        self.assertEqual(Path(info["path"]), wt.resolve())
+        self.assertTrue(info["publishable"])
+
+    def test_describe_task_in_place(self):
+        f = _Fixture(tempfile.mkdtemp(), form_a=True)
+        devflow = f.repo / ".devflow"
+        devflow.mkdir(parents=True)
+        (devflow / "task.yaml").write_text(_task_yaml("t-here", "t-here"), encoding="utf-8")
+        info = ap.describe_task(f.repo, f.project_root, "t-here")
+        self.assertEqual(info["location"], "in-place")
+        self.assertEqual(info["phase"], "qa")
+        self.assertTrue(info["publishable"])
+
+    def test_describe_task_missing(self):
+        f = _Fixture(tempfile.mkdtemp())
+        info = ap.describe_task(f.repo, f.project_root, "t-nowhere")
+        self.assertEqual(info["location"], "missing")
+        self.assertIsNone(info["path"])
+        self.assertFalse(info["publishable"])
+
+
 class SafetyTest(unittest.TestCase):
     def test_symlink_refused(self):
         with tempfile.TemporaryDirectory() as temp_dir:
