@@ -61,7 +61,36 @@ class WorktreeManagerTest(unittest.TestCase):
             self.assertEqual(feature.base_commit, bugfix.base_commit)
             self.assertEqual(load_task(root / ".devflow" / "task.yaml").kind, "feature")
             self.assertEqual(load_task(Path(bugfix.worktree) / ".devflow" / "task.yaml").source_task_id, feature.task_id)
+            # The latercomer is seeded into its own worktree; the in-place task
+            # is still active there, so nothing gets archived.
+            self.assertFalse((root / ".devflow" / "tasks" / feature.task_id).exists())
+            self.assertFalse(
+                (Path(bugfix.worktree) / ".devflow" / "tasks" / feature.task_id).exists()
+            )
             self.assertEqual({record.task_id for record in discover_tasks(root)}, {feature.task_id, bugfix.task_id})
+
+    def test_new_in_place_task_snapshots_the_finished_one(self):
+        # Two in-place tasks share repo_root/.devflow/task.yaml. Without a
+        # snapshot the first task's id/branch/parent chain is lost when the
+        # second one starts.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._repository(temp_dir)
+            first = create_task(root, "First chore", "chore")
+            (root / ".devflow" / "task.yaml").write_text(
+                render_task_yaml(first, current_phase="done").replace(
+                    'status: "active"', 'status: "done"'
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "checkout", "-q", "main"], cwd=root, check=True)
+
+            second = create_task(root, "Second chore", "chore")
+
+            self.assertEqual(Path(second.worktree).resolve(), root.resolve())
+            self.assertEqual(load_task(root / ".devflow" / "task.yaml").task_id, second.task_id)
+            snapshot = root / ".devflow" / "tasks" / first.task_id / "task.yaml"
+            self.assertTrue(snapshot.is_file(), "previous task state was not snapshotted")
+            self.assertEqual(load_task(snapshot).task_id, first.task_id)
 
     def test_create_task_writes_v2_state_without_context_json(self):
         # ADR-0005: task.yaml is self-sufficient; the runtime context.json is
