@@ -169,12 +169,64 @@ def _in_place_task_id_matches(repo_root: Path, task_id: str) -> bool:
         return False
 
 
+def _has_legal_task_state(task_file: Path) -> bool:
+    """Return True when *task_file* is a parseable ``task.yaml``.
+
+    ``_has_legal_task_yaml`` expects a worktree root and looks for
+    ``.devflow/task.yaml`` beneath it; an archive keeps ``task.yaml`` directly
+    in the task directory, so it needs this variant.
+    """
+    if not task_file.is_file():
+        return False
+    try:
+        load_task(task_file)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def find_archived_task(archive_root: Path, task_id: str) -> Path | None:
+    """Return ``archive_root/<task_id>`` when it is a completed task archive.
+
+    Archived tasks are the destinations of a publish, so they can never be a
+    publish source — see ``discover_task(allow_archived=...)``. This exists so
+    status reporting can still name them after the active ``task.yaml`` moved
+    on to the next task.
+
+    Returns ``None`` for a missing directory, an archive without a legal
+    ``task.yaml``, or an id that would resolve outside the archive root.
+    """
+    if not task_id:
+        return None
+    root = archive_root.resolve()
+    candidate = (root / task_id).resolve()
+    # ``task_id`` reaches here from the CLI, so confirm the join stayed inside
+    # the archive root before touching the filesystem.
+    if candidate.parent != root:
+        return None
+    if not _has_legal_task_state(candidate / "task.yaml"):
+        return None
+    return candidate
+
+
+def _is_archived_path(path: Path, archive_root: Path | None) -> bool:
+    """Return True when *path* is one of the entries under the archive root."""
+    if archive_root is None:
+        return False
+    try:
+        path.resolve().relative_to(archive_root.resolve())
+    except ValueError:
+        return False
+    return True
+
+
 def discover_task(
     repo_root: Path,
     task_id: str | None = None,
     worktree: str | None = None,
     all_tasks: bool = False,
     archive_root: Path | None = None,
+    allow_archived: bool = False,
 ) -> Path:
     """Locate a formal task worktree by precedence: ``--worktree``, ``--task``,
     then ``--all-tasks``.  Only a directory that is both inside the
@@ -187,6 +239,11 @@ def discover_task(
     in-place fallback: the active task's ``.devflow/`` may live at the project
     root while the git repo is a nested subdirectory (``project_root !=
     repo_root``).
+
+    *allow_archived* is off by default because an archived task cannot be
+    published: its ``.devflow/`` is the publish destination, so every file
+    would resolve source == target. Only status reporting, which just needs to
+    name the directory, passes it.
     """
     repo_root = repo_root.resolve()
 
@@ -210,17 +267,89 @@ def discover_task(
         # archive root while the git repo is nested inside the project.
         if archive_root is not None and _in_place_task_id_matches(archive_root, task_id):
             return archive_root.resolve()
+        # Completed tasks survive only as an archive directory; the live
+        # ``task.yaml`` now names a later task, so the checks above miss them.
+        if allow_archived and archive_root is not None:
+            archived = find_archived_task(resolve_archive_root(archive_root), task_id)
+            if archived is not None:
+                return archived
         raise ValueError(f"formal task worktree not found for task id: {task_id}")
 
     if all_tasks:
         task_files = find_task_files(repo_root)
         for task_file in task_files:
             worktree_dir = task_file.parent.parent
+            # An archive is a publish destination, never a source; enumerating
+            # it here would silently re-publish into itself.
+            if archive_root is not None and _is_archived_path(
+                worktree_dir, resolve_archive_root(archive_root)
+            ):
+                continue
             if _has_legal_task_yaml(worktree_dir):
                 return worktree_dir
         raise ValueError("no formal task worktrees found")
 
     raise ValueError("one of --task, --worktree, or --all-tasks is required")
+
+
+def describe_task(repo_root: Path, project_root: Path, task_id: str) -> dict[str, object]:
+    """Report where *task_id* lives and whether it can still be published.
+
+    Status reporting needs this after a task completes: ``discover_task``
+    deliberately refuses archives, so a caller that only wants to name the
+    directory would otherwise get an exception instead of an answer.
+    """
+    archive_root = resolve_archive_root(project_root)
+    worktree_dir = _worktree_root(repo_root, task_id)
+    if _has_legal_task_yaml(worktree_dir):
+        location, path = "worktree", worktree_dir.resolve()
+    elif _in_place_task_id_matches(repo_root, task_id):
+        location, path = "in-place", repo_root.resolve()
+    elif _in_place_task_id_matches(project_root, task_id):
+        location, path = "in-place", project_root.resolve()
+    else:
+        archived = find_archived_task(archive_root, task_id)
+        if archived is None:
+            return {
+                "task_id": task_id,
+                "location": "missing",
+                "path": None,
+                "phase": None,
+                "publishable": False,
+            }
+        # An archive keeps task.yaml directly in the task directory.
+        return {
+            "task_id": task_id,
+            "location": "archived",
+            "path": str(archived),
+            "phase": _read_task_phase(archived / "task.yaml"),
+            "publishable": False,
+        }
+
+    return {
+        "task_id": task_id,
+        "location": location,
+        "path": str(path),
+        "phase": _read_task_phase(path / ".devflow" / "task.yaml"),
+        "publishable": location != "archived",
+    }
+
+
+def _read_task_phase(task_file: Path) -> str | None:
+    """Return ``current_phase`` from a ``task.yaml`` without a full record load.
+
+    ``TaskRecord`` carries no phase field — the phase lives beside the record
+    in the rendered YAML — so this reads the single line directly.
+    """
+    try:
+        content = task_file.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("current_phase:"):
+            return stripped.split(":", 1)[1].strip().strip('"').strip("'")
+    return None
 
 
 def read_task_meta(worktree: Path) -> dict[str, str]:
