@@ -646,6 +646,10 @@ _DEVFLOW_ARTIFACT_FILES = frozenset({
     ".devflow/scope.yaml",
     ".devflow/diagnosis.md",
     ".devflow/architecture.md",
+    # The two entries below are guard-only: agents may write them, but the
+    # delivery flow never collects them into a commit (they document design
+    # intent rather than task artifacts). This set is a superset of
+    # ``delivery.DELIVERY_ARTIFACT_FILES`` — see test_delivery.py.
     ".devflow/frontend-components.md",
     ".devflow/impact-analysis.md",
     ".devflow/prd.md",

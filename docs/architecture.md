@@ -3,9 +3,13 @@
 > **v2 校准注记（2026-10-20）**：本文写作于 v1 交付生命周期设计期。v2（ADR-0005）之后：
 > 角色 Agent 全部退役（仅存 `devflow-verifier`）、`current_phase` 收敛为 6 值
 > （`qa → prd_review → plan_review → working → deliver_confirm → done`）、
-> scope.yaml/context.json 退役、Stop hook 不再拦截。本文的**交付机制**（白名单、
+> scope.yaml/context.json 退役（`core/templates/` 中从不存在 `context.json` 模板）、Stop hook 不再拦截。本文的**交付机制**（白名单、
 > 三合一确认、幂等恢复、PR 不自动合并）在 v2 原样有效；涉及阶段名与角色 Agent
 > 的段落按上述映射阅读。
+>
+> **历史段落标注**：第二节起是 v1 设计期原文，其中的 9 阶段流水线、角色分工与
+> 分阶段 Stop 拦截均已退役，保留仅为交付机制的来龙去脉。读"当前怎么做"请看
+> `core/orchestrator/SKILL.md` 与 `docs/workflow.md`。
 
 DevFlow 是 Claude Code 上的生命周期编排插件（命令、Agent、Hook、YAML 契约）。人只在 Gate 拍板；中间自动把一个需求做完并开出 PR。任意 git 仓库都能编，`backend` / `frontend` 是可选 track。
 
@@ -16,7 +20,7 @@ DevFlow 是 Claude Code 上的生命周期编排插件（命令、Agent、Hook�
 | 命令 | `commands/` | `/devflow init\|start\|fix\|status\|next` |
 | 编排 | `core/orchestrator/` | SKILL、task 状态、worktree、交付、归档 |
 | Guard | `core/hooks/`、`hooks/` | 红线、审计、Stop 续跑到 Gate |
-| 专职 Agent | `agents/` | 产品 / 架构 / 后端 / 前端 / 测试 |
+| 专职 Agent | `agents/` | v2 起仅 `verifier-agent.md`（`devflow-verifier`） |
 | 项目状态 | `.devflow/project.yaml` + `task.yaml` | 仓库级配置 vs 当前需求阶段 |
 | 归档 | `.devflow/tasks/<task-id>/` | 只在 DELIVERY 发布过程物料 |
 
@@ -84,16 +88,6 @@ delivery:
   returned_to_main: false  # 是否已切回 base_ref 主分支
 ```
 
-**`context.json`（`core/templates/context.json`）新增 `delivery` 上下文块：**
-
-```json
-"delivery": {
-  "gh_available": "{{GH_AVAILABLE}}",
-  "branch_pushed": "{{BRANCH_PUSHED}}",
-  "pr_url": "{{PR_URL}}"
-}
-```
-
 > 注意：`task_state.py` 当前 `TaskRecord` 是 `frozen dataclass` 且 `load_task` 只解析标量字段。扩展 `delivery` 段时需要同步扩展 `TaskRecord` 字段与 `_read_scalar` 的解析，或采用独立的 `delivery.yaml` 子状态文件，避免破坏现有 round-trip 测试（`test_worktree_manager.py`）。**推荐方案：新增独立 `.devflow/delivery.yaml` 作为交付子状态**，与 `task.yaml` 解耦，`task.yaml` 仅在 `artifacts` 段加一个 `delivery: ".devflow/delivery.yaml"` 引用——最小侵入，不破坏 `TaskRecord` 结构。
 
 ---
@@ -111,22 +105,29 @@ delivery:
 
 **禁止提交（SKIP）：**
 - 临时文件、编辑器残留、`*.tmp`、`*.log`
-- `.devflow/context.json`（运行时上下文，属 `_NEVER_COLLECT`）
+- 退役的 `.devflow/context.json`（v2 起不再写入；`DELIVERY_SKIP_FILES` 仍防御性排除遗留文件）
 - `.devflow/runs/**`（审计日志，不进交付）
 - 未跟踪且不在 `.devflow` 白名单内的文件
 
-**`DELIVERY_ARTIFACT_FILES` 白名单（与 `devflow_guard_common._DEVFLOW_ARTIFACT_FILES` 并集对齐）：**
+**`DELIVERY_ARTIFACT_FILES` 白名单（权威定义在 `core/orchestrator/delivery.py`；本清单与之逐行一致，由 `test_delivery.py` 校验）：**
 
 ```text
-.devflow/scope.yaml
-.devflow/prd.md
-.devflow/architecture.md
-.devflow/diagnosis.md
 .devflow/acceptance-report.md
 .devflow/acceptance-scenarios.md
+.devflow/architecture.md
+.devflow/backend-task-report.md
+.devflow/card.md
+.devflow/delivery.yaml
+.devflow/diagnosis.md
+.devflow/frontend-task-report.md
+.devflow/memorant-journal-investigation.md
+.devflow/pr.md
+.devflow/prd.md
+.devflow/retrospective.md
+.devflow/scope.yaml
+.devflow/task-report.md
 .devflow/test-report.md
-.devflow/pr.md            # 新增：PR 创建结果记录
-.devflow/delivery.yaml    # 新增：交付子状态
+.devflow/verification-report.md
 ```
 
 ### 2.2 commit 规范
@@ -204,16 +205,15 @@ PR 创建后**不自动清理**——清理发生在 PR 合并、交付闭环确
 
 | 文件 | 改动点 |
 |------|--------|
-| `core/orchestrator/SKILL.md` | 状态机图插 DELIVERY + 阶段 9.5 交付闭环 + DONE 清理/返回主仓库 + 中断恢复 |
+| `core/orchestrator/SKILL.md` | 交付闭环（GATE-3 三合一确认）、DONE 清理/返回主仓库、中断恢复 |
 | `core/orchestrator/task_state.py` | `artifacts` 段加 `delivery` 引用（或独立 delivery.yaml 解析） |
-| `core/templates/context.json` | 新增 `delivery` 上下文块 |
 | `core/hooks/devflow_guard_common.py` | `_DEVFLOW_ARTIFACT_FILES` 补 `.devflow/pr.md`、`.devflow/delivery.yaml` |
-| `hooks/devflow_hook.py` | 自动阶段（prd_writing/architecture/development/testing/distill）拦 Stop；`delivery` 允许停 |
+| `hooks/devflow_hook.py` | v1 阶段名（prd_writing/architecture/…）的 Stop 拦截；v2 起 hook 只提示不拦截，该文件保留为 Stop 续跑机制入口 |
 | `commands/start.md` / `next.md` / `status.md` / `fix.md` | 阶段序列与恢复表接入 DELIVERY |
 | `docs/workflow.md` | 状态机口诀 / 流程图 / 人类介入点（4→5）/ 裁剪表补 DELIVERY |
 | `docs/adr/0002-delivery-lifecycle.md` | 交付生命周期 ADR |
 | `README.md` / `README.zh-CN.md` | 一句话交付闭环说明 |
-| `adapters/codex/adapter.toml` / `AGENTS.md` / `devflow-codex.md` | Codex delivery 能力声明 |
+| `adapters/codex/adapter.toml` / `adapters/codex/AGENTS.md` / `adapters/codex/devflow-codex.md` | Codex delivery 能力声明 |
 
 ---
 
