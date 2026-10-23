@@ -14,7 +14,12 @@ ORCHESTRATOR = Path(__file__).resolve().parents[1] / "orchestrator"
 sys.path.insert(0, str(ORCHESTRATOR))
 
 from task_state import TaskRecord, load_task, render_task_yaml  # noqa: E402
-from worktree_manager import WorktreeError, create_task, discover_tasks  # noqa: E402
+from worktree_manager import (  # noqa: E402
+    WorktreeError,
+    create_task,
+    discover_tasks,
+    resolve_project_root,
+)
 
 
 class TaskStateTest(unittest.TestCase):
@@ -109,6 +114,81 @@ class WorktreeManagerTest(unittest.TestCase):
             snapshot = root / ".devflow" / "tasks" / first.task_id / "task.yaml"
             self.assertTrue(snapshot.is_file(), "previous task state was not snapshotted")
             self.assertEqual(load_task(snapshot).task_id, first.task_id)
+
+    def test_writes_state_to_project_root_when_repo_is_nested(self):
+        # Self-hosted layout: the project owns .devflow/ while the git repo sits
+        # in a subdirectory. State belongs with the project, which is also the
+        # directory artifact_publish archives into.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir) / "project"
+            project.mkdir()
+            (project / ".devflow").mkdir()
+            (project / ".devflow" / "project.yaml").write_text(
+                "workspace:\n  root: .\n", encoding="utf-8"
+            )
+            repo = project / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (repo / "README.md").write_text("initial\n", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=DevFlow", "-c", "user.email=d@example.invalid",
+                 "commit", "-qm", "initial"],
+                cwd=repo,
+                check=True,
+            )
+
+            record = create_task(repo, "Nested repo task", "chore")
+
+            state = project / ".devflow" / "task.yaml"
+            self.assertTrue(state.is_file(), "state was not written to the project root")
+            self.assertEqual(load_task(state).task_id, record.task_id)
+            self.assertFalse((repo / ".devflow" / "task.yaml").exists())
+
+    def test_resolve_project_root_falls_back_to_repo_root(self):
+        # No ancestor declares a workspace root, so an ordinary project keeps its
+        # previous behaviour and writes state beside the repository.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._repository(temp_dir)
+            self.assertEqual(resolve_project_root(root), root.resolve())
+
+    def test_resolve_project_root_reads_declared_workspace_root(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir) / "project"
+            (project / ".devflow").mkdir(parents=True)
+            (project / ".devflow" / "project.yaml").write_text(
+                "workspace:\n  root: .\n", encoding="utf-8"
+            )
+            repo = project / "repo"
+            repo.mkdir()
+            self.assertEqual(resolve_project_root(repo), project.resolve())
+
+    def test_unfinished_task_under_project_root_blocks_in_place(self):
+        # A task left running at the project root must force the next one into a
+        # worktree; otherwise both would claim the same working tree.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir) / "project"
+            (project / ".devflow").mkdir(parents=True)
+            (project / ".devflow" / "project.yaml").write_text(
+                "workspace:\n  root: .\n", encoding="utf-8"
+            )
+            repo = project / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (repo / "README.md").write_text("initial\n", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=DevFlow", "-c", "user.email=d@example.invalid",
+                 "commit", "-qm", "initial"],
+                cwd=repo,
+                check=True,
+            )
+            first = create_task(repo, "First task", "chore")
+            second_record = create_task(repo, "Second task", "chore")
+            # The second task was isolated, so both records still exist.
+            self.assertNotEqual(Path(second_record.worktree), repo)
+            ids = {r.task_id for r in discover_tasks(repo)}
+            self.assertIn(first.task_id, ids)
 
     def test_create_task_writes_v2_state_without_context_json(self):
         # ADR-0005: task.yaml is self-sufficient; the runtime context.json is

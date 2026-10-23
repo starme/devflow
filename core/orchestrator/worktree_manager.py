@@ -65,16 +65,28 @@ def _ensure_clean(root: Path) -> None:
             raise WorktreeError(f"main workspace has uncommitted changes: {root}")
 
 
-def _active_in_place_task(root: Path) -> bool:
-    """True when the main workspace already holds an unfinished task."""
-    path = root / ".devflow" / "task.yaml"
-    if not path.is_file():
-        return False
-    try:
-        status = _read_scalar(path.read_text(encoding="utf-8"), "status", "task")
-    except OSError:
-        return True
-    return status != "done"
+def _active_in_place_task(root: Path, state_root: Path | None = None) -> bool:
+    """True when the main workspace already holds an unfinished task.
+
+    *state_root* is the directory owning ``.devflow/``; it differs from *root*
+    when the repository is nested inside the project. Either location counts:
+    a task left unfinished under the old location must still block a second
+    in-place task, or the two would fight over the same branch.
+    """
+    candidates = [root]
+    if state_root is not None and state_root != root:
+        candidates.append(state_root)
+    for base in candidates:
+        path = base / ".devflow" / "task.yaml"
+        if not path.is_file():
+            continue
+        try:
+            status = _read_scalar(path.read_text(encoding="utf-8"), "status", "task")
+        except OSError:
+            return True
+        if status != "done":
+            return True
+    return False
 
 
 def _resolve_endpoints(repo_root: Path) -> list[dict]:
@@ -144,9 +156,13 @@ def _resolve_endpoints(repo_root: Path) -> list[dict]:
 
 
 def _seed_task_devflow(
-    repo_root: Path, dest_devflow: Path, record: TaskRecord, copy_config: bool
+    config_root: Path, dest_devflow: Path, record: TaskRecord, copy_config: bool
 ) -> None:
     """Seed the task's ``.devflow/`` directory.
+
+    *config_root* is the directory whose ``.devflow/`` supplies ``project.yaml``,
+    ``redlines.yaml`` and ``rules/`` when seeding a worktree. It is the project
+    root, which is where that configuration lives, not necessarily the git root.
 
     v2 (ADR-0005): only ``task.yaml`` is written. The runtime
     ``context.json`` is retired — ``task.yaml`` (with ``git.endpoints`` for
@@ -157,7 +173,7 @@ def _seed_task_devflow(
     # share one task.yaml, so without this the old id/branch/parent chain is
     # gone the moment the next task starts.
     archive_task_state(dest_devflow / "task.yaml")
-    src = repo_root / ".devflow"
+    src = config_root / ".devflow"
     if copy_config and src.is_dir():
         for name in ("project.yaml", "redlines.yaml"):
             item = src / name
@@ -169,6 +185,33 @@ def _seed_task_devflow(
     (dest_devflow / "task.yaml").write_text(render_task_yaml(record), encoding="utf-8")
 
 
+def resolve_project_root(repo_root: Path) -> Path:
+    """Return the directory that owns ``.devflow/`` for *repo_root*.
+
+    The project root is the archive authority — it is the same directory only
+    when the git repository sits at the top of the project. A project that keeps
+    its repository in a subdirectory (a "self-hosted" layout) declares the
+    owning directory in ``workspace.root`` of its nearest ``project.yaml``.
+
+    Walks upward from *repo_root* so a nested repository finds the ancestor that
+    holds the state, and falls back to *repo_root* when no ancestor declares
+    one: an ordinary project must keep working unchanged.
+    """
+    repo_root = repo_root.resolve()
+    for candidate in (repo_root, *repo_root.parents):
+        project_file = candidate / ".devflow" / "project.yaml"
+        if not project_file.is_file():
+            continue
+        declared = _read_scalar(project_file.read_text(encoding="utf-8"), "root", "workspace")
+        if not declared:
+            return candidate
+        declared_path = Path(declared)
+        if not declared_path.is_absolute():
+            declared_path = candidate / declared_path
+        return declared_path.resolve()
+    return repo_root
+
+
 def create_task(
     start_path: Path,
     description: str,
@@ -177,6 +220,7 @@ def create_task(
     parent_task_id: str | None = None,
     source_task_id: str | None = None,
     title: str | None = None,
+    project_root: Path | None = None,
 ) -> TaskRecord:
     """Create a task in-place, or isolate a latercomer in a worktree.
 
@@ -188,9 +232,15 @@ def create_task(
     same feature branch across every endpoint repository; each endpoint freezes
     its own ``base_commit``. The anchor repository (where ``.devflow/`` lives)
     also gets the in-place checkout or the latercomer worktree.
+
+    *project_root* is the directory that owns ``.devflow/`` — the archive
+    authority that ``artifact_publish`` publishes into. It defaults to
+    ``resolve_project_root(repo_root)``, so a project whose repository is nested
+    inside it writes state and archives in one place instead of two.
     """
     root = _repo_root(start_path.resolve())
-    isolate = _active_in_place_task(root)
+    state_root = (project_root or resolve_project_root(root)).resolve()
+    isolate = _active_in_place_task(root, state_root)
     if not isolate:
         _ensure_clean(root)
     ref = base_ref or _git(root, "branch", "--show-current") or "HEAD"
@@ -224,10 +274,12 @@ def create_task(
     try:
         if isolate:
             _git(root, "worktree", "add", "-b", branch, str(worktree), base_commit)
-            _seed_task_devflow(root, worktree / ".devflow", record, copy_config=True)
+            _seed_task_devflow(state_root, worktree / ".devflow", record, copy_config=True)
         else:
             _git(root, "checkout", "-b", branch, base_commit)
-            _seed_task_devflow(root, root / ".devflow", record, copy_config=False)
+            # In-place state belongs to the project root, not the nested repo:
+            # it is the same directory artifact_publish archives into.
+            _seed_task_devflow(state_root, state_root / ".devflow", record, copy_config=False)
         for ep in endpoints:
             _git(Path(ep.git_root), "checkout", "-b", branch, ep.base_commit)
             created_branches.append((Path(ep.git_root), branch, ep.base_ref))
@@ -288,9 +340,14 @@ def _build_endpoints(root: Path, branch: str, base_ref: str | None) -> list[Repo
 
 
 def discover_tasks(root: Path) -> list[TaskRecord]:
-    """Read all task records belonging to the repository's managed worktrees."""
+    """Read all task records belonging to the repository's managed worktrees.
+
+    State recorded under the project root counts too: that is where in-place
+    tasks live when the repository is nested inside the project.
+    """
+    repo_root = _repo_root(root.resolve())
     records = []
-    for path in find_task_files(_repo_root(root.resolve())):
+    for path in find_task_files(repo_root, state_root=resolve_project_root(repo_root)):
         try:
             from task_state import load_task
 
