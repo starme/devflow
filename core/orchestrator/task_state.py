@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import shutil
 from typing import Optional
 
 
@@ -244,6 +245,44 @@ def load_task(path: Path) -> TaskRecord:
         source_task_id=values["source_task_id"],
         endpoints=_read_endpoints(content),
     )
+
+
+# Task ids end up as a directory name under ``.devflow/tasks/``, so anything
+# that could escape that directory (separators, traversal) makes the state
+# unsnapshotable rather than dangerous.
+_UNSAFE_TASK_ID = re.compile(r"[\\/]|^\.\.?$")
+
+
+def archive_task_state(task_file: Path) -> Optional[Path]:
+    """Copy an existing ``task.yaml`` into its own archive directory.
+
+    In-place tasks all share ``repo_root/.devflow/task.yaml``, so starting a new
+    task overwrites the previous one. Snapshotting before the overwrite keeps
+    the id/branch/parent chain recoverable.
+
+    Returns the archive path when a copy was written, or ``None`` when there is
+    nothing to do: no source file, unreadable/malformed state, an unusable task
+    id, or an archive that already exists (published archives win — they are
+    the delivery record, not a scratch copy).
+    """
+    if not task_file.is_file():
+        return None
+    try:
+        record = load_task(task_file)
+    except (OSError, ValueError):
+        return None
+    if not record.task_id or _UNSAFE_TASK_ID.search(record.task_id):
+        return None
+
+    archive = task_file.parent / "tasks" / record.task_id / "task.yaml"
+    if archive.exists():
+        return None
+    try:
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(task_file, archive)
+    except OSError:
+        return None
+    return archive
 
 
 def find_task_files(root: Path) -> list[Path]:

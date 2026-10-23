@@ -10,7 +10,14 @@ import uuid
 
 from typing import Optional
 
-from task_state import RepoEndpoint, TaskRecord, _read_scalar, find_task_files, render_task_yaml
+from task_state import (
+    RepoEndpoint,
+    TaskRecord,
+    _read_scalar,
+    archive_task_state,
+    find_task_files,
+    render_task_yaml,
+)
 
 
 class WorktreeError(RuntimeError):
@@ -142,6 +149,10 @@ def _seed_task_devflow(repo_root: Path, dest_devflow: Path, record: TaskRecord, 
     multi-repo tasks) is self-sufficient.
     """
     dest_devflow.mkdir(parents=True, exist_ok=True)
+    # Snapshot the previous task before overwriting it: in-place tasks all
+    # share one task.yaml, so without this the old id/branch/parent chain is
+    # gone the moment the next task starts.
+    archive_task_state(dest_devflow / "task.yaml")
     src = repo_root / ".devflow"
     if copy_config and src.is_dir():
         for name in ("project.yaml", "redlines.yaml"):
