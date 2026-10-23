@@ -161,6 +161,7 @@ def create_task(
     base_ref: Optional[str] = None,
     parent_task_id: Optional[str] = None,
     source_task_id: Optional[str] = None,
+    title: Optional[str] = None,
 ) -> TaskRecord:
     """Create a task in-place, or isolate a latercomer in a worktree.
 
@@ -205,6 +206,7 @@ def create_task(
         parent_task_id=parent_task_id,
         source_task_id=source_task_id,
         endpoints=tuple(endpoints),
+        title=title or "",
     )
 
     created_branches: list[tuple[Path, str, str]] = []

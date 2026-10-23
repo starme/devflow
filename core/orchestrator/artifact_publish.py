@@ -57,7 +57,7 @@ from task_state import find_task_files, load_task
 # ---------------------------------------------------------------------------
 
 # Artifact files (relative to a task worktree's ``.devflow/``) that may be
-# published.  ``project.yaml`` / ``context.json`` / ``manifest.yaml`` /
+# published.  ``project.yaml`` / ``manifest.yaml`` /
 # ``rules/`` / ``runs/`` / ``contracts/`` / ``task.yaml`` are never published:
 # ``task.yaml`` is task state (read, not copied), the rest are main-workspace
 # config or read-only references.

@@ -392,7 +392,7 @@ class DeliveryArchiveGateTest(unittest.TestCase):
 
         shutil.rmtree(self._tmp, ignore_errors=True)
 
-    def _write_task(self, task_id="task-abc"):
+    def _write_task(self, task_id="task-abc", phase="delivery"):
         (self.root / ".devflow" / "task.yaml").write_text(
             "schema_version: 1\n"
             "task:\n"
@@ -400,7 +400,7 @@ class DeliveryArchiveGateTest(unittest.TestCase):
             '  slug: "test"\n'
             '  kind: "feature"\n'
             '  description: "test"\n'
-            '  current_phase: "delivery"\n'
+            f'  current_phase: "{phase}"\n'
             '  status: "active"\n',
             encoding="utf-8",
         )
@@ -444,8 +444,10 @@ class DeliveryArchiveGateTest(unittest.TestCase):
         self.assertEqual(_decision(self._run_commit()), "allow")
 
     def test_non_delivery_phase_not_blocked(self):
-        self._write_task()
-        self._write_context(phase="development")
+        # v2: phase comes from task.yaml; the retired context.json must not
+        # override it. This test now covers that regression directly.
+        self._write_task(phase="working")
+        self._write_context(phase="deliver_confirm")
         self.assertEqual(_decision(self._run_commit()), "allow")
 
     def test_non_commit_command_not_blocked(self):

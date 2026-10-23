@@ -41,6 +41,16 @@ class TaskRecord:
     parent_task_id: Optional[str] = None
     source_task_id: Optional[str] = None
     endpoints: tuple[RepoEndpoint, ...] = ()
+    # Human-readable card title. Empty means "derive from description", so
+    # existing construction sites keep working unchanged.
+    title: str = ""
+
+    @property
+    def display_title(self) -> str:
+        """Title shown in task.yaml — explicit title, else the first line."""
+        if self.title.strip():
+            return self.title.strip()
+        return self.description.strip().splitlines()[0] if self.description.strip() else ""
 
 
 def _yaml_quote(value: Optional[str]) -> str:
@@ -79,6 +89,7 @@ def render_task_yaml(record: TaskRecord, current_phase: str = "qa") -> str:
         "task:",
         f"  id: {_yaml_quote(record.task_id)}",
         f"  slug: {_yaml_quote(record.slug)}",
+        f"  title: {_yaml_quote(record.display_title)}",
         f"  kind: {_yaml_quote(record.kind)}",
         f"  description: {_yaml_quote(record.description)}",
         f"  current_phase: {_yaml_quote(current_phase)}",
