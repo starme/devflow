@@ -6,6 +6,7 @@ flat deliverables moved into semantic ``legacy-*`` directories, idempotent
 second-run skip, and conflict refusal on a differing target.  Every fixture is
 built under ``tempfile`` so tests never touch a real repository.
 """
+
 from __future__ import annotations
 
 import sys
@@ -22,18 +23,18 @@ import archive_migration as am  # noqa: E402
 def _manifest(prd_path: str = ".devflow/agent-plugin-compatibility-prd.md") -> str:
     return (
         "project:\n"
-        "  name: \"demo\"\n"
+        '  name: "demo"\n'
         "\n"
         "phases:\n"
         "  prd_writing:\n"
-        "    status: \"completed\"\n"
-        f"    prd_path: \"{prd_path}\"\n"
+        '    status: "completed"\n'
+        f'    prd_path: "{prd_path}"\n'
         "  architecture:\n"
-        "    status: \"pending\"\n"
-        "    architecture_doc_path: \"docs/architecture.md\"\n"
+        '    status: "pending"\n'
+        '    architecture_doc_path: "docs/architecture.md"\n'
         "\n"
         "artifacts:\n"
-        f"  prd: \"{prd_path}\"\n"
+        f'  prd: "{prd_path}"\n'
         "  architecture_doc: null\n"
     )
 
@@ -80,9 +81,7 @@ class LegacyPrdMigrationTest(unittest.TestCase):
             'prd_path: ".devflow/tasks/legacy/prd-agent-plugin-compatibility.md"',
             manifest,
         )
-        self.assertIn(
-            'prd: ".devflow/tasks/legacy/prd-agent-plugin-compatibility.md"', manifest
-        )
+        self.assertIn('prd: ".devflow/tasks/legacy/prd-agent-plugin-compatibility.md"', manifest)
 
 
 class FlatArtifactMigrationTest(unittest.TestCase):

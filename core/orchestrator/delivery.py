@@ -19,52 +19,53 @@ Responsibilities:
 All probes are fail-safe: when ``git``/``gh`` are missing or unauthenticated,
 they return safe defaults (``False``/``None``/``[]``) instead of raising.
 """
+
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-import subprocess
-from typing import Optional
-
 
 # Delivery artifact whitelist.  Must stay in sync with
 # ``_DEVFLOW_ARTIFACT_FILES`` in ``core/hooks/devflow_guard_common.py`` so the
 # guard hooks permit the same files the delivery flow may commit.
-DELIVERY_ARTIFACT_FILES = frozenset({
-    ".devflow/scope.yaml",
-    ".devflow/prd.md",
-    ".devflow/card.md",
-    ".devflow/verification-report.md",
-    ".devflow/memorant-journal-investigation.md",
-    ".devflow/architecture.md",
-    ".devflow/diagnosis.md",
-    ".devflow/acceptance-report.md",
-    ".devflow/acceptance-scenarios.md",
-    ".devflow/test-report.md",
-    ".devflow/task-report.md",
-    ".devflow/backend-task-report.md",
-    ".devflow/frontend-task-report.md",
-    ".devflow/pr.md",
-    ".devflow/delivery.yaml",
-    ".devflow/retrospective.md",
-})
+DELIVERY_ARTIFACT_FILES = frozenset(
+    {
+        ".devflow/scope.yaml",
+        ".devflow/prd.md",
+        ".devflow/card.md",
+        ".devflow/verification-report.md",
+        ".devflow/memorant-journal-investigation.md",
+        ".devflow/architecture.md",
+        ".devflow/diagnosis.md",
+        ".devflow/acceptance-report.md",
+        ".devflow/acceptance-scenarios.md",
+        ".devflow/test-report.md",
+        ".devflow/task-report.md",
+        ".devflow/backend-task-report.md",
+        ".devflow/frontend-task-report.md",
+        ".devflow/pr.md",
+        ".devflow/delivery.yaml",
+        ".devflow/retrospective.md",
+    }
+)
 
 # Retired runtime state that must never enter a delivery commit. The file is
 # no longer written (ADR-0005), but an older workspace may still carry one.
-DELIVERY_SKIP_FILES = frozenset({
-    ".devflow/context.json",
-})
+DELIVERY_SKIP_FILES = frozenset(
+    {
+        ".devflow/context.json",
+    }
+)
 
 _DELIVERY_STATE_FILE = ".devflow/delivery.yaml"
 
 
-def _run(args: list[str], root: Optional[Path] = None) -> Optional[str]:
+def _run(args: list[str], root: Path | None = None) -> str | None:
     """Run a read-only command and return stripped stdout, or ``None`` on any
     failure (fail-safe: probes never raise)."""
     try:
-        result = subprocess.run(
-            args, cwd=root, text=True, capture_output=True, check=False
-        )
+        result = subprocess.run(args, cwd=root, text=True, capture_output=True, check=False)
     except OSError:
         return None
     if result.returncode != 0:
@@ -72,11 +73,11 @@ def _run(args: list[str], root: Optional[Path] = None) -> Optional[str]:
     return result.stdout.strip()
 
 
-def _git(root: Optional[Path], *args: str) -> Optional[str]:
+def _git(root: Path | None, *args: str) -> str | None:
     return _run(["git", *args], root=root)
 
 
-def gh_available(root: Optional[Path] = None) -> bool:
+def gh_available(root: Path | None = None) -> bool:
     """Return ``True`` if the ``gh`` CLI exists and is authenticated.
 
     Uses ``gh auth status`` exit code only — ``gh api`` would touch the
@@ -92,7 +93,7 @@ def gh_available(root: Optional[Path] = None) -> bool:
     return bool(probe.strip())
 
 
-def remote_name(root: Optional[Path] = None) -> Optional[str]:
+def remote_name(root: Path | None = None) -> str | None:
     """Return the remote name for the current branch, or ``None`` if no
     upstream is configured or git is unavailable."""
     upstream = _git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
@@ -102,12 +103,12 @@ def remote_name(root: Optional[Path] = None) -> Optional[str]:
     return upstream.split("/", 1)[0] or None
 
 
-def branch_pushed(root: Optional[Path] = None) -> bool:
+def branch_pushed(root: Path | None = None) -> bool:
     """Return ``True`` if the current branch already has an upstream remote."""
     return remote_name(root) is not None
 
 
-def dirty_files(root: Optional[Path] = None) -> list[str]:
+def dirty_files(root: Path | None = None) -> list[str]:
     """Return the list of dirty paths from ``git status --porcelain``.
 
     Each entry is the raw porcelain line (``XY path``); an empty list means a
@@ -126,11 +127,12 @@ class RepoDelivery:
     Each endpoint gets its own commit/push/PR independently so a separated
     backend/frontend pair produces two PRs under the same task.
     """
+
     track: str
     git_root: str
-    commit: Optional[str] = None
+    commit: str | None = None
     pushed: bool = False
-    pr_url: Optional[str] = None
+    pr_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -144,11 +146,12 @@ class DeliveryState:
     scalar fields (``commit``/``pushed``/``pr_url``) remain for single-repo
     tasks and as a legacy-compatible summary.
     """
-    commit: Optional[str] = None
+
+    commit: str | None = None
     pushed: bool = False
     remote: str = "origin"
-    pr_url: Optional[str] = None
-    pr_title: Optional[str] = None
+    pr_url: str | None = None
+    pr_title: str | None = None
     worktree_removed: bool = False
     branch_deleted: bool = False
     returned_to_main: bool = False
@@ -159,7 +162,7 @@ def _yaml_bool(value: bool) -> str:
     return "true" if value else "false"
 
 
-def _yaml_quote(value: Optional[str]) -> str:
+def _yaml_quote(value: str | None) -> str:
     if value is None:
         return "null"
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
@@ -192,7 +195,7 @@ def render_delivery_yaml(state: DeliveryState) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _read_scalar(content: str, key: str) -> Optional[str]:
+def _read_scalar(content: str, key: str) -> str | None:
     for line in content.splitlines():
         stripped = line.strip()
         if stripped.startswith(f"{key}:"):
@@ -267,7 +270,7 @@ def _read_repos(content: str) -> tuple[RepoDelivery, ...]:
     return tuple(r for r in repos if r is not None)
 
 
-def _repo_from(fields: dict) -> Optional[RepoDelivery]:
+def _repo_from(fields: dict) -> RepoDelivery | None:
     track = fields.get("track", "")
     git_root = fields.get("git_root", "")
     if not track or not git_root:

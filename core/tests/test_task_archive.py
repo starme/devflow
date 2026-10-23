@@ -5,6 +5,7 @@ task used to erase the previous one's id/branch/parent chain, so plan A
 snapshots it first and plan D lets the done-cleanup re-create a missing
 snapshot. Both paths funnel through ``archive_task_state``.
 """
+
 import sys
 import tempfile
 import unittest
@@ -22,16 +23,16 @@ from task_state import (  # noqa: E402
 
 
 def _record(task_id="task-abc123", **overrides):
-    kwargs = dict(
-        task_id=task_id,
-        slug="task",
-        kind="chore",
-        description="previous task",
-        base_ref="main",
-        base_commit="abc123",
-        branch=f"chore/{task_id}",
-        worktree="/tmp/repo",
-    )
+    kwargs = {
+        "task_id": task_id,
+        "slug": "task",
+        "kind": "chore",
+        "description": "previous task",
+        "base_ref": "main",
+        "base_commit": "abc123",
+        "branch": f"chore/{task_id}",
+        "worktree": "/tmp/repo",
+    }
     kwargs.update(overrides)
     return TaskRecord(**kwargs)
 
@@ -72,7 +73,7 @@ class ArchiveTaskStateTest(unittest.TestCase):
         self.assertFalse((self.devflow / "tasks").exists())
 
     def test_malformed_state_is_skipped_without_partial_copy(self):
-        self.task_file.write_text("schema_version: 2\ntask:\n  id: \"broken\"\n", encoding="utf-8")
+        self.task_file.write_text('schema_version: 2\ntask:\n  id: "broken"\n', encoding="utf-8")
 
         self.assertIsNone(archive_task_state(self.task_file))
         self.assertFalse((self.devflow / "tasks").exists())

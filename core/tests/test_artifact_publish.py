@@ -9,6 +9,7 @@ index, task.yaml dual-path reference updates, collect guard, and the CLI.
 All fixtures are built under ``tempfile.TemporaryDirectory`` so tests never
 touch a real repository or ``.devflow-worktrees/`` tree.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -22,8 +23,8 @@ from pathlib import Path
 ORCHESTRATOR = Path(__file__).resolve().parents[1] / "orchestrator"
 sys.path.insert(0, str(ORCHESTRATOR))
 
-from task_state import TaskRecord, load_task, render_task_yaml  # noqa: E402
 import artifact_publish as ap  # noqa: E402
+from task_state import TaskRecord, load_task, render_task_yaml  # noqa: E402
 
 
 def _meta(**overrides) -> dict:
@@ -95,19 +96,27 @@ class _Fixture:
 
 class TargetNameTest(unittest.TestCase):
     def test_prd_renamed_to_semantic_slug(self):
-        self.assertEqual(ap.target_name("prd.md", _meta(slug="weekly-report")),
-                         "prd-weekly-report.md")
+        self.assertEqual(
+            ap.target_name("prd.md", _meta(slug="weekly-report")), "prd-weekly-report.md"
+        )
 
     def test_other_artifacts_keep_fixed_name(self):
-        for name in ("architecture.md", "scope.yaml", "diagnosis.md",
-                     "acceptance-report.md", "acceptance-scenarios.md",
-                     "test-report.md", "task-report.md"):
+        for name in (
+            "architecture.md",
+            "scope.yaml",
+            "diagnosis.md",
+            "acceptance-report.md",
+            "acceptance-scenarios.md",
+            "test-report.md",
+            "task-report.md",
+        ):
             self.assertEqual(ap.target_name(name, _meta()), name)
 
     def test_test_reports_dir_entries_keep_fixed_name(self):
         # Directory entries are walked into relative paths, not renamed.
-        self.assertEqual(ap.target_name("test_reports/report.json", _meta()),
-                         "test_reports/report.json")
+        self.assertEqual(
+            ap.target_name("test_reports/report.json", _meta()), "test_reports/report.json"
+        )
 
 
 class ArchiveRootTest(unittest.TestCase):
@@ -161,9 +170,7 @@ class DiscoveryTest(unittest.TestCase):
         f = _Fixture(tempfile.mkdtemp(), form_a=True)
         devflow = f.repo / ".devflow"
         devflow.mkdir(parents=True)
-        (devflow / "task.yaml").write_text(
-            _task_yaml("t-inplace", "t-inplace"), encoding="utf-8"
-        )
+        (devflow / "task.yaml").write_text(_task_yaml("t-inplace", "t-inplace"), encoding="utf-8")
         found = ap.discover_task(f.repo, task_id="t-inplace")
         self.assertEqual(found, f.repo.resolve())
 
@@ -172,9 +179,7 @@ class DiscoveryTest(unittest.TestCase):
         f = _Fixture(tempfile.mkdtemp(), form_a=True)
         devflow = f.repo / ".devflow"
         devflow.mkdir(parents=True)
-        (devflow / "task.yaml").write_text(
-            _task_yaml("t-actual", "t-actual"), encoding="utf-8"
-        )
+        (devflow / "task.yaml").write_text(_task_yaml("t-actual", "t-actual"), encoding="utf-8")
         with self.assertRaises(ValueError):
             ap.discover_task(f.repo, task_id="t-other")
 
@@ -186,9 +191,7 @@ class DiscoveryTest(unittest.TestCase):
         f = _Fixture(tempfile.mkdtemp())
         devflow = f.project_root / ".devflow"
         devflow.mkdir(parents=True)
-        (devflow / "task.yaml").write_text(
-            _task_yaml("t-selfhost", "t-selfhost"), encoding="utf-8"
-        )
+        (devflow / "task.yaml").write_text(_task_yaml("t-selfhost", "t-selfhost"), encoding="utf-8")
         with self.assertRaises(ValueError):
             ap.discover_task(f.repo, task_id="t-selfhost")
         found = ap.discover_task(f.repo, task_id="t-selfhost", archive_root=f.project_root)
@@ -199,9 +202,7 @@ class DiscoveryTest(unittest.TestCase):
         f = _Fixture(tempfile.mkdtemp())
         devflow = f.project_root / ".devflow"
         devflow.mkdir(parents=True)
-        (devflow / "task.yaml").write_text(
-            _task_yaml("t-actual", "t-actual"), encoding="utf-8"
-        )
+        (devflow / "task.yaml").write_text(_task_yaml("t-actual", "t-actual"), encoding="utf-8")
         with self.assertRaises(ValueError):
             ap.discover_task(f.repo, task_id="t-other", archive_root=f.project_root)
 
@@ -225,8 +226,7 @@ class DiscoveryTest(unittest.TestCase):
         outside = f.parent / "elsewhere"
         outside.mkdir(parents=True)
         (outside / ".devflow").mkdir()
-        (outside / ".devflow" / "task.yaml").write_text(
-            _task_yaml("x", "x"), encoding="utf-8")
+        (outside / ".devflow" / "task.yaml").write_text(_task_yaml("x", "x"), encoding="utf-8")
         with self.assertRaises(ValueError):
             ap.discover_task(f.repo, worktree=str(outside))
 
@@ -291,8 +291,14 @@ class SafetyTest(unittest.TestCase):
     def test_sensitive_names_refused(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            for name in (".env", ".env.prod", "server.pem", "secrets.json",
-                         "config.key", "id_rsa.key"):
+            for name in (
+                ".env",
+                ".env.prod",
+                "server.pem",
+                "secrets.json",
+                "config.key",
+                "id_rsa.key",
+            ):
                 (root / name).write_text("secret", encoding="utf-8")
                 self.assertFalse(ap.is_safe_source(root / name, root), name)
 
@@ -321,8 +327,7 @@ class WhitelistTest(unittest.TestCase):
         f.artifact(wt, "rules/redlines.yaml", "rl")
 
         rels = ap.iter_publishable_files(wt)
-        self.assertEqual(rels, ["architecture.md", "prd.md", "scope.yaml",
-                                "task-report.md"])
+        self.assertEqual(rels, ["architecture.md", "prd.md", "scope.yaml", "task-report.md"])
 
     def test_test_reports_dir_walked_recursively(self):
         f = _Fixture(tempfile.mkdtemp())
@@ -449,8 +454,7 @@ class PublishTest(unittest.TestCase):
         self.assertTrue((target / "prd-t-ten.md").is_file())
         self.assertTrue((target / "architecture.md").is_file())
         self.assertFalse((target / "prd.md").exists())
-        self.assertEqual((target / "prd-t-ten.md").read_text(encoding="utf-8"),
-                         "prd body")
+        self.assertEqual((target / "prd-t-ten.md").read_text(encoding="utf-8"), "prd body")
 
     def test_publish_self_hosted_in_place(self):
         # End-to-end publish for the self-hosted shape: the in-place task's
@@ -459,9 +463,7 @@ class PublishTest(unittest.TestCase):
         f = _Fixture(tempfile.mkdtemp())
         devflow = f.project_root / ".devflow"
         devflow.mkdir(parents=True)
-        (devflow / "task.yaml").write_text(
-            _task_yaml("t-selfpub", "t-selfpub"), encoding="utf-8"
-        )
+        (devflow / "task.yaml").write_text(_task_yaml("t-selfpub", "t-selfpub"), encoding="utf-8")
         (devflow / "prd.md").write_text("selfhost prd", encoding="utf-8")
         (devflow / "card.md").write_text("card body", encoding="utf-8")
 
@@ -503,11 +505,8 @@ class PublishTest(unittest.TestCase):
         result = ap.publish(f.project_root, wt)
         self.assertTrue(result["conflicts"])
         # Target not overwritten, source intact.
-        self.assertEqual((target / "prd-t-12.md").read_text(encoding="utf-8"),
-                         "old content")
-        self.assertEqual(
-            (wt / ".devflow" / "prd.md").read_text(encoding="utf-8"),
-            "new content")
+        self.assertEqual((target / "prd-t-12.md").read_text(encoding="utf-8"), "old content")
+        self.assertEqual((wt / ".devflow" / "prd.md").read_text(encoding="utf-8"), "new content")
 
     def test_two_tasks_same_prd_name_do_not_overwrite(self):
         f = _Fixture(tempfile.mkdtemp())
@@ -533,8 +532,7 @@ class ReadmeIndexTest(unittest.TestCase):
         f.artifact(wt, "architecture.md", "arch")
 
         ap.publish(f.project_root, wt)
-        readme = (f.archive_dir() / "t-13" / "README.md").read_text(
-            encoding="utf-8")
+        readme = (f.archive_dir() / "t-13" / "README.md").read_text(encoding="utf-8")
         self.assertIn('task_id: "t-13"', readme)
         self.assertIn('slug: "t-thirteen"', readme)
         self.assertIn('base_commit: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"', readme)
@@ -552,8 +550,7 @@ class ReadmeIndexTest(unittest.TestCase):
         f.artifact(wt, "task-report.md", "impl report")
 
         ap.publish(f.project_root, wt)
-        readme = (f.archive_dir() / "t-taskrep" / "README.md").read_text(
-            encoding="utf-8")
+        readme = (f.archive_dir() / "t-taskrep" / "README.md").read_text(encoding="utf-8")
         self.assertIn('task_report: "task-report.md"', readme)
 
     def test_acceptance_report_and_scenarios_get_distinct_keys(self):
@@ -565,8 +562,7 @@ class ReadmeIndexTest(unittest.TestCase):
         f.artifact(wt, "acceptance-scenarios.md", "scenarios")
 
         ap.publish(f.project_root, wt)
-        readme = (f.archive_dir() / "t-18" / "README.md").read_text(
-            encoding="utf-8")
+        readme = (f.archive_dir() / "t-18" / "README.md").read_text(encoding="utf-8")
         self.assertIn('acceptance_report: "acceptance-report.md"', readme)
         self.assertIn('acceptance_scenarios: "acceptance-scenarios.md"', readme)
 
@@ -583,7 +579,7 @@ class TaskYamlRefUpdateTest(unittest.TestCase):
         f.artifact(wt, "architecture.md", "arch")
         f.artifact(wt, "scope.yaml", "scope")
 
-        actions, mapping = ap.plan_publish(wt, f.archive_dir() / "t-14")
+        _actions, mapping = ap.plan_publish(wt, f.archive_dir() / "t-14")
         ap.update_task_artifact_refs(wt, "t-14", "t-fourteen", mapping)
 
         content = (wt / ".devflow" / "task.yaml").read_text(encoding="utf-8")
@@ -600,7 +596,7 @@ class TaskYamlRefUpdateTest(unittest.TestCase):
         wt = f.make_task("t-15", "t-fifteen")
         f.artifact(wt, "prd.md", "prd")
 
-        actions, mapping = ap.plan_publish(wt, f.archive_dir() / "t-15")
+        _actions, mapping = ap.plan_publish(wt, f.archive_dir() / "t-15")
         ap.update_task_artifact_refs(wt, "t-15", "t-fifteen", mapping)
 
         content = (wt / ".devflow" / "task.yaml").read_text(encoding="utf-8")
@@ -617,9 +613,18 @@ class CliTest(unittest.TestCase):
         f.artifact(wt, "prd.md", "prd")
 
         with contextlib.redirect_stdout(io.StringIO()):
-            out = ap.main(["publish", "--root", str(f.project_root),
-                           "--repo-root", str(f.repo), "--task", "t-17",
-                           "--dry-run"])
+            out = ap.main(
+                [
+                    "publish",
+                    "--root",
+                    str(f.project_root),
+                    "--repo-root",
+                    str(f.repo),
+                    "--task",
+                    "t-17",
+                    "--dry-run",
+                ]
+            )
         # dry-run returns 0 when no errors/conflicts.
         self.assertEqual(out, 0)
 
@@ -633,22 +638,48 @@ class CliTest(unittest.TestCase):
         (target / "prd-t-eighteen.md").write_text("old", encoding="utf-8")
 
         with contextlib.redirect_stdout(io.StringIO()):
-            out = ap.main(["publish", "--root", str(f.project_root),
-                           "--repo-root", str(f.repo), "--task", "t-18"])
+            out = ap.main(
+                [
+                    "publish",
+                    "--root",
+                    str(f.project_root),
+                    "--repo-root",
+                    str(f.repo),
+                    "--task",
+                    "t-18",
+                ]
+            )
         self.assertEqual(out, 1)
 
     def test_cli_missing_root_exits_nonzero(self):
         f = _Fixture(tempfile.mkdtemp())
         with contextlib.redirect_stdout(io.StringIO()):
-            out = ap.main(["publish", "--root", str(f.parent / "nope"),
-                           "--repo-root", str(f.repo), "--all-tasks"])
+            out = ap.main(
+                [
+                    "publish",
+                    "--root",
+                    str(f.parent / "nope"),
+                    "--repo-root",
+                    str(f.repo),
+                    "--all-tasks",
+                ]
+            )
         self.assertEqual(out, 1)
 
     def test_cli_missing_discovery_exits_nonzero(self):
         f = _Fixture(tempfile.mkdtemp())
         with contextlib.redirect_stdout(io.StringIO()):
-            out = ap.main(["publish", "--root", str(f.project_root),
-                           "--repo-root", str(f.repo), "--task", "missing"])
+            out = ap.main(
+                [
+                    "publish",
+                    "--root",
+                    str(f.project_root),
+                    "--repo-root",
+                    str(f.repo),
+                    "--task",
+                    "missing",
+                ]
+            )
         self.assertEqual(out, 1)
 
     def test_cli_archives_to_devflow_tasks_not_docs(self):
@@ -658,8 +689,17 @@ class CliTest(unittest.TestCase):
         f.artifact(wt, "prd.md", "prd")
 
         with contextlib.redirect_stdout(io.StringIO()):
-            out = ap.main(["publish", "--root", str(f.project_root),
-                           "--repo-root", str(f.repo), "--task", "t-ac12"])
+            out = ap.main(
+                [
+                    "publish",
+                    "--root",
+                    str(f.project_root),
+                    "--repo-root",
+                    str(f.repo),
+                    "--task",
+                    "t-ac12",
+                ]
+            )
         self.assertEqual(out, 0)
         self.assertTrue((f.archive_dir() / "t-ac12" / "prd-t-ac12.md").is_file())
         self.assertFalse((f.repo / "docs" / "tasks").exists())
@@ -672,8 +712,17 @@ class CliTest(unittest.TestCase):
         f.artifact(wt, "prd.md", "prd")
 
         with contextlib.redirect_stdout(io.StringIO()):
-            out = ap.main(["publish", "--root", str(f.project_root),
-                           "--repo-root", str(f.repo), "--task", "t-forma"])
+            out = ap.main(
+                [
+                    "publish",
+                    "--root",
+                    str(f.project_root),
+                    "--repo-root",
+                    str(f.repo),
+                    "--task",
+                    "t-forma",
+                ]
+            )
         self.assertEqual(out, 0)
         # project_root == repo_root, so archive is under the repo itself.
         self.assertTrue((f.repo / ".devflow" / "tasks" / "t-forma" / "prd-t-form-a.md").is_file())

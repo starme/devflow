@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Regression tests for automatic legacy metadata migration."""
+
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "orchestrator"))
-from migration import migrate_legacy_project  # noqa: E402
+from migration import migrate_legacy_project
 
 
 class MigrationTest(unittest.TestCase):
@@ -20,21 +21,21 @@ class MigrationTest(unittest.TestCase):
             manifest = devflow / "manifest.yaml"
             original = (
                 "project:\n"
-                "  name: \"demo\"\n"
-                "  created_at: \"2026-08-20T00:00:00Z\"\n"
-                "  current_phase: \"gate_prd\"\n"
-                "  work_type: \"feature\"\n"
-                "  category: \"agent_plugin\"\n"
-                "  category_confidence: \"0.9\"\n"
+                '  name: "demo"\n'
+                '  created_at: "2026-08-20T00:00:00Z"\n'
+                '  current_phase: "gate_prd"\n'
+                '  work_type: "feature"\n'
+                '  category: "agent_plugin"\n'
+                '  category_confidence: "0.9"\n'
                 "  capabilities: [plugin, skill]\n"
                 "adapter:\n"
-                "  name: \"claude-code\"\n"
-                "  capability: \"hard\"\n"
+                '  name: "claude-code"\n'
+                '  capability: "hard"\n'
                 "workspace:\n"
-                f"  root: \"{root}\"\n"
+                f'  root: "{root}"\n'
                 "phases:\n"
                 "  classify:\n"
-                "    task_description: \"Add isolation\"\n"
+                '    task_description: "Add isolation"\n'
             )
             manifest.write_text(original, encoding="utf-8")
 

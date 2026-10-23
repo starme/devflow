@@ -4,6 +4,7 @@ v2 (ADR-0005) removed the runtime ``context.json``. The audit log's run id
 must now come from ``task.yaml`` — the failure mode this guards against is the
 logger going silently dead while every other test still passes.
 """
+
 import importlib.util
 import io
 import json
@@ -18,9 +19,7 @@ sys.path.insert(0, str(HOOKS_DIR))
 
 
 def _load_hook():
-    spec = importlib.util.spec_from_file_location(
-        "audit_log_hook", HOOKS_DIR / "audit-log.py"
-    )
+    spec = importlib.util.spec_from_file_location("audit_log_hook", HOOKS_DIR / "audit-log.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -57,11 +56,12 @@ class AuditLogTest(unittest.TestCase):
                 "cwd": str(self.root),
             }
         )
-        with mock.patch.object(sys, "argv", ["audit-log.py"]), mock.patch(
-            "sys.stdin", io.StringIO(payload)
+        with (
+            mock.patch.object(sys, "argv", ["audit-log.py"]),
+            mock.patch("sys.stdin", io.StringIO(payload)),
+            self.assertRaises(SystemExit),
         ):
-            with self.assertRaises(SystemExit):
-                hook.main()
+            hook.main()
 
     def _log_path(self, run_id):
         return self.root / ".devflow" / "runs" / run_id / "audit.log"

@@ -14,6 +14,7 @@ These tests pin the fields that must agree.
 ``skills`` legitimately differs between the root manifests and the nested
 fallback (relative to each package root), so only existence is asserted.
 """
+
 import json
 import unittest
 from pathlib import Path

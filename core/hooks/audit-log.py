@@ -12,6 +12,7 @@ single TSV-style line to ``.devflow/runs/<run_id>/audit.log``:
 When DevFlow is not active (no ``.devflow/``) or no run is in progress the
 hook does nothing.  It never blocks the user.
 """
+
 import json
 import os
 import sys
@@ -25,7 +26,6 @@ from devflow_guard_common import (
     get_target_paths,
     load_context,
 )
-
 
 MAX_DETAIL = 200
 
@@ -57,10 +57,8 @@ def append_log(project_root, context, tool_name, tool_input, cwd=""):
 
     if tool_name in ("Write", "Edit", "MultiEdit"):
         targets = get_target_paths(tool_name, tool_input, project_root, cwd)
-        if targets:
-            target = targets[0][0]  # relative path
-        else:
-            target = tool_input.get("file_path", "?")
+        # relative path when the tool reported one, else the raw input path
+        target = targets[0][0] if targets else tool_input.get("file_path", "?")
         detail = tool_name
     elif tool_name == "Bash":
         cmd = tool_input.get("command", "")

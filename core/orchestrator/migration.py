@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Idempotent migration from the legacy manifest to project/task state."""
+
 from __future__ import annotations
 
-from pathlib import Path
 import subprocess
-from typing import Optional
+from pathlib import Path
 
 
 class MigrationConflict(RuntimeError):
     """Raised when generated state already exists with different content."""
 
 
-def _scalar(content: str, key: str, section: Optional[str] = None) -> Optional[str]:
+def _scalar(content: str, key: str, section: str | None = None) -> str | None:
     active = section is None
     for line in content.splitlines():
         stripped = line.strip()
@@ -26,7 +26,7 @@ def _scalar(content: str, key: str, section: Optional[str] = None) -> Optional[s
                 continue
         prefix = f"{key}:"
         if stripped.startswith(prefix):
-            value = stripped[len(prefix):].strip()
+            value = stripped[len(prefix) :].strip()
             if value in {"null", "~"}:
                 return None
             if len(value) >= 2 and value[0] == value[-1] == '"':
@@ -35,7 +35,7 @@ def _scalar(content: str, key: str, section: Optional[str] = None) -> Optional[s
     return None
 
 
-def _list(content: str, key: str, section: Optional[str] = None) -> list[str]:
+def _list(content: str, key: str, section: str | None = None) -> list[str]:
     active = section is None
     values: list[str] = []
     collecting = False
@@ -52,16 +52,18 @@ def _list(content: str, key: str, section: Optional[str] = None) -> list[str]:
             collecting = True
             inline = stripped.split(":", 1)[1].strip()
             if inline.startswith("[") and inline.endswith("]"):
-                return [item.strip().strip('"\'') for item in inline[1:-1].split(",") if item.strip()]
+                return [
+                    item.strip().strip("\"'") for item in inline[1:-1].split(",") if item.strip()
+                ]
             continue
         if collecting and stripped.startswith("-") and indent >= 2:
-            values.append(stripped[1:].strip().strip('"\''))
+            values.append(stripped[1:].strip().strip("\"'"))
         elif collecting and stripped and indent < 2:
             collecting = False
     return values
 
 
-def _yaml(value: Optional[str]) -> str:
+def _yaml(value: str | None) -> str:
     if value is None:
         return "null"
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
@@ -125,20 +127,20 @@ def migrate_legacy_project(root: Path) -> dict[str, object]:
         f"  capabilities: [{', '.join(_yaml(item) for item in capabilities)}]\n\n"
         "workspace:\n"
         f"  root: {_yaml(workspace_root)}\n"
-        "  contract_path: \".devflow/contracts\"\n"
-        "  docs_path: \"docs\"\n"
-        "  rules_path: \".devflow/rules\"\n\n"
+        '  contract_path: ".devflow/contracts"\n'
+        '  docs_path: "docs"\n'
+        '  rules_path: ".devflow/rules"\n\n'
         "platforms:\n"
         f"  supported: [{_yaml(adapter_name)}]\n"
         f"  default: {_yaml(adapter_name)}\n\n"
-        "safety:\n  redlines_path: \".devflow/redlines.yaml\"\n\n"
+        'safety:\n  redlines_path: ".devflow/redlines.yaml"\n\n'
         "adapter_snapshot:\n"
         f"  name: {_yaml(adapter_name)}\n"
         f"  capability: {_yaml(adapter_capability)}\n"
     )
     task_yaml = (
         "schema_version: 1\n\ntask:\n"
-        "  id: \"legacy\"\n  slug: \"legacy\"\n"
+        '  id: "legacy"\n  slug: "legacy"\n'
         f"  kind: {_yaml(kind)}\n"
         f"  description: {_yaml(description)}\n"
         f"  current_phase: {_yaml(phase)}\n"
@@ -148,8 +150,8 @@ def migrate_legacy_project(root: Path) -> dict[str, object]:
         f"  base_commit: {_yaml(commit)}\n"
         f"  branch: {_yaml(branch)}\n"
         f"  worktree: {_yaml(str(root))}\n\n"
-        "isolation:\n  mode: \"legacy\"\n  isolated: false\n\n"
-        "legacy:\n  source_manifest: \".devflow/manifest.yaml\"\n  read_only: true\n"
+        'isolation:\n  mode: "legacy"\n  isolated: false\n\n'
+        'legacy:\n  source_manifest: ".devflow/manifest.yaml"\n  read_only: true\n'
     )
     created: list[str] = []
     if _write_if_absent(devflow / "project.yaml", project_yaml):

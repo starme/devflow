@@ -9,10 +9,11 @@ longer registered — the model is trusted to continue working to the next
 Gate on its own. SessionStart injects task context, UserPromptSubmit hints
 when a Gate is waiting for the user, PreCompact preserves task state.
 """
+
 import glob
 import json
-import sys
 import os
+import sys
 from pathlib import Path
 
 
@@ -20,7 +21,7 @@ def _version_key(path):
     """Parse a trailing ``1.2.3``-style directory name for newest-cache picks."""
     name = os.path.basename(str(path).rstrip(os.sep))
     parts = []
-    for bit in name.split('.'):
+    for bit in name.split("."):
         if bit.isdigit():
             parts.append(int(bit))
         else:
@@ -48,7 +49,7 @@ def find_plugin_root():
     Returns path as string or None.
     """
     try:
-        env_root = os.environ.get('CLAUDE_PLUGIN_ROOT')
+        env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
         if env_root and os.path.isdir(env_root):
             return env_root
     except Exception:
@@ -56,7 +57,7 @@ def find_plugin_root():
 
     try:
         home = Path.home()
-        pattern = str(home / '.claude' / 'plugins' / 'cache' / '*' / 'devflow' / '*')
+        pattern = str(home / ".claude" / "plugins" / "cache" / "*" / "devflow" / "*")
         newest = _newest_dir(glob.glob(pattern))
         if newest:
             return newest
@@ -65,7 +66,7 @@ def find_plugin_root():
 
     try:
         home = Path.home()
-        mp_direct = home / '.claude' / 'plugins' / 'marketplaces' / 'devflow-marketplace'
+        mp_direct = home / ".claude" / "plugins" / "marketplaces" / "devflow-marketplace"
         if mp_direct.is_dir():
             return str(mp_direct)
     except Exception:
@@ -73,7 +74,7 @@ def find_plugin_root():
 
     try:
         home = Path.home()
-        pattern = str(home / '.claude' / 'plugins' / 'marketplaces' / '*' / 'devflow')
+        pattern = str(home / ".claude" / "plugins" / "marketplaces" / "*" / "devflow")
         newest = _newest_dir(glob.glob(pattern))
         if newest:
             return newest
@@ -99,7 +100,7 @@ def get_plugin_root():
 def check_rules_installed():
     """Check if ~/.claude/rules/engineering.md exists."""
     try:
-        rules_file = Path.home() / '.claude' / 'rules' / 'engineering.md'
+        rules_file = Path.home() / ".claude" / "rules" / "engineering.md"
         return rules_file.exists()
     except Exception:
         return False
@@ -112,19 +113,19 @@ def memorant_available():
     "name@marketplace" keys) formats.
     """
     try:
-        installed_file = Path.home() / '.claude' / 'plugins' / 'installed_plugins.json'
+        installed_file = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
         if not installed_file.exists():
             return False
-        content = installed_file.read_text(encoding='utf-8', errors='replace')
+        content = installed_file.read_text(encoding="utf-8", errors="replace")
         data = json.loads(content)
         if not isinstance(data, dict):
             return False
         # v2 format: {"version": 2, "plugins": {"memorant@marketplace": [...]}}
-        plugins = data.get('plugins')
+        plugins = data.get("plugins")
         if isinstance(plugins, dict):
-            return any(k.split('@', 1)[0] == 'memorant' for k in plugins.keys())
+            return any(k.split("@", 1)[0] == "memorant" for k in plugins)
         # v1 format: {"memorant": [...], ...}
-        return 'memorant' in data
+        return "memorant" in data
     except Exception:
         return False
 
@@ -140,18 +141,15 @@ def find_manifest(cwd=None):
     try:
         raw = cwd or str(Path.cwd())
         start = Path(raw)
-        if not start.is_absolute():
-            start = (Path.cwd() / start).resolve()
-        else:
-            start = start.resolve()
-        for parent in [start] + list(start.parents):
-            devflow = parent / '.devflow'
-            if (devflow / 'task.yaml').is_file():
-                return devflow / 'task.yaml', parent
-            if (devflow / 'project.yaml').is_file():
-                return devflow / 'project.yaml', parent
-            if (devflow / 'manifest.yaml').is_file():
-                return devflow / 'manifest.yaml', parent
+        start = (Path.cwd() / start).resolve() if not start.is_absolute() else start.resolve()
+        for parent in [start, *list(start.parents)]:
+            devflow = parent / ".devflow"
+            if (devflow / "task.yaml").is_file():
+                return devflow / "task.yaml", parent
+            if (devflow / "project.yaml").is_file():
+                return devflow / "project.yaml", parent
+            if (devflow / "manifest.yaml").is_file():
+                return devflow / "manifest.yaml", parent
     except Exception:
         pass
     return None, None
@@ -160,14 +158,14 @@ def find_manifest(cwd=None):
 def read_manifest_phase(manifest_path):
     """Extract current_phase from manifest.yaml without requiring yaml module."""
     try:
-        content = manifest_path.read_text(encoding='utf-8', errors='replace')
+        content = manifest_path.read_text(encoding="utf-8", errors="replace")
         for line in content.splitlines():
             line = line.strip()
-            if line.startswith('current_phase:'):
-                return line.split(':', 1)[1].strip().strip('"\'')
+            if line.startswith("current_phase:"):
+                return line.split(":", 1)[1].strip().strip("\"'")
     except Exception:
         pass
-    return 'unknown'
+    return "unknown"
 
 
 def read_task_phase(task_path):
@@ -177,23 +175,23 @@ def read_task_phase(task_path):
     ``task:`` section, so a naive top-level ``current_phase:`` scan misses it.
     """
     try:
-        content = task_path.read_text(encoding='utf-8', errors='replace')
+        content = task_path.read_text(encoding="utf-8", errors="replace")
         in_task = False
         for line in content.splitlines():
             stripped = line.strip()
-            if not stripped or stripped.startswith('#'):
+            if not stripped or stripped.startswith("#"):
                 continue
             indent = len(line) - len(line.lstrip())
-            if indent == 0 and stripped == 'task:':
+            if indent == 0 and stripped == "task:":
                 in_task = True
                 continue
-            if in_task and indent == 0 and stripped.endswith(':'):
+            if in_task and indent == 0 and stripped.endswith(":"):
                 break
-            if in_task and stripped.startswith('current_phase:'):
-                return stripped.split(':', 1)[1].strip().strip('"\'')
+            if in_task and stripped.startswith("current_phase:"):
+                return stripped.split(":", 1)[1].strip().strip("\"'")
     except Exception:
         pass
-    return 'unknown'
+    return "unknown"
 
 
 def read_state_phase(state_path):
@@ -203,7 +201,7 @@ def read_state_phase(state_path):
     (legacy) store the phase in different positions, so dispatch on filename.
     """
     name = state_path.name
-    if name == 'task.yaml':
+    if name == "task.yaml":
         return read_task_phase(state_path)
     return read_manifest_phase(state_path)
 
@@ -216,9 +214,9 @@ def read_work_type(state_path):
     (it is project-level config), so it falls back to the neutral ``—``.
     """
     name = state_path.name
-    if name == 'task.yaml':
-        return read_task_kind(state_path) or '—'
-    return read_manifest_field(state_path, 'work_type:') or '—'
+    if name == "task.yaml":
+        return read_task_kind(state_path) or "—"
+    return read_manifest_field(state_path, "work_type:") or "—"
 
 
 def read_task_kind(task_path):
@@ -228,20 +226,20 @@ def read_task_kind(task_path):
     section, so a top-level scan would miss it.
     """
     try:
-        content = task_path.read_text(encoding='utf-8', errors='replace')
+        content = task_path.read_text(encoding="utf-8", errors="replace")
         in_task = False
         for line in content.splitlines():
             stripped = line.strip()
-            if not stripped or stripped.startswith('#'):
+            if not stripped or stripped.startswith("#"):
                 continue
             indent = len(line) - len(line.lstrip())
-            if indent == 0 and stripped == 'task:':
+            if indent == 0 and stripped == "task:":
                 in_task = True
                 continue
-            if in_task and indent == 0 and stripped.endswith(':'):
+            if in_task and indent == 0 and stripped.endswith(":"):
                 break
-            if in_task and stripped.startswith('kind:'):
-                return stripped.split(':', 1)[1].strip().strip('"\'')
+            if in_task and stripped.startswith("kind:"):
+                return stripped.split(":", 1)[1].strip().strip("\"'")
     except Exception:
         pass
     return None
@@ -250,11 +248,11 @@ def read_task_kind(task_path):
 def read_manifest_field(manifest_path, field):
     """Extract a top-level or project-level string field from manifest.yaml."""
     try:
-        content = manifest_path.read_text(encoding='utf-8', errors='replace')
+        content = manifest_path.read_text(encoding="utf-8", errors="replace")
         for line in content.splitlines():
             stripped = line.strip()
-            if stripped.startswith(field + ':'):
-                return stripped.split(':', 1)[1].strip().strip('"\'')
+            if stripped.startswith(field + ":"):
+                return stripped.split(":", 1)[1].strip().strip("\"'")
     except Exception:
         pass
     return None
@@ -267,7 +265,7 @@ def read_tasks_summary(manifest_path, phase):
     Returns '3/5 tasks' or empty string.
     """
     try:
-        content = manifest_path.read_text(encoding='utf-8', errors='replace')
+        content = manifest_path.read_text(encoding="utf-8", errors="replace")
         lines = content.splitlines()
         in_tasks = False
         tasks_indent = None
@@ -275,26 +273,28 @@ def read_tasks_summary(manifest_path, phase):
         total = 0
         for line in lines:
             stripped = line.strip()
-            if stripped.startswith('tasks:'):
+            if stripped.startswith("tasks:"):
                 in_tasks = True
                 tasks_indent = len(line) - len(line.lstrip())
                 continue
             if in_tasks:
                 current_indent = len(line) - len(line.lstrip())
-                if stripped and current_indent <= tasks_indent and not stripped.startswith('-'):
+                if stripped and current_indent <= tasks_indent and not stripped.startswith("-"):
                     break
-                if stripped.startswith('- id:'):
+                if stripped.startswith("- id:"):
                     total += 1
-                if stripped.startswith('status: completed') or stripped.endswith('status: completed'):
+                if stripped.startswith("status: completed") or stripped.endswith(
+                    "status: completed"
+                ):
                     completed += 1
         if total > 0:
             return f"{completed}/{total} tasks"
     except Exception:
         pass
-    return ''
+    return ""
 
 
-def emit(context, event_name='SessionStart'):
+def emit(context, event_name="SessionStart"):
     """Emit JSON hook output.
 
     Claude Code requires hookEventName inside hookSpecificOutput to
@@ -302,36 +302,40 @@ def emit(context, event_name='SessionStart'):
     """
     try:
         if not context:
-            print('{}')
+            print("{}")
             return
-        print(json.dumps({
-            'hookSpecificOutput': {
-                'hookEventName': event_name,
-                'additionalContext': context,
-            }
-        }))
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": event_name,
+                        "additionalContext": context,
+                    }
+                }
+            )
+        )
     except Exception:
-        print('{}')
+        print("{}")
 
 
 def emit_text(text):
     try:
-        print(text if text else '')
+        print(text if text else "")
     except Exception:
-        print('')
+        print("")
 
 
 def handle_session_start(data):
     try:
-        manifest_path, project_root = find_manifest(data.get('cwd'))
+        manifest_path, project_root = find_manifest(data.get("cwd"))
         if not manifest_path:
             if not check_rules_installed():
                 return emit(
-                    '[DevFlow] Plugin installed but rules not yet set up. '
-                    'Run /devflow init in a project to install rules and start.',
-                    'SessionStart',
+                    "[DevFlow] Plugin installed but rules not yet set up. "
+                    "Run /devflow init in a project to install rules and start.",
+                    "SessionStart",
                 )
-            return emit('', 'SessionStart')
+            return emit("", "SessionStart")
         phase = read_state_phase(manifest_path)
         work_type = read_work_type(manifest_path)
         tasks = read_tasks_summary(manifest_path, phase)
@@ -339,40 +343,47 @@ def handle_session_start(data):
         if tasks:
             ctx += f" Tasks: {tasks}."
         ctx += " Gates wait for your approval; /devflow status for details."
-        return emit(ctx, 'SessionStart')
+        return emit(ctx, "SessionStart")
     except Exception:
-        return emit('', 'SessionStart')
+        return emit("", "SessionStart")
 
 
 def handle_user_prompt(data):
     try:
-        manifest_path, _ = find_manifest(data.get('cwd'))
+        manifest_path, _ = find_manifest(data.get("cwd"))
         if not manifest_path:
-            return emit('', 'UserPromptSubmit')
+            return emit("", "UserPromptSubmit")
         phase = read_state_phase(manifest_path)
         # v2 Gate/waiting statuses plus legacy manifest phases (old projects).
         gate_phases = {
-            'qa', 'prd_review', 'plan_review', 'deliver_confirm',
-            'classify', 'product_qa', 'gate_prd', 'gate_arch',
-            'acceptance', 'delivery',
+            "qa",
+            "prd_review",
+            "plan_review",
+            "deliver_confirm",
+            "classify",
+            "product_qa",
+            "gate_prd",
+            "gate_arch",
+            "acceptance",
+            "delivery",
         }
         if phase in gate_phases:
             return emit(
                 f"[DevFlow] Awaiting your review/approval in {phase} phase.",
-                'UserPromptSubmit',
+                "UserPromptSubmit",
             )
-        return emit('', 'UserPromptSubmit')
+        return emit("", "UserPromptSubmit")
     except Exception:
-        return emit('', 'UserPromptSubmit')
+        return emit("", "UserPromptSubmit")
 
 
 def handle_pre_compact(data):
     try:
-        manifest_path, project_root = find_manifest(data.get('cwd'))
+        manifest_path, project_root = find_manifest(data.get("cwd"))
         if not manifest_path:
-            return emit_text('')
+            return emit_text("")
         phase = read_state_phase(manifest_path)
-        content = manifest_path.read_text(encoding='utf-8', errors='replace')
+        content = manifest_path.read_text(encoding="utf-8", errors="replace")
         summary = (
             f"[DevFlow State - preserve through compaction]\n"
             f"Project: {project_root.name}\n"
@@ -382,11 +393,11 @@ def handle_pre_compact(data):
         return emit_text(summary)
     except Exception:
         try:
-            manifest_path, project_root = find_manifest(data.get('cwd'))
-            phase = read_state_phase(manifest_path) if manifest_path else 'unknown'
+            manifest_path, project_root = find_manifest(data.get("cwd"))
+            phase = read_state_phase(manifest_path) if manifest_path else "unknown"
             return emit_text(f"[DevFlow] Phase: {phase}")
         except Exception:
-            return emit_text('')
+            return emit_text("")
 
 
 def main():
@@ -397,22 +408,22 @@ def main():
         except (json.JSONDecodeError, ValueError):
             data = {}
 
-        event = data.get('hook_event_name', '') or ''
+        event = data.get("hook_event_name", "") or ""
 
         handlers = {
-            'SessionStart': handle_session_start,
-            'UserPromptSubmit': handle_user_prompt,
-            'PreCompact': handle_pre_compact,
+            "SessionStart": handle_session_start,
+            "UserPromptSubmit": handle_user_prompt,
+            "PreCompact": handle_pre_compact,
         }
 
         handler = handlers.get(event)
         if handler:
             handler(data)
         else:
-            print('{}')
+            print("{}")
     except Exception:
-        print('{}')
+        print("{}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

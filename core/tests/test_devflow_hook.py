@@ -4,6 +4,7 @@
 v2 (ADR-0005): hooks inform, never block. The Stop event is not registered
 and must stay a no-op even if invoked directly.
 """
+
 import json
 import os
 import subprocess
@@ -11,7 +12,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
 
 HOOK = Path(__file__).resolve().parents[2] / "hooks" / "devflow_hook.py"
 
@@ -34,6 +34,7 @@ def run_event(root: Path, event: str, **extra) -> subprocess.CompletedProcess:
 
 def _load_hook_module():
     import importlib.util
+
     spec = importlib.util.spec_from_file_location("devflow_hook", HOOK)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -48,12 +49,12 @@ class DevFlowHookStopNeverBlocksTest(unittest.TestCase):
         (devflow / "task.yaml").write_text(
             "schema_version: 2\n"
             "task:\n"
-            "  id: \"test-task\"\n"
-            "  slug: \"test-task\"\n"
-            "  kind: \"feature\"\n"
-            "  description: \"test\"\n"
-            f"  current_phase: \"{phase}\"\n"
-            "  status: \"active\"\n",
+            '  id: "test-task"\n'
+            '  slug: "test-task"\n'
+            '  kind: "feature"\n'
+            '  description: "test"\n'
+            f'  current_phase: "{phase}"\n'
+            '  status: "active"\n',
             encoding="utf-8",
         )
 
@@ -93,12 +94,12 @@ class DevFlowHookLifecycleTest(unittest.TestCase):
         (devflow / "task.yaml").write_text(
             "schema_version: 2\n"
             "task:\n"
-            "  id: \"test-task\"\n"
-            "  slug: \"test-task\"\n"
-            "  kind: \"feature\"\n"
-            "  description: \"test\"\n"
-            f"  current_phase: \"{phase}\"\n"
-            "  status: \"active\"\n",
+            '  id: "test-task"\n'
+            '  slug: "test-task"\n'
+            '  kind: "feature"\n'
+            '  description: "test"\n'
+            f'  current_phase: "{phase}"\n'
+            '  status: "active"\n',
             encoding="utf-8",
         )
 
@@ -200,10 +201,12 @@ class DevFlowHookLifecycleTest(unittest.TestCase):
 
             result = subprocess.run(
                 [sys.executable, str(HOOK)],
-                input=json.dumps({
-                    "hook_event_name": "SessionStart",
-                    "cwd": str(root),
-                }),
+                input=json.dumps(
+                    {
+                        "hook_event_name": "SessionStart",
+                        "cwd": str(root),
+                    }
+                ),
                 text=True,
                 capture_output=True,
                 cwd=other,

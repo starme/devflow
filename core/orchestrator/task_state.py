@@ -5,13 +5,13 @@ The parser intentionally handles only the scalar fields written by this module.
 It keeps the task manager dependency-free while allowing users to inspect the
 YAML with ordinary tools.
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 import re
 import shutil
-from typing import Optional
+from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,7 @@ class RepoEndpoint:
     git roots.  Each endpoint carries its own base ref/commit and shares the
     same branch name across repositories.
     """
+
     track: str
     git_root: str
     base_ref: str
@@ -39,8 +40,8 @@ class TaskRecord:
     base_commit: str
     branch: str
     worktree: str
-    parent_task_id: Optional[str] = None
-    source_task_id: Optional[str] = None
+    parent_task_id: str | None = None
+    source_task_id: str | None = None
     endpoints: tuple[RepoEndpoint, ...] = ()
     # Human-readable card title. Empty means "derive from description", so
     # existing construction sites keep working unchanged.
@@ -54,7 +55,7 @@ class TaskRecord:
         return self.description.strip().splitlines()[0] if self.description.strip() else ""
 
 
-def _yaml_quote(value: Optional[str]) -> str:
+def _yaml_quote(value: str | None) -> str:
     if value is None:
         return "null"
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
@@ -94,7 +95,7 @@ def render_task_yaml(record: TaskRecord, current_phase: str = "qa") -> str:
         f"  kind: {_yaml_quote(record.kind)}",
         f"  description: {_yaml_quote(record.description)}",
         f"  current_phase: {_yaml_quote(current_phase)}",
-        "  status: \"active\"",
+        '  status: "active"',
         "",
         "git:",
         f"  base_ref: {_yaml_quote(record.base_ref)}",
@@ -103,21 +104,23 @@ def render_task_yaml(record: TaskRecord, current_phase: str = "qa") -> str:
         f"  worktree: {_yaml_quote(record.worktree)}",
     ]
     lines.extend(_render_endpoint_lines(record))
-    lines.extend([
-        "",
-        f"parent_task_id: {_yaml_quote(record.parent_task_id)}",
-        f"source_task_id: {_yaml_quote(record.source_task_id)}",
-        "",
-        "artifacts:",
-        "  prd: null",
-        "  card: null",
-        "  verification: null",
-        "  delivery: \".devflow/delivery.yaml\"",
-    ])
+    lines.extend(
+        [
+            "",
+            f"parent_task_id: {_yaml_quote(record.parent_task_id)}",
+            f"source_task_id: {_yaml_quote(record.source_task_id)}",
+            "",
+            "artifacts:",
+            "  prd: null",
+            "  card: null",
+            "  verification: null",
+            '  delivery: ".devflow/delivery.yaml"',
+        ]
+    )
     return "\n".join(lines) + "\n"
 
 
-def _read_scalar(content: str, key: str, section: Optional[str] = None) -> Optional[str]:
+def _read_scalar(content: str, key: str, section: str | None = None) -> str | None:
     in_section = section is None
     for line in content.splitlines():
         stripped = line.strip()
@@ -199,7 +202,7 @@ def _unquote(value: str) -> str:
     return value
 
 
-def _endpoint_from(fields: dict) -> Optional[RepoEndpoint]:
+def _endpoint_from(fields: dict) -> RepoEndpoint | None:
     track = fields.get("track", "")
     git_root = fields.get("git_root", "")
     if not track or not git_root:
@@ -232,15 +235,17 @@ def load_task(path: Path) -> TaskRecord:
     missing = [key for key in required if not values[key]]
     if missing:
         raise ValueError(f"invalid task state {path}: missing {', '.join(missing)}")
+    # The guard above rejects any falsy required key, so these are non-None
+    # here; ``or ""`` documents that for the type checker.
     return TaskRecord(
-        task_id=values["task_id"],
-        slug=values["slug"],
-        kind=values["kind"],
+        task_id=values["task_id"] or "",
+        slug=values["slug"] or "",
+        kind=values["kind"] or "",
         description=values["description"] or "",
-        base_ref=values["base_ref"],
-        base_commit=values["base_commit"],
-        branch=values["branch"],
-        worktree=values["worktree"],
+        base_ref=values["base_ref"] or "",
+        base_commit=values["base_commit"] or "",
+        branch=values["branch"] or "",
+        worktree=values["worktree"] or "",
         parent_task_id=values["parent_task_id"],
         source_task_id=values["source_task_id"],
         endpoints=_read_endpoints(content),
@@ -253,7 +258,7 @@ def load_task(path: Path) -> TaskRecord:
 _UNSAFE_TASK_ID = re.compile(r"[\\/]|^\.\.?$")
 
 
-def archive_task_state(task_file: Path) -> Optional[Path]:
+def archive_task_state(task_file: Path) -> Path | None:
     """Copy an existing ``task.yaml`` into its own archive directory.
 
     In-place tasks all share ``repo_root/.devflow/task.yaml``, so starting a new

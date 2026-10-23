@@ -2,7 +2,6 @@ import json
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[3]
 MARKETPLACE = ROOT / ".agents" / "plugins" / "marketplace.json"
 PLUGIN = ROOT / ".codex-plugin" / "plugin.json"
