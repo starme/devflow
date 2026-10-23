@@ -4,15 +4,15 @@
 No third-party dependencies. All functions fail-safe: they return empty
 defaults rather than raising, so hooks never block the user on internal errors.
 """
+
 import os
 import re
-import sys
 from pathlib import Path
-
 
 # ---------------------------------------------------------------------------
 # Project root / context discovery
 # ---------------------------------------------------------------------------
+
 
 def find_project_root(cwd=None):
     """Walk up from *cwd* to find a directory containing ``.devflow/``.
@@ -31,7 +31,7 @@ def find_project_root(cwd=None):
 
         # A DevFlow task worktree is itself an authoritative project root. Its
         # task state must never fall back to another worktree's context.
-        for parent in [start] + list(start.parents):
+        for parent in [start, *list(start.parents)]:
             if (parent / ".devflow" / "task.yaml").is_file():
                 return parent
 
@@ -40,7 +40,7 @@ def find_project_root(cwd=None):
         if wt_root and main_root and (main_root / ".devflow").is_dir():
             return main_root
 
-        for parent in [start] + list(start.parents):
+        for parent in [start, *list(start.parents)]:
             if (parent / ".devflow").is_dir():
                 return parent
     except Exception:
@@ -52,6 +52,7 @@ def find_project_root(cwd=None):
 # Worktree detection
 # ---------------------------------------------------------------------------
 
+
 def detect_worktree(cwd):
     """Detect a Claude subagent or DevFlow task worktree.
 
@@ -62,10 +63,13 @@ def detect_worktree(cwd):
     """
     try:
         p = Path(cwd).resolve()
-        for parent in [p] + list(p.parents):
+        for parent in [p, *list(p.parents)]:
             if (parent / ".devflow" / "task.yaml").is_file():
                 project_root = parent
-                while project_root.parent != project_root and project_root.name != ".devflow-worktrees":
+                while (
+                    project_root.parent != project_root
+                    and project_root.name != ".devflow-worktrees"
+                ):
                     project_root = project_root.parent
                 if project_root.name == ".devflow-worktrees":
                     # Layout: <repo.parent>/.devflow-worktrees/<repo.name>/<task-id>
@@ -76,11 +80,16 @@ def detect_worktree(cwd):
                     return parent, repo_root
         parts = p.parts
         for i in range(len(parts) - 1):
-            if parts[i] == ".claude" and i + 1 < len(parts) and parts[i + 1] == "worktrees":
-                if i + 2 < len(parts) and parts[i + 2].startswith("agent-"):
-                    wt_root = Path(*parts[: i + 3])
-                    main_root = Path(*parts[:i])
-                    return wt_root, main_root
+            if (
+                parts[i] == ".claude"
+                and i + 1 < len(parts)
+                and parts[i + 1] == "worktrees"
+                and i + 2 < len(parts)
+                and parts[i + 2].startswith("agent-")
+            ):
+                wt_root = Path(*parts[: i + 3])
+                main_root = Path(*parts[:i])
+                return wt_root, main_root
     except Exception:
         pass
     return None, None
@@ -174,7 +183,6 @@ def _parse_workspace_yaml(project_root, filename):
         lines = content.splitlines()
 
         in_workspace = False
-        ws_indent = 0
         current_subkey = None
 
         for raw_line in lines:
@@ -187,7 +195,6 @@ def _parse_workspace_yaml(project_root, filename):
             # Top-level workspace: section
             if indent == 0 and stripped == "workspace:":
                 in_workspace = True
-                ws_indent = 0
                 current_subkey = None
                 continue
 
@@ -481,10 +488,7 @@ def _parse_redlines_file(rl_file):
         # Section header (ends with ':')
         if not line.startswith(" ") and not line.startswith("-") and stripped.endswith(":"):
             key = stripped[:-1].strip()
-            if key in result:
-                section = key
-            else:
-                section = None
+            section = key if key in result else None
             continue
 
         # List item
@@ -570,7 +574,7 @@ def _glob_to_regex(pattern):
         elif c == "?":
             tokens.append("[^/]")
         elif c == "[":
-            # Character class – find closing ]
+            # Character class - find closing ]
             j = i + 1
             if j < n and pattern[j] == "!":
                 j += 1
@@ -581,7 +585,7 @@ def _glob_to_regex(pattern):
             if j >= n:
                 tokens.append(re.escape("["))
             else:
-                cls = pattern[i + 1:j]
+                cls = pattern[i + 1 : j]
                 if cls.startswith("!"):
                     cls = "^" + cls[1:]
                 tokens.append("[" + cls + "]")
@@ -608,9 +612,7 @@ def path_matches_glob(rel_path, pattern):
     if regex.match(rel_path):
         return True
     basename = rel_path.rsplit("/", 1)[-1]
-    if regex.match(basename):
-        return True
-    return False
+    return bool(regex.match(basename))
 
 
 def path_in_redline_category(rel_path, patterns, negations):
@@ -623,10 +625,7 @@ def path_in_redline_category(rel_path, patterns, negations):
             break
     if not matched:
         return False
-    for neg in negations:
-        if path_matches_glob(rel_path, neg):
-            return False
-    return True
+    return all(not path_matches_glob(rel_path, neg) for neg in negations)
 
 
 # ---------------------------------------------------------------------------
@@ -642,30 +641,32 @@ _DEVFLOW_ARTIFACT_PREFIXES = (
     ".devflow/sessions/",
     ".devflow/tasks/",
 )
-_DEVFLOW_ARTIFACT_FILES = frozenset({
-    ".devflow/scope.yaml",
-    ".devflow/diagnosis.md",
-    ".devflow/architecture.md",
-    # The two entries below are guard-only: agents may write them, but the
-    # delivery flow never collects them into a commit (they document design
-    # intent rather than task artifacts). This set is a superset of
-    # ``delivery.DELIVERY_ARTIFACT_FILES`` — see test_delivery.py.
-    ".devflow/frontend-components.md",
-    ".devflow/impact-analysis.md",
-    ".devflow/prd.md",
-    ".devflow/card.md",
-    ".devflow/verification-report.md",
-    ".devflow/memorant-journal-investigation.md",
-    ".devflow/backend-task-report.md",
-    ".devflow/frontend-task-report.md",
-    ".devflow/test-report.md",
-    ".devflow/task-report.md",
-    ".devflow/acceptance-scenarios.md",
-    ".devflow/acceptance-report.md",
-    ".devflow/pr.md",
-    ".devflow/delivery.yaml",
-    ".devflow/retrospective.md",
-})
+_DEVFLOW_ARTIFACT_FILES = frozenset(
+    {
+        ".devflow/scope.yaml",
+        ".devflow/diagnosis.md",
+        ".devflow/architecture.md",
+        # The two entries below are guard-only: agents may write them, but the
+        # delivery flow never collects them into a commit (they document design
+        # intent rather than task artifacts). This set is a superset of
+        # ``delivery.DELIVERY_ARTIFACT_FILES`` — see test_delivery.py.
+        ".devflow/frontend-components.md",
+        ".devflow/impact-analysis.md",
+        ".devflow/prd.md",
+        ".devflow/card.md",
+        ".devflow/verification-report.md",
+        ".devflow/memorant-journal-investigation.md",
+        ".devflow/backend-task-report.md",
+        ".devflow/frontend-task-report.md",
+        ".devflow/test-report.md",
+        ".devflow/task-report.md",
+        ".devflow/acceptance-scenarios.md",
+        ".devflow/acceptance-report.md",
+        ".devflow/pr.md",
+        ".devflow/delivery.yaml",
+        ".devflow/retrospective.md",
+    }
+)
 
 # Published task artifacts now live under ``.devflow/tasks/<task-id>/``, which
 # is already covered by ``_DEVFLOW_ARTIFACT_PREFIXES`` above.  The former
@@ -686,10 +687,7 @@ def is_devflow_artifact(rel_path):
     if rel_path.startswith(".devflow/"):
         if rel_path in _DEVFLOW_ARTIFACT_FILES:
             return True
-        for prefix in _DEVFLOW_ARTIFACT_PREFIXES:
-            if rel_path.startswith(prefix):
-                return True
-        return False
+        return any(rel_path.startswith(prefix) for prefix in _DEVFLOW_ARTIFACT_PREFIXES)
     return False
 
 
@@ -698,14 +696,11 @@ def to_rel_path(file_path, project_root):
     relative path string."""
     try:
         fp = Path(file_path)
-        if not fp.is_absolute():
-            fp = (project_root / fp).resolve()
-        else:
-            fp = fp.resolve()
+        fp = (project_root / fp).resolve() if not fp.is_absolute() else fp.resolve()
         rel = fp.relative_to(project_root.resolve())
         return str(rel).replace(os.sep, "/")
     except Exception:
-        # Path is outside project root – return absolute as-is
+        # Path is outside project root - return absolute as-is
         return str(file_path).replace(os.sep, "/")
 
 
@@ -768,12 +763,8 @@ def _compute_rel_path(abs_path, project_root, wt_root=None, main_root=None):
 
 
 # Patterns to detect shell-based file writes.
-_SHELL_REDIRECT = re.compile(
-    r"(?:>>?>)\s*(?P<path>[^\s;|&<>]+)"
-)
-_SHELL_TEE = re.compile(
-    r"\btee\s+(?:-[a-zA-Z]+\s+)*(?P<path>[^\s;|&<>]+)"
-)
+_SHELL_REDIRECT = re.compile(r"(?:>>?>)\s*(?P<path>[^\s;|&<>]+)")
+_SHELL_TEE = re.compile(r"\btee\s+(?:-[a-zA-Z]+\s+)*(?P<path>[^\s;|&<>]+)")
 _SHELL_SED_I = re.compile(
     r"\bsed\s+-i\b(?:\s+''|\"\"|\s+'[^']*'|\s+\"[^\"]*\")?\s+"
     r"(?:-[eE]\s+[^']+?\s+)*(?P<path>[^\s;|&<>]+)"
@@ -786,9 +777,7 @@ _SHELL_PYTHON_C = re.compile(r"\bpython3?(?:\s+-(?!c\b)[^\s]+)*\s+-c\b")
 _SHELL_SINGLE = re.compile(r"'([^']+)'")
 _SHELL_DOUBLE = re.compile(r'"([^"]+)"')
 _SHELL_PATCH_CMD = re.compile(r"\b(?:git\s+(?:apply|am)|patch)\b")
-_SHELL_PATCH_FILE = re.compile(
-    r"(?:^|[\s;|&])(?P<path>[^\s;|&<>]+\.(?:diff|patch))\b"
-)
+_SHELL_PATCH_FILE = re.compile(r"(?:^|[\s;|&])(?P<path>[^\s;|&<>]+\.(?:diff|patch))\b")
 _PATCH_PLUSPLUS = re.compile(r"^\+\+\+ (?:[ab]/)?(?P<path>.+)$", re.M)
 
 
@@ -805,10 +794,7 @@ def _paths_from_patch_file(raw, base):
     """Read ``+++`` targets from a .diff/.patch argument when the file exists."""
     try:
         patch = Path(raw)
-        if not patch.is_absolute():
-            patch = (base / raw).resolve()
-        else:
-            patch = patch.resolve()
+        patch = (base / raw).resolve() if not patch.is_absolute() else patch.resolve()
         if not patch.is_file():
             return
         text = patch.read_text(encoding="utf-8", errors="replace")
@@ -820,8 +806,7 @@ def _paths_from_patch_file(raw, base):
             yield dest
 
 
-def _extract_shell_write_targets(command, project_root, cwd=None,
-                                 wt_root=None, main_root=None):
+def _extract_shell_write_targets(command, project_root, cwd=None, wt_root=None, main_root=None):
     """Best-effort extraction of file paths that a Bash command writes to.
 
     Yields ``(rel_path, abs_path)`` tuples for targets inside the project.
@@ -860,10 +845,7 @@ def _extract_shell_write_targets(command, project_root, cwd=None,
     for raw in candidates:
         try:
             p = Path(raw)
-            if not p.is_absolute():
-                p = (base / raw).resolve()
-            else:
-                p = p.resolve()
+            p = (base / raw).resolve() if not p.is_absolute() else p.resolve()
             rel = _compute_rel_path(str(p), project_root, wt_root, main_root)
             # Only include targets inside project root
             if not rel.startswith("/"):
@@ -878,19 +860,24 @@ def _extract_shell_write_targets(command, project_root, cwd=None,
 
 # Glob patterns that identify test files.
 _TEST_FILE_GLOBS = [
-    "**/test/**", "**/tests/**", "**/__tests__/**",
+    "**/test/**",
+    "**/tests/**",
+    "**/__tests__/**",
     "*_test.go",
-    "*.test.ts", "*.test.tsx", "*.test.js", "*.test.jsx",
-    "*.spec.ts", "*.spec.tsx", "*.spec.js", "*.spec.jsx",
+    "*.test.ts",
+    "*.test.tsx",
+    "*.test.js",
+    "*.test.jsx",
+    "*.spec.ts",
+    "*.spec.tsx",
+    "*.spec.js",
+    "*.spec.jsx",
 ]
 
 
 def is_test_file(rel_path):
     """Return ``True`` if *rel_path* looks like a test file."""
-    for pattern in _TEST_FILE_GLOBS:
-        if path_matches_glob(rel_path, pattern):
-            return True
-    return False
+    return any(path_matches_glob(rel_path, pattern) for pattern in _TEST_FILE_GLOBS)
 
 
 def infer_track(cwd, workspace):
@@ -937,7 +924,11 @@ def infer_track(cwd, workspace):
         frontend = workspace.get("frontend", "")
 
         if backend:
-            be_path = (root / backend).resolve() if not Path(backend).is_absolute() else Path(backend).resolve()
+            be_path = (
+                (root / backend).resolve()
+                if not Path(backend).is_absolute()
+                else Path(backend).resolve()
+            )
             try:
                 cwd_path.relative_to(be_path)
                 return "backend"
@@ -945,7 +936,11 @@ def infer_track(cwd, workspace):
                 pass
 
         if frontend:
-            fe_path = (root / frontend).resolve() if not Path(frontend).is_absolute() else Path(frontend).resolve()
+            fe_path = (
+                (root / frontend).resolve()
+                if not Path(frontend).is_absolute()
+                else Path(frontend).resolve()
+            )
             try:
                 cwd_path.relative_to(fe_path)
                 return "frontend"
@@ -986,7 +981,11 @@ def is_within_boundary(abs_path, workspace, track, cwd=None):
         track_dir = workspace.get(track, "")
         if not track_dir:
             return True
-        track_path = (root / track_dir).resolve() if not Path(track_dir).is_absolute() else Path(track_dir).resolve()
+        track_path = (
+            (root / track_dir).resolve()
+            if not Path(track_dir).is_absolute()
+            else Path(track_dir).resolve()
+        )
         target.relative_to(track_path)
         return True
     except ValueError:
@@ -1000,26 +999,19 @@ def is_within_boundary(abs_path, workspace, track, cwd=None):
 # ---------------------------------------------------------------------------
 
 _DANGEROUS_CMD_PATTERNS = [
-    (re.compile(r"\brm\s+(-[rRf]+\s+)+(/|~|\$HOME|/\*|\$\(.*\))", re.IGNORECASE),
-     "Destructive recursive delete on system/home directory"),
-    (re.compile(r"\brm\s+-rf\s+/\*"),
-     "Destructive recursive delete on root"),
-    (re.compile(r"\bmkfs\b", re.IGNORECASE),
-     "Filesystem formatting command"),
-    (re.compile(r"\bdd\s+if=", re.IGNORECASE),
-     "Raw disk write via dd"),
-    (re.compile(r">\s*/dev/sd[a-z]", re.IGNORECASE),
-     "Direct write to block device"),
-    (re.compile(r"\bgit\s+push\s+.*(-f|--force)\b", re.IGNORECASE),
-     "Force push to git remote"),
-    (re.compile(r"\bcurl\b.*\|\s*(sh|bash|zsh)\b", re.IGNORECASE),
-     "Piping remote script to shell"),
-    (re.compile(r"\bwget\b.*\|\s*(sh|bash|zsh)\b", re.IGNORECASE),
-     "Piping remote script to shell"),
-    (re.compile(r"\bnpm\s+publish\b", re.IGNORECASE),
-     "Publishing package to registry"),
-    (re.compile(r"\bdrop\s+table\b", re.IGNORECASE),
-     "SQL DROP TABLE statement"),
+    (
+        re.compile(r"\brm\s+(-[rRf]+\s+)+(/|~|\$HOME|/\*|\$\(.*\))", re.IGNORECASE),
+        "Destructive recursive delete on system/home directory",
+    ),
+    (re.compile(r"\brm\s+-rf\s+/\*"), "Destructive recursive delete on root"),
+    (re.compile(r"\bmkfs\b", re.IGNORECASE), "Filesystem formatting command"),
+    (re.compile(r"\bdd\s+if=", re.IGNORECASE), "Raw disk write via dd"),
+    (re.compile(r">\s*/dev/sd[a-z]", re.IGNORECASE), "Direct write to block device"),
+    (re.compile(r"\bgit\s+push\s+.*(-f|--force)\b", re.IGNORECASE), "Force push to git remote"),
+    (re.compile(r"\bcurl\b.*\|\s*(sh|bash|zsh)\b", re.IGNORECASE), "Piping remote script to shell"),
+    (re.compile(r"\bwget\b.*\|\s*(sh|bash|zsh)\b", re.IGNORECASE), "Piping remote script to shell"),
+    (re.compile(r"\bnpm\s+publish\b", re.IGNORECASE), "Publishing package to registry"),
+    (re.compile(r"\bdrop\s+table\b", re.IGNORECASE), "SQL DROP TABLE statement"),
 ]
 
 

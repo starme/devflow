@@ -29,15 +29,19 @@ files are never rolled back.  The module is split into pure, testable functions
 (the top half) and a thin ``__main__`` CLI (the bottom half).
 
 Usage:
-    python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root> --task <id>
-    python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root> --worktree <path>
-    python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root> --all-tasks [--dry-run]
+    python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root>
+        --task <id>
+    python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root>
+        --worktree <path>
+    python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root>
+        --all-tasks [--dry-run]
 
 ``--task`` resolves a task by id in either form: a formal worktree under
 ``.devflow-worktrees/<repo>/<task-id>/`` (checked first), or the in-place
 default where ``repo_root/.devflow/task.yaml`` holds the task and its artifacts
 live directly under ``repo_root/.devflow/``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -47,10 +51,9 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any
 
 from task_state import find_task_files, load_task
-
 
 # ---------------------------------------------------------------------------
 # Publish whitelist
@@ -61,35 +64,42 @@ from task_state import find_task_files, load_task
 # ``rules/`` / ``runs/`` / ``contracts/`` / ``task.yaml`` are never published:
 # ``task.yaml`` is task state (read, not copied), the rest are main-workspace
 # config or read-only references.
-PUBLISHABLE_ARTIFACTS = frozenset({
-    "architecture.md",
-    "frontend-components.md",  # frontend component spec (architect, when a frontend track exists)
-    "impact-analysis.md",  # chore impact analysis (architect)
-    "scope.yaml",
-    "diagnosis.md",
-    "card.md",  # v2 plan card (ADR-0005)
-    "verification-report.md",  # v2 verifier report (ADR-0005)
-    "memorant-journal-investigation.md",  # investigation notes (ADR-0005 follow-up)
-    "acceptance-report.md",
-    "acceptance-scenarios.md",
-    "test-report.md",
-    "task-report.md",  # implementation report (declared dynamically via scope artifact contract)
-    "prd.md",  # published as prd-<task-slug>.md
-    "retrospective.md",
-})
+PUBLISHABLE_ARTIFACTS = frozenset(
+    {
+        "architecture.md",
+        # frontend component spec (architect, when a frontend track exists)
+        "frontend-components.md",
+        "impact-analysis.md",  # chore impact analysis (architect)
+        "scope.yaml",
+        "diagnosis.md",
+        "card.md",  # v2 plan card (ADR-0005)
+        "verification-report.md",  # v2 verifier report (ADR-0005)
+        # investigation notes (ADR-0005 follow-up)
+        "memorant-journal-investigation.md",
+        "acceptance-report.md",
+        "acceptance-scenarios.md",
+        "test-report.md",
+        # implementation report (declared dynamically via scope artifact contract)
+        "task-report.md",
+        "prd.md",  # published as prd-<task-slug>.md
+        "retrospective.md",
+    }
+)
 
 # Artifact directories (relative to ``.devflow/``) walked recursively on publish.
-PUBLISHABLE_ARTIFACT_DIRS = frozenset({
-    "test_reports",
-    "contracts",  # API contracts (e.g. actions.md) produced by the architect
-})
+PUBLISHABLE_ARTIFACT_DIRS = frozenset(
+    {
+        "test_reports",
+        "contracts",  # API contracts (e.g. actions.md) produced by the architect
+    }
+)
 
 # PRD is the only artifact renamed on publish.  Source (worktree) keeps the
 # fixed name ``.devflow/prd.md``; the published target is ``prd-<slug>.md``.
 _PRD_SOURCE = "prd.md"
 
 
-def target_name(source_rel: str, meta: Dict[str, str]) -> str:
+def target_name(source_rel: str, meta: dict[str, str]) -> str:
     """Return the published file name for *source_rel*.
 
     ``prd.md`` is the only renamed artifact (→ ``prd-<task-slug>.md``); every
@@ -103,6 +113,7 @@ def target_name(source_rel: str, meta: Dict[str, str]) -> str:
 # ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
+
 
 def _worktree_root(repo_root: Path, task_id: str) -> Path:
     """Return the formal task worktree directory for *task_id*."""
@@ -160,10 +171,10 @@ def _in_place_task_id_matches(repo_root: Path, task_id: str) -> bool:
 
 def discover_task(
     repo_root: Path,
-    task_id: Optional[str] = None,
-    worktree: Optional[str] = None,
+    task_id: str | None = None,
+    worktree: str | None = None,
     all_tasks: bool = False,
-    archive_root: Optional[Path] = None,
+    archive_root: Path | None = None,
 ) -> Path:
     """Locate a formal task worktree by precedence: ``--worktree``, ``--task``,
     then ``--all-tasks``.  Only a directory that is both inside the
@@ -212,7 +223,7 @@ def discover_task(
     raise ValueError("one of --task, --worktree, or --all-tasks is required")
 
 
-def read_task_meta(worktree: Path) -> Dict[str, str]:
+def read_task_meta(worktree: Path) -> dict[str, str]:
     """Extract the publish-relevant metadata from a worktree's ``task.yaml``."""
     record = load_task(worktree / ".devflow" / "task.yaml")
     return {
@@ -250,9 +261,7 @@ def _is_sensitive_name(name: str) -> bool:
         return True
     if lowered.startswith("secrets."):
         return True
-    if lowered.endswith(".key"):
-        return True
-    return False
+    return bool(lowered.endswith(".key"))
 
 
 def is_safe_source(src: Path, root: Path) -> bool:
@@ -270,16 +279,15 @@ def is_safe_source(src: Path, root: Path) -> bool:
         resolved.relative_to(root_resolved)
     except (OSError, ValueError):
         return False
-    if _is_sensitive_name(src.name):
-        return False
-    return True
+    return not _is_sensitive_name(src.name)
 
 
 # ---------------------------------------------------------------------------
 # Publishable file iteration
 # ---------------------------------------------------------------------------
 
-def iter_publishable_files(worktree: Path) -> List[str]:
+
+def iter_publishable_files(worktree: Path) -> list[str]:
     """Return the relative paths (forward slashes, relative to ``.devflow/``)
     of all publishable artifacts in *worktree*, sorted for determinism.
 
@@ -288,8 +296,8 @@ def iter_publishable_files(worktree: Path) -> List[str]:
     ``.devflow/`` root are skipped.
     """
     devflow = worktree / ".devflow"
-    root_resolved = devflow.resolve()
-    found: List[str] = []
+    devflow.resolve()
+    found: list[str] = []
 
     for name in sorted(PUBLISHABLE_ARTIFACTS):
         candidate = devflow / name
@@ -315,6 +323,7 @@ def iter_publishable_files(worktree: Path) -> List[str]:
 # Content hashing
 # ---------------------------------------------------------------------------
 
+
 def content_hash(src: Path, root: Path) -> str:
     """Return a stable sha256 for *src*.
 
@@ -324,10 +333,7 @@ def content_hash(src: Path, root: Path) -> str:
     h = hashlib.sha256()
     if src.is_dir():
         root_resolved = root.resolve()
-        entries = sorted(
-            p for p in src.rglob("*")
-            if p.is_file() and is_safe_source(p, root)
-        )
+        entries = sorted(p for p in src.rglob("*") if p.is_file() and is_safe_source(p, root))
         for path in entries:
             rel = path.relative_to(root_resolved).as_posix()
             h.update(rel.encode("utf-8"))
@@ -357,7 +363,7 @@ ACTION_SKIP = "skip"
 ACTION_CONFLICT = "conflict"
 
 
-def plan_publish(worktree: Path, target_dir: Path) -> Tuple[List[Dict[str, str]], Dict[str, str]]:
+def plan_publish(worktree: Path, target_dir: Path) -> tuple[list[dict[str, str]], dict[str, str]]:
     """Plan publication of *worktree*'s artifacts into *target_dir*.
 
     Returns ``(actions, published_map)`` where each action describes the source,
@@ -369,15 +375,15 @@ def plan_publish(worktree: Path, target_dir: Path) -> Tuple[List[Dict[str, str]]
     meta = read_task_meta(worktree)
     publishable = iter_publishable_files(worktree)
 
-    actions: List[Dict[str, str]] = []
-    published_map: Dict[str, str] = {}
+    actions: list[dict[str, str]] = []
+    published_map: dict[str, str] = {}
 
     for source_rel in publishable:
         name = target_name(source_rel, meta)
         src_path = devflow / source_rel
         dst_path = target_dir / name
 
-        action: Dict[str, str] = {
+        action: dict[str, str] = {
             "source": source_rel,
             "target": name,
             "action": ACTION_CREATE,
@@ -401,7 +407,7 @@ def plan_publish(worktree: Path, target_dir: Path) -> Tuple[List[Dict[str, str]]
     return actions, published_map
 
 
-def missing_archived_artifacts(worktree: Path, project_root: Path) -> List[str]:
+def missing_archived_artifacts(worktree: Path, project_root: Path) -> list[str]:
     """Return the list of publishable artifacts that have not yet been archived.
 
     A publishable artifact is "missing" when it exists in the worktree's
@@ -419,9 +425,7 @@ def missing_archived_artifacts(worktree: Path, project_root: Path) -> List[str]:
     """
     target_dir = resolve_archive_root(project_root) / read_task_meta(worktree)["task_id"]
     actions, _ = plan_publish(worktree, target_dir)
-    return [
-        action["source"] for action in actions if action["action"] != ACTION_SKIP
-    ]
+    return [action["source"] for action in actions if action["action"] != ACTION_SKIP]
 
 
 # ---------------------------------------------------------------------------
@@ -450,7 +454,7 @@ _README_ARTIFACT_KEYS = [
 ]
 
 
-def render_readme(meta: Dict[str, str], published_map: Dict[str, str]) -> str:
+def render_readme(meta: dict[str, str], published_map: dict[str, str]) -> str:
     """Render the machine-and-human readable source index for a task namespace.
 
     Absolute worktree paths are deliberately omitted (they break across
@@ -466,7 +470,7 @@ def render_readme(meta: Dict[str, str], published_map: Dict[str, str]) -> str:
             continue
         # Record the target name within the task namespace, not the absolute
         # worktree path nor the ``.devflow/tasks/<id>/`` prefix.
-        target_name = published.rsplit("/", 1)[-1]
+        target_name = (published or "").rsplit("/", 1)[-1]
         if key == "test_reports":
             target_name = "test_reports/"
         elif key == "contracts":
@@ -490,9 +494,7 @@ def render_readme(meta: Dict[str, str], published_map: Dict[str, str]) -> str:
     )
 
 
-def _match_artifact(
-    prefix: str, published_map: Dict[str, str]
-) -> Tuple[Optional[str], Optional[str]]:
+def _match_artifact(prefix: str, published_map: dict[str, str]) -> tuple[str | None, str | None]:
     """Return ``(source_rel, published)`` for the first entry whose relative
     path starts with *prefix* (collapsing ``test_reports/`` entries)."""
     for source_rel, published in published_map.items():
@@ -508,13 +510,14 @@ def _match_artifact(
 # task.yaml artifact reference update
 # ---------------------------------------------------------------------------
 
-def _read_scalar_fields(content: str, section: str) -> Dict[str, str]:
+
+def _read_scalar_fields(content: str, section: str) -> dict[str, str]:
     """Extract top-level scalar ``key: "value"`` fields from a YAML *section*.
 
     Only handles the ``artifacts:`` block's simple scalar entries (like
     ``delivery: ".devflow/delivery.yaml"``); nested maps/lists are ignored.
     """
-    fields: Dict[str, str] = {}
+    fields: dict[str, str] = {}
     in_section = False
     for line in content.splitlines():
         stripped = line.strip()
@@ -541,7 +544,7 @@ def update_task_artifact_refs(
     worktree: Path,
     task_id: str,
     slug: str,
-    published_map: Dict[str, str],
+    published_map: dict[str, str],
 ) -> Path:
     """Rewrite the ``artifacts`` section of *worktree*'s ``.devflow/task.yaml``
     to the dual-path form (worktree + published).  Only the task's own worktree
@@ -578,13 +581,13 @@ def update_task_artifact_refs(
     # (e.g. ``delivery``).  These are re-emitted as-is so delivery sub-state
     # recovery stays intact.
     preserved = _read_scalar_fields(content, "artifacts")
-    preserved_lines: List[str] = []
+    preserved_lines: list[str] = []
     for key in ("delivery",):
         value = preserved.get(key)
         if value is not None:
             preserved_lines.append(f'  {key}: "{value}"')
 
-    artifact_entries: List[str] = []
+    artifact_entries: list[str] = []
     for source_rel, key in ordered:
         published = published_map.get(source_rel)
         if not published:
@@ -632,7 +635,7 @@ def update_task_artifact_refs(
             content += "\n"
         rewritten = content + artifacts_block
     else:
-        rewritten = "\n".join(lines[:start] + [artifacts_block.rstrip("\n")] + lines[end:])
+        rewritten = "\n".join([*lines[:start], artifacts_block.rstrip("\n"), *lines[end:]])
 
     task_file.write_text(rewritten, encoding="utf-8")
     return task_file
@@ -642,11 +645,12 @@ def update_task_artifact_refs(
 # Publish command
 # ---------------------------------------------------------------------------
 
+
 def publish(
     project_root: Path,
     worktree: Path,
     dry_run: bool = False,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """Publish a single formal task's artifacts into
     ``<project_root>/.devflow/tasks/<task-id>/``.
 
@@ -663,7 +667,7 @@ def publish(
 
     actions, published_map = plan_publish(worktree, target_dir)
 
-    result: Dict[str, object] = {
+    result: dict[str, Any] = {
         "task_id": task_id,
         "published": [],
         "skipped": [],
@@ -725,17 +729,19 @@ def publish(
     return result
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="DevFlow formal task artifact publish")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_publish = sub.add_parser("publish", help="Publish task artifacts into .devflow/tasks/")
     p_publish.add_argument(
-        "--root", required=True,
+        "--root",
+        required=True,
         help="Project root (= .devflow/ parent, the archive authority)",
     )
     p_publish.add_argument(
-        "--repo-root", required=True,
+        "--repo-root",
+        required=True,
         help="Git repository root (the worktree-location authority)",
     )
     group = p_publish.add_mutually_exclusive_group(required=True)

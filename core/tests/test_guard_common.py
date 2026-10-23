@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Unit tests for worktree mapping and shell write-target extraction."""
+
 import sys
 import tempfile
 import unittest
@@ -26,9 +27,7 @@ class DetectWorktreeTest(unittest.TestCase):
             repo.mkdir()
             wt = home / ".devflow-worktrees" / "myapp" / "task-abc"
             (wt / ".devflow").mkdir(parents=True)
-            (wt / ".devflow" / "task.yaml").write_text(
-                "task:\n  id: task-abc\n", encoding="utf-8"
-            )
+            (wt / ".devflow" / "task.yaml").write_text("task:\n  id: task-abc\n", encoding="utf-8")
             src = wt / "server" / "main.go"
             src.parent.mkdir()
             src.write_text("package main\n", encoding="utf-8")
@@ -115,6 +114,7 @@ class ArchiveSignalTest(unittest.TestCase):
             is_git_commit,
             task_needs_archive,
         )
+
         return _parse_task_id, is_git_commit, task_needs_archive
 
     def test_parse_task_id_nested(self) -> None:
@@ -123,7 +123,7 @@ class ArchiveSignalTest(unittest.TestCase):
             root = Path(temp_dir)
             (root / ".devflow").mkdir()
             (root / ".devflow" / "task.yaml").write_text(
-                "task:\n  id: \"task-abc\"\n  kind: \"feature\"\n", encoding="utf-8"
+                'task:\n  id: "task-abc"\n  kind: "feature"\n', encoding="utf-8"
             )
             self.assertEqual(_parse_task_id(root), "task-abc")
 
@@ -140,7 +140,7 @@ class ArchiveSignalTest(unittest.TestCase):
             root = Path(temp_dir)
             (root / ".devflow").mkdir()
             (root / ".devflow" / "task.yaml").write_text(
-                "task:\n  id: \"task-abc\"\n", encoding="utf-8"
+                'task:\n  id: "task-abc"\n', encoding="utf-8"
             )
             self.assertTrue(task_needs_archive(root))
 
@@ -150,7 +150,7 @@ class ArchiveSignalTest(unittest.TestCase):
             root = Path(temp_dir)
             (root / ".devflow").mkdir()
             (root / ".devflow" / "task.yaml").write_text(
-                "task:\n  id: \"task-abc\"\n", encoding="utf-8"
+                'task:\n  id: "task-abc"\n', encoding="utf-8"
             )
             index = root / ".devflow" / "tasks" / "task-abc" / "README.md"
             index.parent.mkdir(parents=True)
@@ -181,10 +181,10 @@ class MultiRepoEndpointTest(unittest.TestCase):
         (anchor / ".devflow").mkdir(parents=True, exist_ok=True)
         (anchor / ".devflow" / "project.yaml").write_text(
             "workspaces:\n"
-            f"  - track: \"backend\"\n"
-            f"    git_root: \"{anchor}\"\n"
-            f"  - track: \"frontend\"\n"
-            f"    git_root: \"{frontend}\"\n",
+            f'  - track: "backend"\n'
+            f'    git_root: "{anchor}"\n'
+            f'  - track: "frontend"\n'
+            f'    git_root: "{frontend}"\n',
             encoding="utf-8",
         )
         return {
@@ -206,7 +206,9 @@ class MultiRepoEndpointTest(unittest.TestCase):
             workspace = self._workspace(temp_dir, anchor, frontend)
 
             self.assertEqual(infer_track(str(frontend / "src" / "App.tsx"), workspace), "frontend")
-            self.assertEqual(infer_track(str(anchor / "internal" / "main.go"), workspace), "backend")
+            self.assertEqual(
+                infer_track(str(anchor / "internal" / "main.go"), workspace), "backend"
+            )
 
     def test_is_within_boundary_uses_endpoint_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -217,11 +219,13 @@ class MultiRepoEndpointTest(unittest.TestCase):
             workspace = self._workspace(temp_dir, anchor, frontend)
 
             # backend agent may write within the backend repo root
-            self.assertTrue(is_within_boundary(
-                str(anchor / "internal" / "x.go"), workspace, "backend"))
+            self.assertTrue(
+                is_within_boundary(str(anchor / "internal" / "x.go"), workspace, "backend")
+            )
             # backend agent may NOT write into the frontend repo
-            self.assertFalse(is_within_boundary(
-                str(frontend / "src" / "App.tsx"), workspace, "backend"))
+            self.assertFalse(
+                is_within_boundary(str(frontend / "src" / "App.tsx"), workspace, "backend")
+            )
 
     def test_parse_workspaces_resolves_relative_git_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -232,10 +236,10 @@ class MultiRepoEndpointTest(unittest.TestCase):
             (anchor / ".devflow").mkdir(parents=True)
             (anchor / ".devflow" / "project.yaml").write_text(
                 "workspaces:\n"
-                "  - track: \"backend\"\n"
-                "    git_root: \".\"\n"
-                "  - track: \"frontend\"\n"
-                "    git_root: \"../frontend\"\n",
+                '  - track: "backend"\n'
+                '    git_root: "."\n'
+                '  - track: "frontend"\n'
+                '    git_root: "../frontend"\n',
                 encoding="utf-8",
             )
             endpoints = _parse_workspaces(anchor)

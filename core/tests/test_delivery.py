@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Tests for the delivery orchestrator module (read-only probes + state)."""
+
 from __future__ import annotations
 
 import sys
@@ -19,7 +20,8 @@ def _load_guard_whitelist() -> frozenset:
     """Load the guard hook's artifact whitelist for consistency checks."""
     hooks_dir = Path(__file__).resolve().parents[1] / "hooks"
     sys.path.insert(0, str(hooks_dir))
-    import devflow_guard_common  # noqa: E402
+    import devflow_guard_common
+
     return frozenset(devflow_guard_common._DEVFLOW_ARTIFACT_FILES)
 
 
@@ -130,7 +132,9 @@ class DeliveryStateTest(unittest.TestCase):
             pushed=True,
             pr_url="https://github.com/x/be/pull/1",
             repos=(
-                delivery.RepoDelivery("backend", "/abs/be", "be-commit", True, "https://github.com/x/be/pull/1"),
+                delivery.RepoDelivery(
+                    "backend", "/abs/be", "be-commit", True, "https://github.com/x/be/pull/1"
+                ),
                 delivery.RepoDelivery("frontend", "/abs/fe", "fe-commit", False, None),
             ),
         )
@@ -145,7 +149,9 @@ class DeliveryStateTest(unittest.TestCase):
     def test_load_multi_repo_absent_repos_defaults_empty(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "delivery.yaml"
-            path.write_text(delivery.render_delivery_yaml(DeliveryState(commit="c")), encoding="utf-8")
+            path.write_text(
+                delivery.render_delivery_yaml(DeliveryState(commit="c")), encoding="utf-8"
+            )
             self.assertEqual(delivery.load_delivery_state(path).repos, ())
 
 

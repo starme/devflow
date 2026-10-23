@@ -4,6 +4,7 @@ The renderer is the live writer — ``core/templates/task.yaml`` is a reference
 copy. These tests pin the two together so the template cannot drift into
 advertising fields the code never writes (the pre-v2 ``title:`` gap).
 """
+
 import re
 import sys
 import unittest
@@ -17,16 +18,16 @@ from task_state import TaskRecord, render_task_yaml  # noqa: E402
 
 
 def _record(**overrides):
-    kwargs = dict(
-        task_id="task-abc123",
-        slug="task",
-        kind="chore",
-        description="clean up retired v1 config",
-        base_ref="main",
-        base_commit="fba2bb7",
-        branch="chore/task-abc123",
-        worktree="/tmp/repo",
-    )
+    kwargs = {
+        "task_id": "task-abc123",
+        "slug": "task",
+        "kind": "chore",
+        "description": "clean up retired v1 config",
+        "base_ref": "main",
+        "base_commit": "fba2bb7",
+        "branch": "chore/task-abc123",
+        "worktree": "/tmp/repo",
+    }
     kwargs.update(overrides)
     return TaskRecord(**kwargs)
 

@@ -23,6 +23,7 @@ Output contract (stdout):
   ask    → exit 0, JSON with permissionDecision: "ask"
 All unexpected errors → exit 0 (fail-open).
 """
+
 import json
 import os
 import sys
@@ -46,10 +47,10 @@ from devflow_guard_common import (
     task_needs_archive,
 )
 
-
 # ---------------------------------------------------------------------------
 # Decision helpers
 # ---------------------------------------------------------------------------
+
 
 def deny(reason):
     """Emit a deny decision and exit."""
@@ -81,6 +82,7 @@ def _emit_decision(decision, reason):
 # ---------------------------------------------------------------------------
 # File operation checks
 # ---------------------------------------------------------------------------
+
 
 def check_file_operation(tool_name, tool_input, project_root, context, redlines):
     """Apply all file-path-based rules.  Calls deny()/ask() on violation."""
@@ -115,18 +117,21 @@ def check_file_operation(tool_name, tool_input, project_root, context, redlines)
                 f"is genuinely required."
             )
 
-        # 3. Directory boundary — dev agents can only write in their track
-        if tool_name != "Read" and track and not is_within_boundary(
-            abs_path, context.get("workspace", {}), track, cwd
+        # 3. Directory boundary - dev agents can only write in their track.
+        # Writes to .devflow/ process artifacts (scope.yaml, task reports, test
+        # reports, contracts, runs/) are allowed for any agent, hence the last
+        # clause rather than a nested check.
+        if (
+            tool_name != "Read"
+            and track
+            and not is_within_boundary(abs_path, context.get("workspace", {}), track, cwd)
+            and not is_devflow_artifact(rel_path)
         ):
-            # Allow writes to .devflow/ process artifacts from any agent
-            # (scope.yaml, task reports, test reports, contracts, runs/).
-            if not is_devflow_artifact(rel_path):
-                deny(
-                    f"[DevFlow Boundary] The {track} agent cannot write to "
-                    f"'{rel_path}' — it is outside the {track} workspace. "
-                    f"If this file truly needs changes, report to the Manager."
-                )
+            deny(
+                f"[DevFlow Boundary] The {track} agent cannot write to "
+                f"'{rel_path}' - it is outside the {track} workspace. "
+                f"If this file truly needs changes, report to the Manager."
+            )
 
         # 4. Test file protection during development
         if tool_name != "Read" and phase == "development" and is_test_file(rel_path):
@@ -164,6 +169,7 @@ def check_file_operation(tool_name, tool_input, project_root, context, redlines)
 # Bash checks
 # ---------------------------------------------------------------------------
 
+
 def check_bash_operation(tool_input, project_root, context, redlines):
     """Apply Bash-specific rules."""
     command = tool_input.get("command", "")
@@ -193,7 +199,7 @@ def check_bash_operation(tool_input, project_root, context, redlines):
 
     # 3. Check shell redirect / tee / sed -i targets against redlines
     targets = get_target_paths("Bash", tool_input, project_root, cwd)
-    for rel_path, abs_path in targets:
+    for rel_path, _abs_path in targets:
         if path_in_redline_category(
             rel_path,
             redlines["forbidden"],
@@ -217,6 +223,7 @@ def check_bash_operation(tool_input, project_root, context, redlines):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def main():
     try:
@@ -253,9 +260,7 @@ def main():
         if tool_name == "Bash":
             check_bash_operation(tool_input, project_root, context, redlines)
         else:
-            check_file_operation(
-                tool_name, tool_input, project_root, context, redlines
-            )
+            check_file_operation(tool_name, tool_input, project_root, context, redlines)
 
     except Exception:
         # Fail-open: never block the user due to a hook bug.

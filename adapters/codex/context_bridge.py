@@ -6,14 +6,13 @@ role-agent dispatch — task state is self-sufficient in ``.devflow/task.yaml``.
 This bridge keeps the platform-neutral hook payload builder and runner plus
 the soft-capability warning.
 """
+
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
 import sys
-from typing import Dict, Union
-
+from pathlib import Path
 
 SOFT_CAPABILITY_WARNING = (
     "Codex adapter capability is soft: generic pre-tool file-write interception "
@@ -21,12 +20,14 @@ SOFT_CAPABILITY_WARNING = (
 )
 
 
-def build_core_payload(tool_name: str, tool_input: Dict[str, object], cwd: Union[str, Path]) -> str:
+def build_core_payload(tool_name: str, tool_input: dict[str, object], cwd: str | Path) -> str:
     """Build the platform-neutral payload accepted by core hooks."""
-    return json.dumps({"tool_name": tool_name, "tool_input": tool_input, "cwd": str(Path(cwd).resolve())})
+    return json.dumps(
+        {"tool_name": tool_name, "tool_input": tool_input, "cwd": str(Path(cwd).resolve())}
+    )
 
 
-def run_core_hook(script: Union[str, Path], payload: str, cwd: Union[str, Path]) -> subprocess.CompletedProcess:
+def run_core_hook(script: str | Path, payload: str, cwd: str | Path) -> subprocess.CompletedProcess:
     """Run a core hook and return its protocol result."""
     return subprocess.run(
         [sys.executable, str(script)],

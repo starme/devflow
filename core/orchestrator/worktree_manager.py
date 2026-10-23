@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Create and discover isolated DevFlow task worktrees."""
+
 from __future__ import annotations
 
-from pathlib import Path
+import contextlib
 import re
 import shutil
 import subprocess
 import uuid
-
-from typing import Optional
+from pathlib import Path
 
 from task_state import (
     RepoEndpoint,
@@ -132,16 +132,20 @@ def _resolve_endpoints(repo_root: Path) -> list[dict]:
         git_root = Path(raw_root)
         if not git_root.is_absolute():
             git_root = repo_root / git_root
-        resolved.append({
-            "track": track,
-            "git_root": str(git_root.resolve()),
-            "remote": ep.get("remote", "origin"),
-            "base_branch": ep.get("base_branch", ""),
-        })
+        resolved.append(
+            {
+                "track": track,
+                "git_root": str(git_root.resolve()),
+                "remote": ep.get("remote", "origin"),
+                "base_branch": ep.get("base_branch", ""),
+            }
+        )
     return resolved
 
 
-def _seed_task_devflow(repo_root: Path, dest_devflow: Path, record: TaskRecord, copy_config: bool) -> None:
+def _seed_task_devflow(
+    repo_root: Path, dest_devflow: Path, record: TaskRecord, copy_config: bool
+) -> None:
     """Seed the task's ``.devflow/`` directory.
 
     v2 (ADR-0005): only ``task.yaml`` is written. The runtime
@@ -169,10 +173,10 @@ def create_task(
     start_path: Path,
     description: str,
     kind: str,
-    base_ref: Optional[str] = None,
-    parent_task_id: Optional[str] = None,
-    source_task_id: Optional[str] = None,
-    title: Optional[str] = None,
+    base_ref: str | None = None,
+    parent_task_id: str | None = None,
+    source_task_id: str | None = None,
+    title: str | None = None,
 ) -> TaskRecord:
     """Create a task in-place, or isolate a latercomer in a worktree.
 
@@ -194,11 +198,7 @@ def create_task(
     task_id = f"{_slugify(description) or 'task'}-{uuid.uuid4().hex[:6]}"
     branch_prefix = "fix" if kind == "bugfix" else kind
     branch = f"{branch_prefix}/{task_id}"
-    worktree = (
-        root.parent / ".devflow-worktrees" / root.name / task_id
-        if isolate
-        else root
-    )
+    worktree = root.parent / ".devflow-worktrees" / root.name / task_id if isolate else root
     if isolate:
         if worktree.exists():
             raise WorktreeError(f"task worktree already exists: {worktree}")
@@ -240,10 +240,8 @@ def create_task(
             except WorktreeError:
                 pass
         if isolate:
-            try:
+            with contextlib.suppress(WorktreeError):
                 _git(root, "worktree", "remove", "--force", str(worktree))
-            except WorktreeError:
-                pass
         else:
             try:
                 current = _git(root, "branch", "--show-current")
@@ -255,7 +253,7 @@ def create_task(
         raise
 
 
-def _build_endpoints(root: Path, branch: str, base_ref: Optional[str]) -> list[RepoEndpoint]:
+def _build_endpoints(root: Path, branch: str, base_ref: str | None) -> list[RepoEndpoint]:
     """Resolve project endpoints and freeze each one's base commit.
 
     The anchor repository itself is not re-listed as an endpoint — endpoints are
@@ -268,17 +266,24 @@ def _build_endpoints(root: Path, branch: str, base_ref: Optional[str]) -> list[R
         if ep_root == root:
             continue
         try:
-            ep_ref = base_ref or ep.get("base_branch") or _git(ep_root, "branch", "--show-current") or "HEAD"
+            ep_ref = (
+                base_ref
+                or ep.get("base_branch")
+                or _git(ep_root, "branch", "--show-current")
+                or "HEAD"
+            )
             ep_commit = _git(ep_root, "rev-parse", f"{ep_ref}^{{commit}}")
         except WorktreeError:
             raise
-        endpoints.append(RepoEndpoint(
-            track=ep["track"],
-            git_root=str(ep_root),
-            base_ref=ep_ref,
-            base_commit=ep_commit,
-            branch=branch,
-        ))
+        endpoints.append(
+            RepoEndpoint(
+                track=ep["track"],
+                git_root=str(ep_root),
+                base_ref=ep_ref,
+                base_commit=ep_commit,
+                branch=branch,
+            )
+        )
     return endpoints
 
 
@@ -288,6 +293,7 @@ def discover_tasks(root: Path) -> list[TaskRecord]:
     for path in find_task_files(_repo_root(root.resolve())):
         try:
             from task_state import load_task
+
             records.append(load_task(path))
         except (OSError, ValueError):
             continue

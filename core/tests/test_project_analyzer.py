@@ -1,11 +1,11 @@
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from project_analyzer import analyze_project, select_tracks  # noqa: E402
+from project_analyzer import analyze_project, select_tracks
 
 
 class ProjectAnalyzerTest(unittest.TestCase):
@@ -13,7 +13,9 @@ class ProjectAnalyzerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             (root / ".claude-plugin").mkdir()
-            (root / ".claude-plugin" / "plugin.json").write_text('{"name":"demo"}', encoding="utf-8")
+            (root / ".claude-plugin" / "plugin.json").write_text(
+                '{"name":"demo"}', encoding="utf-8"
+            )
             (root / "commands").mkdir()
             (root / "hooks").mkdir()
             (root / "SKILL.md").write_text("# A skill", encoding="utf-8")

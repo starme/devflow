@@ -21,8 +21,8 @@ Covered scenarios (per the delivery-report safety matrix):
     * reading a protected file               -> allow
     * hook cwd overrides stale context.json cwd -> allow (regression for cwd bug)
 """
+
 import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -79,29 +79,30 @@ class RedlineGuardBoundaryTest(unittest.TestCase):
             "  current_phase: development\n"
             "  work_type: feature\n"
             "workspace:\n"
-            "  root: \"{root}\"\n"
+            f'  root: "{cls.root}"\n'
             "  backend:\n"
-            "    path: \"server\"\n"
+            '    path: "server"\n'
             "  frontend:\n"
-            "    path: \"web\"\n"
+            '    path: "web"\n'
             "  contract:\n"
-            "    path: \".devflow/contracts\"\n"
-        ).format(root=cls.root)
+            '    path: ".devflow/contracts"\n'
+        )
         (cls.root / ".devflow" / "manifest.yaml").write_text(manifest, encoding="utf-8")
 
         redlines = (
             "forbidden:\n"
-            "  - \".env\"\n"
+            '  - ".env"\n'
             "protected:\n"
-            "  - \".github/**\"\n"
+            '  - ".github/**"\n'
             "approval_required:\n"
-            "  - \"package.json\"\n"
+            '  - "package.json"\n'
         )
         (cls.root / ".devflow" / "redlines.yaml").write_text(redlines, encoding="utf-8")
 
     @classmethod
     def tearDownClass(cls):
         import shutil
+
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def _write_context(self, cwd, agent="devflow-backend-dev"):
@@ -111,9 +112,7 @@ class RedlineGuardBoundaryTest(unittest.TestCase):
             "current_agent": agent,
             "cwd": str(cwd),
         }
-        (self.root / ".devflow" / "context.json").write_text(
-            json.dumps(ctx), encoding="utf-8"
-        )
+        (self.root / ".devflow" / "context.json").write_text(json.dumps(ctx), encoding="utf-8")
 
     # --- boundary matrix -------------------------------------------------
 
@@ -151,16 +150,12 @@ class RedlineGuardBoundaryTest(unittest.TestCase):
 
     def test_bash_cp_to_forbidden_denied(self):
         self._write_context(self.backend)
-        proc = _run_hook(
-            self.root, "Bash", {"command": "cp notes.txt .env"}, str(self.root)
-        )
+        proc = _run_hook(self.root, "Bash", {"command": "cp notes.txt .env"}, str(self.root))
         self.assertEqual(_decision(proc), "deny")
 
     def test_bash_mv_to_forbidden_denied(self):
         self._write_context(self.backend)
-        proc = _run_hook(
-            self.root, "Bash", {"command": "mv notes.txt .env"}, str(self.root)
-        )
+        proc = _run_hook(self.root, "Bash", {"command": "mv notes.txt .env"}, str(self.root))
         self.assertEqual(_decision(proc), "deny")
 
     def test_bash_python_c_to_forbidden_denied(self):
@@ -177,9 +172,7 @@ class RedlineGuardBoundaryTest(unittest.TestCase):
         self._write_context(self.backend)
         patch = self.root / "secret.patch"
         patch.write_text("--- a/.env\n+++ b/.env\n@@\n-old\n+new\n", encoding="utf-8")
-        proc = _run_hook(
-            self.root, "Bash", {"command": "git apply secret.patch"}, str(self.root)
-        )
+        proc = _run_hook(self.root, "Bash", {"command": "git apply secret.patch"}, str(self.root))
         self.assertEqual(_decision(proc), "deny")
 
     def test_forbidden_file_read_denied(self):
@@ -242,29 +235,30 @@ class WorktreeGuardTest(unittest.TestCase):
             "  current_phase: development\n"
             "  work_type: feature\n"
             "workspace:\n"
-            "  root: \"{root}\"\n"
+            f'  root: "{cls.root}"\n'
             "  backend:\n"
-            "    path: \"server\"\n"
+            '    path: "server"\n'
             "  frontend:\n"
-            "    path: \"web\"\n"
+            '    path: "web"\n'
             "  contract:\n"
-            "    path: \".devflow/contracts\"\n"
-        ).format(root=cls.root)
+            '    path: ".devflow/contracts"\n'
+        )
         (cls.root / ".devflow" / "manifest.yaml").write_text(manifest, encoding="utf-8")
 
         redlines = (
             "forbidden:\n"
-            "  - \".env\"\n"
+            '  - ".env"\n'
             "protected:\n"
-            "  - \".github/**\"\n"
+            '  - ".github/**"\n'
             "approval_required:\n"
-            "  - \"package.json\"\n"
+            '  - "package.json"\n'
         )
         (cls.root / ".devflow" / "redlines.yaml").write_text(redlines, encoding="utf-8")
 
     @classmethod
     def tearDownClass(cls):
         import shutil
+
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def _write_context(self, cwd, agent="devflow-backend-dev"):
@@ -279,9 +273,7 @@ class WorktreeGuardTest(unittest.TestCase):
                 "frontend": "web",
             },
         }
-        (self.root / ".devflow" / "context.json").write_text(
-            json.dumps(ctx), encoding="utf-8"
-        )
+        (self.root / ".devflow" / "context.json").write_text(json.dumps(ctx), encoding="utf-8")
 
     def test_worktree_backend_writes_backend_code_allowed(self):
         """Backend agent in worktree can write to worktree's server/ dir."""
@@ -335,7 +327,8 @@ class WorktreeGuardTest(unittest.TestCase):
         self._write_context(self.wt_backend)
         # Agent uses a relative path — must resolve against cwd (worktree)
         proc = _run_hook(
-            self.root, "Write",
+            self.root,
+            "Write",
             {"file_path": ".devflow/backend-task-report.md"},
             str(self.wt_backend),
         )
@@ -361,15 +354,15 @@ class ProjectYamlContextTest(unittest.TestCase):
             devflow.mkdir()
             (devflow / "project.yaml").write_text(
                 "workspace:\n"
-                "  root: \".\"\n"
+                '  root: "."\n'
                 "  backend:\n"
-                "    path: \"server\"\n"
+                '    path: "server"\n'
                 "  frontend:\n"
-                "    path: \"web\"\n",
+                '    path: "web"\n',
                 encoding="utf-8",
             )
             (devflow / "task.yaml").write_text(
-                "task:\n  current_phase: \"development\"\n",
+                'task:\n  current_phase: "development"\n',
                 encoding="utf-8",
             )
             ctx = load_context(root)

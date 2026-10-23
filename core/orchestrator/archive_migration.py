@@ -10,6 +10,7 @@ exists with identical content is skipped; a differing target raises a conflict
 the original position is overwritten with a one-line pointer; for the flat
 deliverables, ``shutil.copy2`` leaves the source in place.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -51,9 +52,7 @@ def _copy_if_unchanged(source: Path, target: Path) -> bool:
     if target.exists():
         if _same_content(source, target):
             return False
-        raise ArchiveMigrationConflict(
-            f"archive migration target differs: {target}"
-        )
+        raise ArchiveMigrationConflict(f"archive migration target differs: {target}")
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
     return True
@@ -92,8 +91,8 @@ def _readme_for(source_rel: str, semantic_dir: str) -> str:
     return (
         "# Legacy Artifacts\n"
         "\n"
-        f"source: \"{source_rel}\"\n"
-        f"directory: \"{semantic_dir}\"\n"
+        f'source: "{source_rel}"\n'
+        f'directory: "{semantic_dir}"\n'
         "migrated: true\n"
     )
 
@@ -107,12 +106,13 @@ def _pointer_for(target_rel: str) -> str:
 # Manifest rewrite
 # ---------------------------------------------------------------------------
 
+
 def _indent_of(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
 
 def _render_scalar(indent: int, key: str, value: str) -> str:
-    return f"{' ' * indent}{key}: \"{value}\""
+    return f'{" " * indent}{key}: "{value}"'
 
 
 def replace_nested_scalar(
@@ -159,9 +159,7 @@ def update_manifest(root: Path) -> bool:
     content = manifest.read_text(encoding="utf-8")
     updated = False
     new_prd = ".devflow/tasks/legacy/prd-agent-plugin-compatibility.md"
-    prd_rewritten = replace_nested_scalar(
-        content, ("phases", "prd_writing"), "prd_path", new_prd
-    )
+    prd_rewritten = replace_nested_scalar(content, ("phases", "prd_writing"), "prd_path", new_prd)
     if prd_rewritten != content:
         content = prd_rewritten
         updated = True
@@ -184,6 +182,7 @@ def update_manifest(root: Path) -> bool:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def migrate_legacy_archive(root: Path) -> dict[str, object]:
     """Migrate legacy deliverables into ``.devflow/tasks/`` and sync manifest.

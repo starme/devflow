@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Tests for isolated DevFlow task state and Git worktree creation."""
+
 from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-import sys
 
 ORCHESTRATOR = Path(__file__).resolve().parents[1] / "orchestrator"
 sys.path.insert(0, str(ORCHESTRATOR))
@@ -43,7 +44,16 @@ class WorktreeManagerTest(unittest.TestCase):
         (root / "README.md").write_text("initial\n", encoding="utf-8")
         subprocess.run(["git", "add", "README.md"], cwd=root, check=True)
         subprocess.run(
-            ["git", "-c", "user.name=DevFlow", "-c", "user.email=devflow@example.invalid", "commit", "-qm", "initial"],
+            [
+                "git",
+                "-c",
+                "user.name=DevFlow",
+                "-c",
+                "user.email=devflow@example.invalid",
+                "commit",
+                "-qm",
+                "initial",
+            ],
             cwd=root,
             check=True,
         )
@@ -53,21 +63,29 @@ class WorktreeManagerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = self._repository(temp_dir)
             feature = create_task(root, "Add weekly report", "feature")
-            bugfix = create_task(root, "Fix completed report bug", "bugfix", source_task_id=feature.task_id)
+            bugfix = create_task(
+                root, "Fix completed report bug", "bugfix", source_task_id=feature.task_id
+            )
 
             self.assertEqual(Path(feature.worktree).resolve(), root.resolve())
             self.assertIn(".devflow-worktrees", bugfix.worktree)
             self.assertNotEqual(feature.branch, bugfix.branch)
             self.assertEqual(feature.base_commit, bugfix.base_commit)
             self.assertEqual(load_task(root / ".devflow" / "task.yaml").kind, "feature")
-            self.assertEqual(load_task(Path(bugfix.worktree) / ".devflow" / "task.yaml").source_task_id, feature.task_id)
+            self.assertEqual(
+                load_task(Path(bugfix.worktree) / ".devflow" / "task.yaml").source_task_id,
+                feature.task_id,
+            )
             # The latercomer is seeded into its own worktree; the in-place task
             # is still active there, so nothing gets archived.
             self.assertFalse((root / ".devflow" / "tasks" / feature.task_id).exists())
             self.assertFalse(
                 (Path(bugfix.worktree) / ".devflow" / "tasks" / feature.task_id).exists()
             )
-            self.assertEqual({record.task_id for record in discover_tasks(root)}, {feature.task_id, bugfix.task_id})
+            self.assertEqual(
+                {record.task_id for record in discover_tasks(root)},
+                {feature.task_id, bugfix.task_id},
+            )
 
     def test_new_in_place_task_snapshots_the_finished_one(self):
         # Two in-place tasks share repo_root/.devflow/task.yaml. Without a
@@ -99,8 +117,7 @@ class WorktreeManagerTest(unittest.TestCase):
             root = self._repository(temp_dir)
             (root / ".devflow").mkdir(exist_ok=True)
             (root / ".devflow" / "project.yaml").write_text(
-                "workspace:\n"
-                "  root: \".\"\n",
+                'workspace:\n  root: "."\n',
                 encoding="utf-8",
             )
             create_task(root, "Add v2 state", "feature")
@@ -153,10 +170,18 @@ class WorktreeManagerTest(unittest.TestCase):
             (root / ".gitignore").write_text("*.log\n", encoding="utf-8")
             subprocess.run(["git", "add", ".gitignore"], cwd=root, check=True)
             subprocess.run(
-                ["git", "-c", "user.name=DevFlow",
-                 "-c", "user.email=devflow@example.invalid",
-                 "commit", "-qm", "gitignore"],
-                cwd=root, check=True,
+                [
+                    "git",
+                    "-c",
+                    "user.name=DevFlow",
+                    "-c",
+                    "user.email=devflow@example.invalid",
+                    "commit",
+                    "-qm",
+                    "gitignore",
+                ],
+                cwd=root,
+                check=True,
             )
             (root / "debug.log").write_text("ignored\n", encoding="utf-8")
             record = create_task(root, "Ignored task", "feature")
@@ -170,10 +195,10 @@ class WorktreeManagerTest(unittest.TestCase):
         (anchor / ".devflow").mkdir(exist_ok=True)
         (anchor / ".devflow" / "project.yaml").write_text(
             "workspaces:\n"
-            f"  - track: \"backend\"\n"
-            f"    git_root: \"{anchor}\"\n"
-            f"  - track: \"frontend\"\n"
-            f"    git_root: \"{frontend}\"\n",
+            f'  - track: "backend"\n'
+            f'    git_root: "{anchor}"\n'
+            f'  - track: "frontend"\n'
+            f'    git_root: "{frontend}"\n',
             encoding="utf-8",
         )
         return anchor, frontend
@@ -192,12 +217,18 @@ class WorktreeManagerTest(unittest.TestCase):
 
             # Both repositories carry the same branch name.
             be_branches = subprocess.run(
-                ["git", "branch", "--list", record.branch], cwd=anchor,
-                text=True, capture_output=True, check=True,
+                ["git", "branch", "--list", record.branch],
+                cwd=anchor,
+                text=True,
+                capture_output=True,
+                check=True,
             ).stdout.strip()
             fe_branches = subprocess.run(
-                ["git", "branch", "--list", record.branch], cwd=frontend,
-                text=True, capture_output=True, check=True,
+                ["git", "branch", "--list", record.branch],
+                cwd=frontend,
+                text=True,
+                capture_output=True,
+                check=True,
             ).stdout.strip()
             self.assertIn(record.branch, be_branches)
             self.assertIn(record.branch, fe_branches)
@@ -219,8 +250,11 @@ class WorktreeManagerTest(unittest.TestCase):
                 create_task(anchor, "Broken cross repo", "feature")
             # The anchor's own branch must have been rolled back too.
             current = subprocess.run(
-                ["git", "branch", "--show-current"], cwd=anchor,
-                text=True, capture_output=True, check=True,
+                ["git", "branch", "--show-current"],
+                cwd=anchor,
+                text=True,
+                capture_output=True,
+                check=True,
             ).stdout.strip()
             self.assertEqual(current, "main")
 
