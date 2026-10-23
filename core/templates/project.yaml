@@ -23,6 +23,8 @@ workspace:
   docs_path: "docs"
   rules_path: ".devflow/rules"
 
+# Adapters this project runs on. Keep the comment on its own line — putting a
+# "# ..." explanation inside the quoted value makes the parsed string literal.
 platforms:
   supported: [claude-code]
   default: "{{ADAPTER_NAME}}"

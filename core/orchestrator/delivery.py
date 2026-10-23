@@ -49,8 +49,8 @@ DELIVERY_ARTIFACT_FILES = frozenset({
     ".devflow/retrospective.md",
 })
 
-# Files that are produced by the Manager/agents but must never enter the
-# delivery commit.
+# Retired runtime state that must never enter a delivery commit. The file is
+# no longer written (ADR-0005), but an older workspace may still carry one.
 DELIVERY_SKIP_FILES = frozenset({
     ".devflow/context.json",
 })

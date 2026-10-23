@@ -4,7 +4,6 @@
 No third-party dependencies. All functions fail-safe: they return empty
 defaults rather than raising, so hooks never block the user on internal errors.
 """
-import json
 import os
 import re
 import sys
@@ -421,49 +420,40 @@ def _parse_manifest_phase(project_root):
 def load_context(project_root):
     """Build the runtime context for guard hooks.
 
-    Merges two sources (context.json takes priority for runtime fields):
+    v2 (ADR-0005): the runtime ``context.json`` is retired. ``task.yaml`` is
+    the single source of run state — ``task.id`` plays the role the old
+    ``run_id`` did, and the phase comes from ``task.yaml`` (legacy
+    ``manifest.yaml`` remains a read-only fallback).
 
-    1. ``.devflow/context.json`` — written by the orchestrator during a run
-       (provides ``run_id``, ``current_agent``, ``current_phase``).
-    2. ``.devflow/manifest.yaml`` — project configuration (provides
-       ``workspace`` root/backend/frontend paths, ``current_phase`` fallback).
+    Sources, in order:
+
+    1. ``.devflow/task.yaml`` — active task (``run_id`` = ``task.id``,
+       ``current_phase``).
+    2. ``.devflow/project.yaml`` — workspace root/backend/frontend paths,
+       with a legacy ``manifest.yaml`` fallback.
 
     Always returns at least ``{"workspace": {...}}`` so boundary checks
     can function.
     """
     ctx = {}
 
-    # 1. Load context.json (runtime state written by the orchestrator)
-    try:
-        ctx_file = project_root / ".devflow" / "context.json"
-        if ctx_file.is_file():
-            ctx = json.loads(ctx_file.read_text(encoding="utf-8", errors="replace")) or {}
-    except Exception:
-        ctx = {}
+    run_id = _parse_task_id(project_root)
+    if run_id:
+        ctx["run_id"] = run_id
 
-    # 2. Enrich workspace from project.yaml (legacy manifest as fallback)
     manifest_ws = _parse_manifest_workspace(project_root)
-    if "workspace" not in ctx or not isinstance(ctx.get("workspace"), dict):
-        ctx["workspace"] = manifest_ws
-    else:
-        for k, v in manifest_ws.items():
-            if k not in ctx["workspace"] or not ctx["workspace"][k]:
-                ctx["workspace"][k] = v
+    ctx["workspace"] = dict(manifest_ws)
 
     # 2b. Attach multi-repo endpoints (if declared) for track boundary checks.
     # ``endpoints`` is only set when a ``workspaces:`` list exists; absent on
     # single-repo projects so boundary checks keep using backend/frontend dirs.
     endpoints = _parse_workspaces(project_root)
-    if endpoints:
-        ctx["workspace"]["endpoints"] = endpoints
-    elif "endpoints" not in ctx["workspace"]:
-        ctx["workspace"]["endpoints"] = []
+    ctx["workspace"]["endpoints"] = endpoints
 
-    # 3. Phase fallback: task.yaml, then legacy manifest
-    if not ctx.get("current_phase"):
-        phase = _parse_task_phase(project_root) or _parse_manifest_phase(project_root)
-        if phase:
-            ctx["current_phase"] = phase
+    # 3. Phase: task.yaml, then legacy manifest fallback
+    phase = _parse_task_phase(project_root) or _parse_manifest_phase(project_root)
+    if phase:
+        ctx["current_phase"] = phase
 
     return ctx
 

@@ -99,7 +99,10 @@ def main():
             sys.exit(0)
 
         context = load_context(project_root)
-        if not context.get("run_id"):
+        # v2 (ADR-0005): run_id is derived from the active task.yaml. No
+        # active task (or a task already closed) means DevFlow is not running
+        # work worth auditing — stay silent.
+        if not context.get("run_id") or context.get("current_phase") == "done":
             sys.exit(0)
 
         context["cwd"] = cwd

@@ -242,11 +242,10 @@ def main():
 
         # Load DevFlow context and redline rules.
         context = load_context(project_root)
-        # The hook input's cwd is the authoritative source for track inference:
-        # context.json only records the cwd of the last *dispatched* agent, but
-        # the tool may actually run from a subdirectory — or, during parallel
-        # backend+frontend dispatch, from the other agent's directory. So we
-        # must overwrite with the cwd the platform reports for this call.
+        # The hook input's cwd is the authoritative source for track inference.
+        # A task may span several directories (multi-repo endpoints, nested
+        # repos), and the tool can run from any of them, so the platform's
+        # per-call cwd always wins over anything derived from task state.
         context["cwd"] = cwd
 
         redlines = load_redlines(project_root)
