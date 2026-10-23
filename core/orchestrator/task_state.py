@@ -290,12 +290,21 @@ def archive_task_state(task_file: Path) -> Path | None:
     return archive
 
 
-def find_task_files(root: Path) -> list[Path]:
-    """Find task state files in the main workspace and managed worktrees."""
+def find_task_files(root: Path, state_root: Path | None = None) -> list[Path]:
+    """Find task state files in the main workspace and managed worktrees.
+
+    *state_root* is the directory owning ``.devflow/`` when it differs from
+    *root* — a project whose repository is nested inside it keeps in-place state
+    with the project, not with the repository. It is omitted for ordinary
+    projects so the search looks in one place only.
+    """
     found = []
-    in_place = root / ".devflow" / "task.yaml"
-    if in_place.is_file():
-        found.append(in_place)
+    for base in (root, state_root):
+        if base is None:
+            continue
+        in_place = base / ".devflow" / "task.yaml"
+        if in_place.is_file() and in_place not in found:
+            found.append(in_place)
     parent = root.parent / ".devflow-worktrees" / root.name
     if parent.is_dir():
         found.extend(

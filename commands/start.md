@@ -26,8 +26,8 @@ argument-hint: <需求描述>
 1. 生成唯一 `task_id` 和 slug。
 2. 默认从当前主分支（或显式 `--base`）解析并固化 `git.base_commit`。
 3. 创建唯一分支 `feature/<slug>-<short-id>`。
-4. **默认 in-place**：在主仓库 `checkout -b`，写入 `.devflow/task.yaml`（`current_phase: qa`）。
-5. **后来者**：若主仓库已有未完成 `task.yaml`，为新 task 建 `../.devflow-worktrees/<repo>/<task-id>/`，复制 `project.yaml` / `redlines.yaml` / `rules/`，先到的需求不搬家。
+4. **默认 in-place**：在主仓库 `checkout -b`，写入 `<project_root>/.devflow/task.yaml`（`current_phase: qa`）。`project_root` 是持有 `.devflow/` 的目录——`create_task` 从 `repo_root` 向上查找最近的 `project.yaml` 并读其 `workspace.root`；找不到时退回 `repo_root`，所以普通项目仍写在自己仓库里。
+5. **后来者**：若主仓库已有未完成 `task.yaml`（含写在 `project_root` 的那份），为新 task 建 `../.devflow-worktrees/<repo>/<task-id>/`，复制 `project.yaml` / `redlines.yaml` / `rules/`，先到的需求不搬家。
 6. 向用户报告 task id、branch、工作区路径（主仓库或 worktree）和 base commit。
 
 **多仓库（前后端分离）**：`project.yaml` 声明 `workspaces:` 端点列表时，`create_task` 在每个端点仓库建同名分支、各自固化 `base_commit`（记录在 `task.yaml` 的 `git.endpoints`）；交付时每个改动过的端点各开一个 PR。
