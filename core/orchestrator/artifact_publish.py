@@ -50,6 +50,7 @@ import json
 import os
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -136,39 +137,6 @@ def _is_formal_worktree(worktree: Path) -> bool:
     return ".devflow-worktrees" in parts
 
 
-def _has_legal_task_yaml(worktree: Path) -> bool:
-    """Return True when *worktree* contains a parseable ``.devflow/task.yaml``.
-
-    Identification relies on ``task.yaml`` (via ``load_task``), never on the
-    directory name.
-    """
-    task_file = worktree / ".devflow" / "task.yaml"
-    if not task_file.is_file():
-        return False
-    try:
-        load_task(task_file)
-    except (OSError, ValueError):
-        return False
-    return True
-
-
-def _in_place_task_id_matches(repo_root: Path, task_id: str) -> bool:
-    """Return True when ``repo_root`` holds an in-place task whose id matches.
-
-    The in-place form keeps ``.devflow/task.yaml`` directly under the repo root
-    (no ``.devflow-worktrees/`` tree).  There is at most one active in-place
-    task, so an id comparison guards against a stale file that names a
-    different task.
-    """
-    task_file = repo_root / ".devflow" / "task.yaml"
-    if not task_file.is_file():
-        return False
-    try:
-        return load_task(task_file).task_id == task_id
-    except (OSError, ValueError):
-        return False
-
-
 def _has_legal_task_state(task_file: Path) -> bool:
     """Return True when *task_file* is a parseable ``task.yaml``.
 
@@ -185,39 +153,132 @@ def _has_legal_task_state(task_file: Path) -> bool:
     return True
 
 
-def find_archived_task(archive_root: Path, task_id: str) -> Path | None:
-    """Return ``archive_root/<task_id>`` when it is a completed task archive.
+@dataclass(frozen=True)
+class TaskLocation:
+    """Where a task lives and whether it can still be published.
 
-    Archived tasks are the destinations of a publish, so they can never be a
-    publish source — see ``discover_task(allow_archived=...)``. This exists so
-    status reporting can still name them after the active ``task.yaml`` moved
-    on to the next task.
-
-    Returns ``None`` for a missing directory, an archive without a legal
-    ``task.yaml``, or an id that would resolve outside the archive root.
+    A task is described by exactly one of these, and every caller asks
+    ``locate_task`` rather than re-deriving the answer from paths it happens to
+    know. The layout has four such places — a formal worktree, an in-place state
+    file under either the repo root or the project root, and an archive under
+    either root — and treating them ad hoc is what made earlier fixes
+    repeatedly incomplete.
     """
+
+    task_id: str
+    kind: str  # "worktree" | "in-place" | "archived" | "missing"
+    root: Path | None  # the located directory; None when kind == "missing"
+    state_file: Path | None  # task.yaml for this location, if any
+    phase: str | None  # read from state_file; None when absent/unreadable
+    has_state: bool
+
+
+def _task_location(
+    task_id: str,
+    kind: str,
+    root: Path | None,
+    state_file: Path | None,
+) -> TaskLocation:
+    phase = _read_task_phase(state_file) if state_file is not None else None
+    return TaskLocation(
+        task_id=task_id,
+        kind=kind,
+        root=root,
+        state_file=state_file,
+        phase=phase,
+        has_state=state_file is not None,
+    )
+
+
+def is_publishable(location: TaskLocation) -> bool:
+    """Return True only for a live task that has not finished.
+
+    An archived task is never publishable: ``plan_publish`` would resolve
+    source and target to the same directory, so every file would be skipped as
+    unchanged and the README rewritten for nothing. A finished task is excluded
+    for the same reason — its artifacts already are the archive.
+    """
+    return (
+        location.kind in ("worktree", "in-place")
+        and location.has_state
+        and location.phase != "done"
+    )
+
+
+def _worktree_state(directory: Path) -> Path | None:
+    """Return ``directory/.devflow/task.yaml`` when it parses, else None."""
+    if not directory.is_dir():
+        return None
+    candidate = directory / ".devflow" / "task.yaml"
+    return candidate if _has_legal_task_state(candidate) else None
+
+
+def _in_place_state(root: Path, task_id: str) -> Path | None:
+    """Return ``root/.devflow/task.yaml`` when it names *task_id*."""
+    state_file = _worktree_state(root)
+    if state_file is None:
+        return None
+    try:
+        return state_file if load_task(state_file).task_id == task_id else None
+    except (OSError, ValueError):
+        return None
+
+
+def _archive_state(archive_root: Path, task_id: str) -> Path | None:
+    """Return the archive's ``task.yaml``, rejecting ids that escape the root."""
     if not task_id:
         return None
     root = archive_root.resolve()
     candidate = (root / task_id).resolve()
-    # ``task_id`` reaches here from the CLI, so confirm the join stayed inside
-    # the archive root before touching the filesystem.
-    if candidate.parent != root:
+    # task_id reaches here from the CLI, so confirm the join stayed inside the
+    # archive root before touching the filesystem.
+    if candidate.parent != root or not candidate.is_dir():
         return None
-    if not _has_legal_task_state(candidate / "task.yaml"):
-        return None
-    return candidate
+    return candidate / "task.yaml" if (candidate / "task.yaml").is_file() else None
 
 
-def _is_archived_path(path: Path, archive_root: Path | None) -> bool:
-    """Return True when *path* is one of the entries under the archive root."""
-    if archive_root is None:
-        return False
-    try:
-        path.resolve().relative_to(archive_root.resolve())
-    except ValueError:
-        return False
-    return True
+def locate_task(repo_root: Path, project_root: Path, task_id: str) -> TaskLocation:
+    """Locate *task_id* in any of the shapes a task can take.
+
+    Search order, matching on the id rather than on whichever task.yaml happens
+    to be live right now:
+
+    1. a formal worktree under ``.devflow-worktrees/``
+    2. an in-place state file at the repo root
+    3. an in-place state file at the project root
+    4. an archive under the repo root
+    5. an archive under the project root
+
+    Steps 4 and 5 also match an archive directory with no ``task.yaml`` (older
+    archives kept only their artifacts), reporting ``has_state=False`` rather
+    than pretending the task never existed.
+    """
+    if not task_id:
+        return _task_location(task_id, "missing", None, None)
+
+    repo_root = repo_root.resolve()
+    project_root = project_root.resolve()
+
+    worktree_dir = _worktree_root(repo_root, task_id)
+    state = _worktree_state(worktree_dir)
+    if state is not None:
+        return _task_location(task_id, "worktree", worktree_dir.resolve(), state)
+
+    state = _in_place_state(repo_root, task_id)
+    if state is not None:
+        return _task_location(task_id, "in-place", repo_root, state)
+
+    state = _in_place_state(project_root, task_id)
+    if state is not None:
+        return _task_location(task_id, "in-place", project_root, state)
+
+    for root in (resolve_archive_root(repo_root), resolve_archive_root(project_root)):
+        directory = (root / task_id).resolve() if task_id else None
+        if directory is None or directory.parent != root.resolve() or not directory.is_dir():
+            continue
+        return _task_location(task_id, "archived", directory, _archive_state(root, task_id))
+
+    return _task_location(task_id, "missing", None, None)
 
 
 def discover_task(
@@ -226,114 +287,66 @@ def discover_task(
     worktree: str | None = None,
     all_tasks: bool = False,
     archive_root: Path | None = None,
-    allow_archived: bool = False,
 ) -> Path:
-    """Locate a formal task worktree by precedence: ``--worktree``, ``--task``,
-    then ``--all-tasks``.  Only a directory that is both inside the
-    ``.devflow-worktrees/`` tree *and* contains a legal ``.devflow/task.yaml``
-    is accepted — the directory name is never trusted on its own.
+    """Locate a publishable task worktree by precedence: ``--worktree``,
+    ``--task``, then ``--all-tasks``.
 
-    *repo_root* is the worktree-location authority (the git repo root); it is
-    independent of the archive root (``project_root``).  *archive_root* (the
-    directory holding ``.devflow/``) additionally enables the self-hosted
-    in-place fallback: the active task's ``.devflow/`` may live at the project
-    root while the git repo is a nested subdirectory (``project_root !=
-    repo_root``).
+    *repo_root* is the git repo root; *archive_root* is the directory holding
+    ``.devflow/`` (``project_root``), which differs from it in the self-hosted
+    shape. Both are needed to resolve every task location.
 
-    *allow_archived* is off by default because an archived task cannot be
-    published: its ``.devflow/`` is the publish destination, so every file
-    would resolve source == target. Only status reporting, which just needs to
-    name the directory, passes it.
+    Only a live, unfinished task is accepted — see ``is_publishable``. An
+    archive is a publish *destination*, so returning one here would make
+    ``plan_publish`` resolve source == target.
     """
     repo_root = repo_root.resolve()
+    project_root = (archive_root or repo_root).resolve()
 
     if worktree:
         candidate = Path(worktree).resolve()
         if not _is_formal_worktree(candidate):
             raise ValueError(f"worktree outside .devflow-worktrees/: {candidate}")
-        if not _has_legal_task_yaml(candidate):
+        state = _worktree_state(candidate)
+        if state is None:
             raise ValueError(f"no legal .devflow/task.yaml in worktree: {candidate}")
+        location = _task_location(load_task(state).task_id, "worktree", candidate, state)
+        if not is_publishable(location):
+            raise ValueError(
+                f"task {location.task_id} is {location.phase or 'unstated'}; nothing to publish"
+            )
         return candidate
 
     if task_id:
-        candidate = _worktree_root(repo_root, task_id)
-        if _has_legal_task_yaml(candidate):
-            return candidate
-        # In-place fallback: the default task form keeps artifacts directly in
-        # ``repo_root/.devflow/`` rather than under ``.devflow-worktrees/``.
-        if _in_place_task_id_matches(repo_root, task_id):
-            return repo_root
-        # Self-hosted fallback: the in-place task's ``.devflow/`` lives at the
-        # archive root while the git repo is nested inside the project.
-        if archive_root is not None and _in_place_task_id_matches(archive_root, task_id):
-            return archive_root.resolve()
-        # Completed tasks survive only as an archive directory; the live
-        # ``task.yaml`` now names a later task, so the checks above miss them.
-        if allow_archived and archive_root is not None:
-            archived = find_archived_task(resolve_archive_root(archive_root), task_id)
-            if archived is not None:
-                return archived
-        raise ValueError(f"formal task worktree not found for task id: {task_id}")
+        location = locate_task(repo_root, project_root, task_id)
+        if location.root is not None and is_publishable(location):
+            return location.root
+        if location.kind == "missing":
+            raise ValueError(f"formal task worktree not found for task id: {task_id}")
+        detail = location.phase or "no task.yaml"
+        raise ValueError(
+            f"task {task_id} is {location.kind} ({detail}); not publishable"
+        )
 
     if all_tasks:
-        task_files = find_task_files(repo_root)
-        for task_file in task_files:
-            worktree_dir = task_file.parent.parent
-            # An archive is a publish destination, never a source; enumerating
-            # it here would silently re-publish into itself.
-            if archive_root is not None and _is_archived_path(
-                worktree_dir, resolve_archive_root(archive_root)
-            ):
-                continue
-            if _has_legal_task_yaml(worktree_dir):
-                return worktree_dir
+        for task_file in find_task_files(repo_root):
+            location = locate_task(repo_root, project_root, load_task(task_file).task_id)
+            if is_publishable(location) and location.root is not None:
+                return location.root
         raise ValueError("no formal task worktrees found")
 
     raise ValueError("one of --task, --worktree, or --all-tasks is required")
 
 
 def describe_task(repo_root: Path, project_root: Path, task_id: str) -> dict[str, object]:
-    """Report where *task_id* lives and whether it can still be published.
-
-    Status reporting needs this after a task completes: ``discover_task``
-    deliberately refuses archives, so a caller that only wants to name the
-    directory would otherwise get an exception instead of an answer.
-    """
-    archive_root = resolve_archive_root(project_root)
-    worktree_dir = _worktree_root(repo_root, task_id)
-    if _has_legal_task_yaml(worktree_dir):
-        location, path = "worktree", worktree_dir.resolve()
-    elif _in_place_task_id_matches(repo_root, task_id):
-        location, path = "in-place", repo_root.resolve()
-    elif _in_place_task_id_matches(project_root, task_id):
-        location, path = "in-place", project_root.resolve()
-    else:
-        archived = find_archived_task(archive_root, task_id)
-        if archived is None:
-            return {
-                "task_id": task_id,
-                "location": "missing",
-                "path": None,
-                "phase": None,
-                "publishable": False,
-            }
-        # An archive keeps task.yaml directly in the task directory.
-        return {
-            "task_id": task_id,
-            "location": "archived",
-            "path": str(archived),
-            "phase": _read_task_phase(archived / "task.yaml"),
-            "publishable": False,
-        }
-
+    """Report where *task_id* lives and whether it can still be published."""
+    location = locate_task(repo_root, project_root, task_id)
     return {
-        "task_id": task_id,
-        "location": location,
-        "path": str(path),
-        "phase": _read_task_phase(path / ".devflow" / "task.yaml"),
-        "publishable": location != "archived",
+        "task_id": location.task_id,
+        "location": location.kind,
+        "path": str(location.root) if location.root is not None else None,
+        "phase": location.phase,
+        "publishable": is_publishable(location),
     }
-
 
 def _read_task_phase(task_file: Path) -> str | None:
     """Return ``current_phase`` from a ``task.yaml`` without a full record load.

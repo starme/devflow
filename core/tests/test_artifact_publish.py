@@ -40,7 +40,7 @@ def _meta(**overrides) -> dict:
     return meta
 
 
-def _task_yaml(task_id: str, slug: str, kind: str = "feature") -> str:
+def _task_yaml(task_id: str, slug: str, kind: str = "feature", phase: str = "qa") -> str:
     record = TaskRecord(
         task_id=task_id,
         slug=slug,
@@ -51,7 +51,7 @@ def _task_yaml(task_id: str, slug: str, kind: str = "feature") -> str:
         branch=f"{kind}/{task_id}",
         worktree=f"/tmp/.devflow-worktrees/repo/{task_id}",
     )
-    return render_task_yaml(record)
+    return render_task_yaml(record, current_phase=phase)
 
 
 class _Fixture:
@@ -253,130 +253,184 @@ class DiscoveryTest(unittest.TestCase):
         self.assertEqual(meta["base_commit"], "deadbeef" * 5)
 
 
-class ArchivedTaskTest(unittest.TestCase):
-    """Completed tasks live on only as an archive directory.
+class TaskLocationTest(unittest.TestCase):
+    """A task lives in one of five places; ``locate_task`` is the only judge.
 
-    The live ``task.yaml`` has moved on to a later task, so ``discover_task``
-    cannot find them by id — but status reporting still has to name them, and
-    ``--all-tasks`` must not trip over them.
+    The layout this models is the real one: a project root holding ``.devflow/``
+    with a git repo nested inside it, so *both* roots can hold state and
+    archives. Earlier fixes broke because each caller re-derived its own answer
+    from whichever path it happened to receive.
     """
 
-    def _archive(self, f: _Fixture, task_id: str, phase: str = "done") -> Path:
-        directory = f.archive_dir() / task_id
+    def _archive(self, root: Path, task_id: str, phase: str = "done") -> Path:
+        directory = root / task_id
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / "task.yaml").write_text(
-            render_task_yaml(
-                TaskRecord(
-                    task_id=task_id,
-                    slug=task_id,
-                    kind="chore",
-                    description="archived task",
-                    base_ref="main",
-                    base_commit="deadbeef" * 5,
-                    branch=f"chore/{task_id}",
-                    worktree=str(f.repo),
-                ),
-                current_phase=phase,
-            ),
-            encoding="utf-8",
-        )
+        state = _task_yaml(task_id, task_id, phase=phase)
+        (directory / "task.yaml").write_text(state, encoding="utf-8")
         return directory
 
-    def _stale_in_place(self, f: _Fixture, task_id: str) -> None:
-        """Write an in-place task.yaml naming a *different*, later task.
-
-        Mirrors the real in-place form: the state lives at the git repo root.
-        """
-        devflow = f.repo / ".devflow"
-        devflow.mkdir(parents=True, exist_ok=True)
-        (devflow / "task.yaml").write_text(_task_yaml(task_id, task_id), encoding="utf-8")
-
-    def test_find_archived_task_returns_directory(self):
-        f = _Fixture(tempfile.mkdtemp())
-        archived = self._archive(f, "t-done")
-        self.assertEqual(ap.find_archived_task(f.archive_dir(), "t-done"), archived.resolve())
-
-    def test_find_archived_task_missing_returns_none(self):
-        f = _Fixture(tempfile.mkdtemp())
-        self.assertIsNone(ap.find_archived_task(f.archive_dir(), "t-absent"))
-
-    def test_find_archived_task_rejects_escape(self):
-        # task_id reaches here from the CLI; a traversal must not resolve to a
-        # directory outside the archive root.
-        f = _Fixture(tempfile.mkdtemp())
-        self.assertIsNone(ap.find_archived_task(f.archive_dir(), "../../etc"))
-        self.assertIsNone(ap.find_archived_task(f.archive_dir(), ".."))
-
-    def test_find_archived_task_tolerates_corrupt_state(self):
-        f = _Fixture(tempfile.mkdtemp())
-        directory = f.archive_dir() / "t-broken"
+    def _in_place(self, root: Path, task_id: str, phase: str = "working") -> Path:
+        directory = root / ".devflow"
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / "task.yaml").write_text("schema_version: 2\n", encoding="utf-8")
-        self.assertIsNone(ap.find_archived_task(f.archive_dir(), "t-broken"))
+        state = directory / "task.yaml"
+        state.write_text(_task_yaml(task_id, task_id, phase=phase), encoding="utf-8")
+        return state
 
-    def test_discover_archived_requires_opt_in(self):
+    def test_locates_formal_worktree(self):
         f = _Fixture(tempfile.mkdtemp())
-        archived = self._archive(f, "t-done")
-        self._stale_in_place(f, "t-later")
-        with self.assertRaises(ValueError):
+        wt = f.make_task("t-wt", "t-wt")
+        location = ap.locate_task(f.repo, f.project_root, "t-wt")
+        self.assertEqual(location.kind, "worktree")
+        self.assertEqual(location.root, wt.resolve())
+        self.assertTrue(ap.is_publishable(location))
+
+    def test_locates_in_place_at_repo_root(self):
+        f = _Fixture(tempfile.mkdtemp())
+        self._in_place(f.repo, "t-repo")
+        location = ap.locate_task(f.repo, f.project_root, "t-repo")
+        self.assertEqual(location.kind, "in-place")
+        self.assertEqual(location.root, f.repo.resolve())
+        self.assertTrue(ap.is_publishable(location))
+
+    def test_locates_in_place_at_project_root(self):
+        # Self-hosted shape: the state sits with the archive, not the git repo.
+        f = _Fixture(tempfile.mkdtemp())
+        self._in_place(f.project_root, "t-proj")
+        location = ap.locate_task(f.repo, f.project_root, "t-proj")
+        self.assertEqual(location.kind, "in-place")
+        self.assertEqual(location.root, f.project_root.resolve())
+        self.assertTrue(ap.is_publishable(location))
+
+    def test_locates_archive_under_repo_root(self):
+        f = _Fixture(tempfile.mkdtemp())
+        archived = self._archive(f.archive_dir(), "t-done")
+        location = ap.locate_task(f.repo, f.project_root, "t-done")
+        self.assertEqual(location.kind, "archived")
+        self.assertEqual(location.root, archived.resolve())
+        self.assertEqual(location.phase, "done")
+        self.assertFalse(ap.is_publishable(location))
+
+    def test_locates_archive_under_project_root(self):
+        f = _Fixture(tempfile.mkdtemp())
+        project_archive = f.project_root / ".devflow" / "tasks"
+        archived = self._archive(project_archive, "t-proj-done")
+        location = ap.locate_task(f.repo, f.project_root, "t-proj-done")
+        self.assertEqual(location.kind, "archived")
+        self.assertEqual(location.root, archived.resolve())
+
+    def test_repo_archive_wins_over_project_archive(self):
+        f = _Fixture(tempfile.mkdtemp())
+        self._archive(f.archive_dir(), "t-both")
+        project_archive = f.project_root / ".devflow" / "tasks"
+        self._archive(project_archive, "t-both")
+        location = ap.locate_task(f.repo, f.project_root, "t-both")
+        self.assertEqual(location.root, (f.archive_dir() / "t-both").resolve())
+
+    def test_archive_without_task_yaml_is_still_archived(self):
+        # Older archives kept only their artifacts; they must not look missing.
+        f = _Fixture(tempfile.mkdtemp())
+        directory = f.archive_dir() / "t-legacy"
+        directory.mkdir(parents=True)
+        (directory / "card.md").write_text("card\n", encoding="utf-8")
+        location = ap.locate_task(f.repo, f.project_root, "t-legacy")
+        self.assertEqual(location.kind, "archived")
+        self.assertFalse(location.has_state)
+        self.assertIsNone(location.phase)
+        self.assertFalse(ap.is_publishable(location))
+
+    def test_missing_task(self):
+        f = _Fixture(tempfile.mkdtemp())
+        location = ap.locate_task(f.repo, f.project_root, "t-ghost")
+        self.assertEqual(location.kind, "missing")
+        self.assertIsNone(location.root)
+        self.assertFalse(ap.is_publishable(location))
+
+    def test_rejects_ids_that_escape_the_archive_roots(self):
+        f = _Fixture(tempfile.mkdtemp())
+        for unsafe in ("../escape", "..", "a/b"):
+            with self.subTest(task_id=unsafe):
+                self.assertEqual(ap.locate_task(f.repo, f.project_root, unsafe).kind, "missing")
+
+    def test_finished_in_place_task_is_not_publishable(self):
+        # The live task.yaml still carries the id right after completion, so an
+        # id-only check would wrongly advertise it as publishable.
+        f = _Fixture(tempfile.mkdtemp())
+        self._in_place(f.repo, "t-finished", phase="done")
+        location = ap.locate_task(f.repo, f.project_root, "t-finished")
+        self.assertEqual(location.kind, "in-place")
+        self.assertEqual(location.phase, "done")
+        self.assertFalse(ap.is_publishable(location))
+
+    def test_publishable_table(self):
+        # The rule in one place: live kind + state + not finished.
+        cases = [
+            ("worktree", True, "working", True),
+            ("worktree", True, "done", False),
+            ("worktree", True, None, True),
+            ("in-place", True, "qa", True),
+            ("in-place", True, "done", False),
+            ("in-place", False, None, False),
+            ("archived", True, "done", False),
+            ("archived", False, None, False),
+            ("missing", False, None, False),
+        ]
+        for kind, has_state, phase, expected in cases:
+            with self.subTest(kind=kind, has_state=has_state, phase=phase):
+                location = ap.TaskLocation(
+                    task_id="t",
+                    kind=kind,
+                    root=Path("/tmp/t"),
+                    state_file=Path("/tmp/t/task.yaml") if has_state else None,
+                    phase=phase,
+                    has_state=has_state,
+                )
+                self.assertIs(ap.is_publishable(location), expected)
+
+
+class ArchivedDiscoveryTest(unittest.TestCase):
+    """discover_task must refuse everything that is not publishable."""
+
+    def test_discover_refuses_archived_task(self):
+        f = _Fixture(tempfile.mkdtemp())
+        directory = f.archive_dir() / "t-done"
+        directory.mkdir(parents=True)
+        (directory / "task.yaml").write_text(_task_yaml("t-done", "t-done"), encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
             ap.discover_task(f.repo, task_id="t-done", archive_root=f.project_root)
-        found = ap.discover_task(
-            f.repo, task_id="t-done", archive_root=f.project_root, allow_archived=True
-        )
-        self.assertEqual(found, archived.resolve())
+        self.assertIn("archived", str(ctx.exception))
 
-    def test_live_task_still_wins_over_archive(self):
-        # allow_archived must not shadow a task that is genuinely still active.
-        f = _Fixture(tempfile.mkdtemp())
-        self._archive(f, "t-live")
-        wt = f.make_task("t-live", "t-live")
-        found = ap.discover_task(
-            f.repo, task_id="t-live", archive_root=f.project_root, allow_archived=True
-        )
-        self.assertEqual(found, wt.resolve())
-
-    def test_all_tasks_skips_archives(self):
-        f = _Fixture(tempfile.mkdtemp())
-        self._archive(f, "t-done")
-        self._stale_in_place(f, "t-live")
-        found = ap.discover_task(f.repo, all_tasks=True, archive_root=f.project_root)
-        # The in-place task is the only source; the archive must not be picked.
-        self.assertEqual(found, f.repo.resolve())
-        self.assertNotEqual(found, (f.archive_dir() / "t-done").resolve())
-
-    def test_describe_task_archived(self):
-        f = _Fixture(tempfile.mkdtemp())
-        archived = self._archive(f, "t-done")
-        self._stale_in_place(f, "t-later")
-        info = ap.describe_task(f.repo, f.project_root, "t-done")
-        self.assertEqual(info["location"], "archived")
-        self.assertEqual(Path(info["path"]), archived.resolve())
-        self.assertEqual(info["phase"], "done")
-        self.assertFalse(info["publishable"])
-
-    def test_describe_task_worktree(self):
-        f = _Fixture(tempfile.mkdtemp())
-        wt = f.make_task("t-live", "t-live")
-        info = ap.describe_task(f.repo, f.project_root, "t-live")
-        self.assertEqual(info["location"], "worktree")
-        self.assertEqual(Path(info["path"]), wt.resolve())
-        self.assertTrue(info["publishable"])
-
-    def test_describe_task_in_place(self):
+    def test_discover_refuses_finished_in_place_task(self):
         f = _Fixture(tempfile.mkdtemp(), form_a=True)
         devflow = f.repo / ".devflow"
         devflow.mkdir(parents=True)
-        (devflow / "task.yaml").write_text(_task_yaml("t-here", "t-here"), encoding="utf-8")
-        info = ap.describe_task(f.repo, f.project_root, "t-here")
-        self.assertEqual(info["location"], "in-place")
-        self.assertEqual(info["phase"], "qa")
-        self.assertTrue(info["publishable"])
+        state = _task_yaml("t-done", "t-done", phase="done")
+        (devflow / "task.yaml").write_text(state, encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            ap.discover_task(f.repo, task_id="t-done")
+        self.assertIn("done", str(ctx.exception))
 
-    def test_describe_task_missing(self):
+    def test_all_tasks_skips_archives(self):
         f = _Fixture(tempfile.mkdtemp())
-        info = ap.describe_task(f.repo, f.project_root, "t-nowhere")
-        self.assertEqual(info["location"], "missing")
-        self.assertIsNone(info["path"])
+        directory = f.archive_dir() / "t-done"
+        directory.mkdir(parents=True)
+        (directory / "task.yaml").write_text(_task_yaml("t-done", "t-done"), encoding="utf-8")
+        live = f.make_task("t-live", "t-live")
+
+        found = ap.discover_task(f.repo, all_tasks=True, archive_root=f.project_root)
+
+        self.assertEqual(found, live.resolve())
+
+    def test_describe_task_matches_locate(self):
+        f = _Fixture(tempfile.mkdtemp())
+        directory = f.archive_dir() / "t-done"
+        directory.mkdir(parents=True)
+        (directory / "task.yaml").write_text(
+            _task_yaml("t-done", "t-done", phase="done"), encoding="utf-8"
+        )
+        info = ap.describe_task(f.repo, f.project_root, "t-done")
+        self.assertEqual(info["location"], "archived")
+        self.assertEqual(Path(info["path"]), directory.resolve())
+        self.assertEqual(info["phase"], "done")
         self.assertFalse(info["publishable"])
 
 
