@@ -3,15 +3,17 @@
 
 DevFlow runs formal tasks in isolated worktrees at
 ``<repo_root.parent>/.devflow-worktrees/<repo>/<task-id>/``.  Artifacts written
-there (PRD, architecture, scope, test/acceptance reports) stay inside the
-worktree.  This module publishes them, on explicit milestone gates, into a
-per-task namespace under the project's archive root::
+there (plan document, review/verification reports, implementation notes) stay
+inside the worktree.  This module publishes them **once, at delivery**
+(ADR-0004 revision: milestone publishing was retired) into a per-task
+namespace under the project's archive root::
 
     <project_root>/.devflow/tasks/<task-id>/
         README.md                      # source index (task metadata + artifact map)
-        prd-<task-slug>.md             # PRD published under a semantic name
-        architecture.md
-        test_reports/
+        plan.md                        # the plan document (ADR-0006)
+        prd-<task-slug>.md             # legacy: PRD of a pre-0006 task
+        verification-report.md
+        review-report.md
         ...
 
 The archive root derives from ``project_root`` (the directory holding
