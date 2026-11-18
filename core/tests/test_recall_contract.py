@@ -151,6 +151,36 @@ class RetiredTemplateTest(unittest.TestCase):
         self.assertIn("core/templates/plan.md", text)
 
 
+class SubagentDispatchTest(unittest.TestCase):
+    """Two defects found by the 2026-11 end-to-end dogfood, both blocking.
+
+    Dispatch naming: the flow text said "派 `devflow-verifier`", but this
+    host resolves plugin subagents under a namespace. The bare name fails with
+    ``Agent type 'devflow-verifier' not found``, which kills the QA step —
+    and review would die the same way one step later.
+
+    Artifact location: ``create_task`` writes ``task.yaml`` into the project
+    root, while the flow text said artifacts live "relative to the workspace".
+    In a self-hosted repo those are different directories, so the plan
+    document landed somewhere ``artifact_publish`` never looks.
+    """
+
+    def test_dispatch_uses_the_namespaced_agent_name(self):
+        for rel in ("core/orchestrator/SKILL.md", "commands/workflow.md"):
+            text = (ROOT / rel).read_text(encoding="utf-8")
+            for agent in ("verifier", "reviewer"):
+                with self.subTest(rel=rel, agent=agent):
+                    self.assertIn(f"devflow:devflow-{agent}", text, f"{rel} must dispatch by namespace")
+
+    def test_flow_states_artifacts_live_beside_task_yaml(self):
+        """One rule, stated once: wherever ``task.yaml`` is, the process
+        artifacts are its sibling. Anything vaguer ("relative to the
+        workspace") reads as the checkout directory and splits the two."""
+        text = SKILL.read_text(encoding="utf-8")
+        self.assertIn("task.yaml", text)
+        self.assertIn("同级", text)
+
+
 class ArtifactWiringTest(unittest.TestCase):
     """The new artifacts must reach delivery, not just exist on disk.
 

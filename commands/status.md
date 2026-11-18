@@ -30,4 +30,21 @@ argument-hint: [--task <task-id>] [--all]
    - 交付状态：`.devflow/delivery.yaml`（commit、pushed、remote、PR URL、清理状态）
 5. 验证与审查摘要（最近一轮 overall、FAIL / SKIP / MANUAL 数、review 各等级条数）与下一步操作
 
+   review 的条数**必须**来自 `core/orchestrator/task_summary.py`，不要自己数。
+   **两个路径都要传**——任务归档后报告在归档目录，只查工作区会误报「未审查」：
+
+   ```bash
+   python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/task_summary.py" \
+     --report <worktree>/.devflow/review-report.md \
+     --report <project_root>/.devflow/tasks/<task-id>/review-report.md
+   ```
+
+   按顺序取第一个存在的报告。它的四种输出要原样呈现，**不可改写**：
+
+   - `review: 未审查` —— 两个路径都没有报告
+   - `review: 报告无法读取（文件存在但打不开，检查权限）` —— 存在但读不了，**不是「未审查」**
+   - `review: 报告存在但无法解析（有分节，但没有可识别的 finding 条目）` ——
+     **不能显示成 0 条**；「没解析到」和「没有问题」是两件事
+   - `review: N high / N medium / N low` —— 正常计数
+
 不同 task 的状态必须分别显示，不得从共享文件推断。
