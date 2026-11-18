@@ -136,6 +136,7 @@ Memorant 提供经验召回、Bug 模式、产品决策和经验蒸馏。未安�
 
 - [完整工作流](docs/workflow.md)
 - [架构说明](docs/architecture.md)
+- [减负校准决策（ADR-0006）](docs/adr/0006-lean-recalibration.md)
 - [编排层校准决策（ADR-0005）](docs/adr/0005-orchestration-recalibration.md)
 - [交付生命周期决策](docs/adr/0002-delivery-lifecycle.md)
 - [Task 产物发布决策](docs/adr/0003-task-artifact-publishing.md)
@@ -143,6 +144,6 @@ Memorant 提供经验召回、Bug 模式、产品决策和经验蒸馏。未安�
 
 ## 更新与卸载
 
-使用宿主提供的 marketplace 命令更新并重新安装插件。活动 task 执行期间不要升级，除非已确认版本变更（v2 是破坏性升级，见 ADR-0005）。
+使用宿主提供的 marketplace 命令更新并重新安装插件。活动 task 执行期间不要升级，除非已确认版本变更（v2.1 是破坏性升级：阶段值、Agent 与产物路径都有变化，见 ADR-0006）。
 
 Claude Code marketplace 的卸载请通过 Claude Code 的插件管理功能完成。task 的 PR 合并后，使用 `/devflow next --task <task-id>` 清理项目分支和 worktree。

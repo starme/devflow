@@ -135,6 +135,7 @@ Install Memorant separately from the [Memorant project](https://github.com/starm
 
 - [Detailed workflow](docs/workflow.md)
 - [Architecture notes](docs/architecture.md)
+- [Lean recalibration decision (ADR-0006)](docs/adr/0006-lean-recalibration.md)
 - [Recalibration decision (ADR-0005)](docs/adr/0005-orchestration-recalibration.md)
 - [Delivery lifecycle decision](docs/adr/0002-delivery-lifecycle.md)
 - [Task artifact publishing decision](docs/adr/0003-task-artifact-publishing.md)
