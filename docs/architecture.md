@@ -1,10 +1,13 @@
 # DevFlow 架构说明
 
-> **v2 校准注记（2026-10-20）**：本文写作于 v1 交付生命周期设计期。v2（ADR-0005）之后：
-> 角色 Agent 全部退役（仅存 `devflow-verifier`）、`current_phase` 收敛为 6 值
-> （`qa → prd_review → plan_review → working → deliver_confirm → done`）、
-> scope.yaml/context.json 退役（`core/templates/` 中从不存在 `context.json` 模板）、Stop hook 不再拦截。本文的**交付机制**（白名单、
-> 三合一确认、幂等恢复、PR 不自动合并）在 v2 原样有效；涉及阶段名与角色 Agent
+> **v3 注记（2026-11-18，ADR-0006）**：`current_phase` 收敛为 5 值
+> （`qa → plan_review → working → deliver_confirm → done`），`prd_review` 退役；
+> PRD 与方案卡合并为 `.devflow/plan.md`；新增 `devflow-reviewer`（只审不改、不阻塞）；
+> `commands/start.md` 与 `commands/fix.md` 合并为 `commands/workflow.md`。
+>
+> **v2 校准注记（2026-10-20，ADR-0005）**：角色 Agent 退役（v3 起存 verifier + reviewer）、
+> scope.yaml/context.json 退役、Stop hook 不再拦截。本文的**交付机制**（白名单、
+> 三合一确认、幂等恢复、PR 不自动合并）原样有效；涉及阶段名与角色 Agent
 > 的段落按上述映射阅读。
 >
 > **历史段落标注**：第二节起是 v1 设计期原文，其中的 9 阶段流水线、角色分工与

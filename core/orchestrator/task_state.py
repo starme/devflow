@@ -81,9 +81,11 @@ def _render_endpoint_lines(record: TaskRecord) -> list[str]:
 def render_task_yaml(record: TaskRecord, current_phase: str = "qa") -> str:
     """Render the stable task state as human-readable YAML.
 
-    v2 (ADR-0005): ``current_phase`` takes one of six values
-    (qa / prd_review / plan_review / working / deliver_confirm / done);
-    hooks read it for hints only and never block on it.
+    v2 (ADR-0005): ``current_phase`` took six values; ADR-0006 D1 merged the
+    PRD gate into the plan gate, so it now takes five
+    (qa / plan_review / working / deliver_confirm / done). Hooks read it for
+    hints only and never block on it; the retired ``prd_review`` value is
+    mapped onto ``plan_review`` by readers, not rejected here.
     """
     lines = [
         "schema_version: 2",

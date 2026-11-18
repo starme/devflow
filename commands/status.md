@@ -20,13 +20,14 @@ argument-hint: [--task <task-id>] [--all]
 
 ### task 级（目标 worktree 的 `.devflow/task.yaml`）
 
-2. task id、kind、描述、`current_phase`（qa / prd_review / plan_review / working / deliver_confirm / done）
+2. task id、kind、描述、`current_phase`（qa / plan_review / working / deliver_confirm / done；旧值 `prd_review` 按 `plan_review` 显示）
 3. branch、worktree、base_ref、固化 base_commit
 4. 产物（区分工作区草稿与已归档 `.devflow/tasks/<task-id>/` 两个路径，已发布与未发布明确区分）：
-   - PRD：`.devflow/prd.md`（归档名 `prd-<task-slug>.md`）
-   - 方案卡：`.devflow/card.md`（含进度勾选与偏差记录）
+   - 方案文档：`.devflow/plan.md`（需求 + 备选方案 + 验收标准 + 踩坑 + 待办支线 + 偏差）
+   - 旧任务兼容：`.devflow/prd.md` / `.devflow/card.md`（归档名 `prd-<task-slug>.md` / `card.md`）
    - 验证报告：`.devflow/verification-report.md`（含各轮结论）
+   - 审查报告：`.devflow/review-report.md`（high / medium / low 分级）
    - 交付状态：`.devflow/delivery.yaml`（commit、pushed、remote、PR URL、清理状态）
-5. 验证结论摘要（最近一轮 overall 与 FAIL / SKIP / MANUAL 数）与下一步操作
+5. 验证与审查摘要（最近一轮 overall、FAIL / SKIP / MANUAL 数、review 各等级条数）与下一步操作
 
 不同 task 的状态必须分别显示，不得从共享文件推断。

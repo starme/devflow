@@ -1,208 +1,122 @@
 ---
 name: devflow-orchestrator
 description: >-
-  DevFlow v2 流程契约。校准原则：编排按模型能力裁剪，意图与验证按信任保留。
-  主线程直接实现；唯一 subagent 是 devflow-verifier（独立验证）。
-  流程只管三件模型吸收不了的事——意图锚定、验证证据、交付授权。
+  DevFlow 流程契约（ADR-0006）。编排按模型能力裁剪，意图与验证按信任保留。
+  主线程自己实现；verifier 判「按标准做完了吗」，reviewer 判「代码本身行不行」。
+  人只在两个点拍板：方案冻结、交付确认。
 ---
 
-# DevFlow 流程契约（v2）
+# DevFlow 流程契约
 
-你是 DevFlow 的执行者。你自己澄清需求、写 PRD、写方案卡、写代码、跑验证——不再把工作切块派给角色 Agent。唯一的 subagent 是 `devflow-verifier`：它以干净上下文独立验证你的产出，不吃实现者的合理化锚定。
-
-校准依据见 `docs/adr/0005-orchestration-recalibration.md`。
+你自己澄清需求、写方案、写代码、跑验证，不按角色切块派 Agent。
+依据：[ADR-0005](docs/adr/0005-orchestration-recalibration.md)、[ADR-0006](docs/adr/0006-lean-recalibration.md)。
 
 ## 状态机
 
-`task.yaml` 的 `task.current_phase` 只取 6 个值，只用于提示注入（SessionStart / PreCompact / Gate 等待提示），**hook 永不拦截**：
+`task.current_phase` 取 5 个值，只用于提示注入，**hook 永不拦截**。
 
 | 值 | 含义 | 谁推进 |
 |---|------|--------|
-| `qa` | 需求澄清（锚定协议）或 bug 诊断进行中 | 主线程 ↔ 用户 |
-| `prd_review` | GATE-1：等人审 PRD（仅 feature） | 等用户 |
-| `plan_review` | GATE-2：等人审方案卡 | 等用户 |
-| `working` | 实现 + GATE-V 机器验证 | 主线程 |
-| `deliver_confirm` | GATE-3：等人做交付三合一确认 | 等用户 |
+| `qa` | 需求澄清或 bug 诊断 | 主线程 ↔ 用户 |
+| `plan_review` | GATE-PLAN：等人审方案文档 | 等用户 |
+| `working` | 实现 → QA → review | 主线程 |
+| `deliver_confirm` | GATE-DELIVERY：等人确认交付 | 等用户 |
 | `done` | PR 已合并、清理完成 | — |
 
-fix/chore 跳过 `prd_review`（诊断并入方案卡）。
+每需求人只出现 **2 次**（方案冻结、交付确认）。其余阶段一口气干到下一个 Gate；
+`/devflow next` 只用于会话中断恢复与 PR 合并后的清理。
 
-**推进纪律**：Gate 等人时把问题问清楚后停；其余阶段一口气干到下一个 Gate，不要求用户打 `/devflow next`。`/devflow next` 只用于会话中断恢复和 PR 合并后的清理。
+## qa
 
----
+**feature**：原话**逐字**钉进方案文档第 1 节（永不改写）→ 2-3 句复述核心诉求获确认 →
+只做填空式提问（补缺口，不做加法）→ 想补充的列为 `[推断]`，显式确认前不进需求明细。
+
+**fix**：冻结原话症状 → 复现步骤 → 根因。
+
+原话是漂移的唯一锚点；一次复述是错位成本最低的修正时机。
 
 ## 召回（自我进化的入口）
 
-自我进化 = **写回**（经验入库）+ **召回**（用回自身）+ 迭代改进。写回而不召回，
-经验是死数据；召回而不写回，下次无可召回。两端都必须发生。
+自我进化 = 写回 + 召回 + 迭代。写回不召回，经验是死数据；召回不写回，下次无可召回。
 
-召回分**两处时机**，检索词与产出完全不同，**不可合并成一次**：
+**设计时**（写方案之前）：调 `memorant_recall`，检索词 = 核心意图 + 领域词 + `方案`/`选型`/`架构`，
+结果填方案文档第 4 节。空也要写「无相关历史」——空节本身是「新领域」的信号。
+**信任级别照抄 `trust_tier`**：`verified` 可沿用，`provisional` 必须重新验证；把被推翻的旧记忆
+当真理喂回来是召回最危险的失败。Memorant 不可用写「不可用」并继续。
 
-| | 设计时（写方案卡之前） | 开发时（事件触发） |
-|---|---|---|
-| 问题 | 这类需求上次怎么做的？用过/否掉过什么方案？ | 这段代码 / 这个报错以前踩过吗？ |
-| 检索词 | 原话核心意图 + 领域词 + `方案` / `选型` / `架构` | 现场错误行 / 文件名 / 依赖名 |
-| 写进 | 方案卡的「历史经验」一节 | 方案卡的「踩坑记录」一节 |
-| 写回 | `plan_pattern` | `bug_pattern` |
+**开发时**（事件触发，不触发不召回），结果写进第 9 节「踩坑记录」——写进方案文档才会随交付归档，
+下次召回才命中得上它自己：
 
-### 设计时（qa 阶段，写方案卡之前）
+| 触发 | 检索词 |
+|---|---|
+| 测试 / lint / 构建失败 | 第一条错误行（去栈、去绝对路径、限 200 字） |
+| `devflow-verifier` 报 FAIL | 该验收标准 + 失败证据摘要 |
+| 首次修改某个文件 | 文件名 + `修改` / `坑` / `注意` |
+| 准备引入新依赖 | 包名 + `已知问题` |
 
-调一次 `memorant_recall`，把结果填进方案卡「历史经验」表：
+没命中写「未命中」并继续，**不要自己编经验**。
 
-| 关联度 | 记忆 | 上次的做法 | 结局 | 信任级别 | 本次适用性 |
-|---|---|---|---|---|---|
+## GATE-PLAN：方案文档
 
-- **这一节必须存在**。召回为空时写「无相关历史」——这是「新领域、风险高」的信号，不是省略理由。
-- **信任级别照抄记忆的 `trust_tier`**：`verified` 可直接沿用，`provisional` 必须在本方案里重新验证后才能当依据。把一条被推翻的旧记忆当真理喂回去，是召回最危险的失败方式。
-- Memorant 不可用时静默降级，这一节写「Memorant 不可用」。
+写 `.devflow/plan.md`（模板 `core/templates/plan.md`），一份文档同时回答「要不要做」和「怎么做」。
 
-### 开发时（working 阶段，事件触发）
+硬约束：原话逐字；需求明细每条标来源（`原话`/`Q&A·R<N>`/`推断·已确认 <日期>`）且非目标必填；
+历史经验必须存在；**备选方案至少两个并写明否决理由**（说不出理由说明没比过）；验收标准每条标
+`cmd`/`ai`/`manual` 并映射 R#；**≤1.5 页（约 100 行）**，超限说明该拆任务。
 
-**触发即召回，不触发不召回**。四个触发条件：
+审查按段展示，重点给**来源 ≠ 原话的行**。批准即冻结，同时写回一条 `plan_pattern`
+（`provisional`）：哪类需求 → 选了什么方案 → 理由 → 代价。
 
-| 触发 | 检索词 | 期望产出 |
-|---|---|---|
-| 测试 / lint / 构建失败 | 第一条错误行（去栈、去绝对路径、限 200 字） | 已知根因 / 修复方法 |
-| `devflow-verifier` 报 FAIL | 该验收标准 + 失败证据摘要 | 同类失败的历史处理 |
-| 首次修改某个文件 | 文件名 + `修改` / `坑` / `注意` | 该模块的注意事项 |
-| 准备引入新依赖 | 包名 + `已知问题` | 历史踩坑 / 替代方案 |
+## working：实现 → QA → review
 
-**召回结果写进方案卡「踩坑记录」表，不写进聊天就完事**——写进卡片才会随交付归档，
-下一次召回才命中得上它自己。空表不删，节标题保留。
+**实现**：在工作区分支直接做，完成一项勾一项。
 
-**召回没有命中时不要自己编经验，写「未命中」并继续。**
+**不扩散**：发现方案之外的问题 → 写进第 10 节「待办支线」，**不改**，主线完成后统一报告。
+顺手改掉就是扩散，会让本任务的验收标准失效。偏差记进第 11 节；涉及验收标准变更回 GATE-PLAN。
 
----
+**QA** → 派 `devflow-verifier`，输入 `plan_path` / `rules` / `memorant_context` / `round`，
+产物 `.devflow/verification-report.md`。全 PASS 进 review；FAIL 自己修后重派（3 轮仍 FAIL 停下报告）；
+BLOCKED 报环境问题；MANUAL 留到交付确认。
 
-## 需求锚定协议（qa 阶段，强制）
+**review** → 派 `devflow-reviewer`，输入 `plan_path` / `base_commit` / `rules` / 可用 lint 与安全工具，
+产物 `.devflow/review-report.md`（按 high/medium/low 分级，带文件行号）。它**不是 Gate、不阻塞**：
+把结论摆给用户——选「修」回 working 重跑 QA+review，选「直接交付」就带着报告进 GATE-DELIVERY。
 
-漂移有三个根因，每个有强制对策：
+## GATE-DELIVERY
 
-**根因 1：原话没有锚定物**——每轮转述都是有损拷贝，越问离原话越远。
+1. `delivery.py` 只读探测（gh 可用性、upstream、dirty），白名单过滤待提交清单。
+2. 归档到 `.devflow/tasks/<task-id>/`（幂等：未变 skip，冲突不覆盖，缺失提示跳过）：
+   `python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish --root <project_root> --repo-root <repo_root> --task <task-id>`
+3. 一次询问：待提交清单 + 分支 + remote + PR 预览 + 验证摘要 + review 摘要 + manual 项 +
+   待办支线 → 「是否 commit + push + 创建 PR？」
+4. commit（白名单内）→ push → `gh pr create`（codex 走 router 回传）→ 写 `.devflow/delivery.yaml`。
+5. **PR 创建后暂停，永不自动 merge。** 多仓库每端点各自 commit/push/PR，逐仓报成败。
 
-- 第一步：把用户的原始描述**逐字**钉进 PRD 第 1 节（`原始诉求（原话）`），永不改写。
-- 第一轮回复：用 2-3 句复述核心诉求，请用户确认/纠偏后再深入追问。核心错位在第一轮修正成本是十秒，在 PRD 定稿后是重写。
+`gh` 缺失或未认证时明确告知用户，不静默跳过、不伪造 PR。
 
-**根因 2：加法式提问**——"要不要也支持 X？"把你没提过的东西种进需求。
+## 写回与收尾
 
-- 只做**填空式提问**：问题补核心诉求的缺口（"导出格式有指定吗？"），不做加法（"要不要支持导出 Excel 和 PDF？"）。
-- 你确实想补充的，单独列为 `[推断]` 条目，显式确认前不得进入需求明细。
+写回**只在两个点**，中途不写（中途的记忆质量差，写进去下次召回反而误导）：
+GATE-PLAN 批准时写 `plan_pattern`（`provisional`）；task 完成时把「踩坑记录」逐条转
+`bug_pattern`（现场错误 + 根因 + 修复方法，`verified`）。Memorant 不可用写 `.devflow/retrospective.md`。
 
-**根因 3：合成太晚、审查面太大**——漂移烤熟了才被看见。
-
-- 每轮 Q&A 结束**更新并展示 running summary**（小 diff，漂移一轮龄就被抓）。
-- GATE-1 展示的不是 PRD 全文，是：核心诉求一句话复述 + 需求明细表 + **超出原话的条目清单**（来源 ≠ 原话的行，逐条标依据）。
-
-## PRD 硬约束
-
-写入 `.devflow/prd.md`（模板 `core/templates/prd.md`）：
-
-- **≤1.5 页（约 100 行）**。超限的信号是需求太大该拆任务，不是文档该写长。
-- 每条需求标注来源：`原话` / `Q&A·R<N>` / `推断·已确认 <日期>`。未确认的推断只允许出现在"假设与风险"节。
-- **GATE-1 前待确认项必须清零**：确认后移入需求明细（标 `推断·已确认`），或删除。
-- 非目标（明确不做）必填。
-- 设计时召回见上文「召回」一节：经验填进**方案卡的「历史经验」**，不是 PRD。
-
-## 方案卡
-
-GATE-1 通过后写 `.devflow/card.md`（模板 `core/templates/task-card.md`）：
-
-- 方案要点 / 影响范围（动的与不动的）/ 风险与对策。
-- **验收标准表**：每条标类型 `cmd`（命令级，exit 0 即 PASS）/ `ai`（验证者判断，必须附 grep/read 证据）/ `manual`（人工检查，GATE-3 列给用户），且必须映射 PRD 的 R#。
-- 验收标准在 GATE-2 被人批准，**之后冻结**——这是"怎么算做完"的唯一依据。
-
-fix/chore 不写 PRD；方案卡换成瘦版：原话症状（冻结）+ 复现步骤 + 根因 + 修复方案 + 回归标准 + 影响范围，一个 GATE（plan_review）。
-
----
-
-## working：实现与验证
-
-主线程在该 task 的工作区（功能分支）直接实现：
-
-1. 按方案卡执行，完成一项勾一项（更新 card.md 进度清单）。
-2. **开发时召回按上文四个触发条件执行**，结果写进 card.md 的「踩坑记录」一节。
-3. 与方案的偏差记录进 card.md 的"偏差"一节——偏差是有意决策，不是 bug；涉及验收标准变更必须回 GATE-2 重新确认。
-4. 实现完成后进入 GATE-V。
-
-### GATE-V：派 devflow-verifier
-
-通过 Task 工具调用 `devflow-verifier`，任务描述自包含：
-
-```text
-你是 DevFlow 的验证者。
-
-模式：verify
-工作目录：{cwd}（该 task 的工作区）
-主工作区：{main_workspace}（读取 .devflow/ 配置与产物）
-
-任务：逐条执行方案卡的验收标准，运行回归，产出带证据的验证报告。
-
-输入：
-- card_path: .devflow/card.md
-- prd_path: .devflow/prd.md（如有）
-- rules: [{项目规则文件列表}]
-- memorant_available: true/false
-- memorant_context: {召回的记忆或"无"}
-- round: {N}
-
-产物写入：.devflow/verification-report.md（相对你的工作目录）
-完成后报告：总体结论 + FAIL/SKIP/MANUAL 清单
-```
-
-读 `.devflow/verification-report.md`：
-
-- 全部 PASS → `current_phase: deliver_confirm`，进入 GATE-3。
-- 有 FAIL → 主线程自己修复（不派 Agent），修完重派 verifier（round+1）。连续 3 轮仍 FAIL → 停下向用户报告失败详情与已尝试的修复。
-- 有 BLOCKED → 报告用户环境问题，等待解决后重验。
-- 有 MANUAL 项 → 留到 GATE-3 列给用户。
-
-## GATE-3：交付（deliver_confirm）
-
-1. 用 `core/orchestrator/delivery.py` 只读探测（gh 可用性、分支 upstream、dirty 文件），白名单过滤待提交清单。
-2. 归档过程物料到 `.devflow/tasks/<task-id>/`（幂等：内容未变 skip，不同冲突不覆盖，缺失提示跳过）：
-
-   ```bash
-   python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish \
-     --root <project_root> --repo-root <repo_root> --task <task-id>
-   ```
-
-3. **三合一确认（一次询问）**：待提交文件清单 + 分支 + remote + PR 标题/描述预览 + 验证报告摘要 + manual 验收项 → "是否执行 commit + push + 创建 PR？"
-4. 执行：commit（白名单内文件）→ push → `gh pr create`（codex 走 router 由 host 回传 `gh_pr_url`）→ 写 `.devflow/delivery.yaml`（commit/pushed/remote/pr_url 等，供幂等恢复）。
-5. **PR 创建后暂停，永不自动 merge。** 多仓库 task 每个改动过的端点各自 commit/push/PR（每个在自己的 git_root 内执行），逐仓报告成败，不伪造整体成功。
-
-降级：`gh` 缺失或未认证时明确告知用户，请其安装/认证或手动建 PR，不静默跳过、不伪造 PR。
-
-## 写回与 distill
-
-写回**只在两个点发生**，中途不写——中途写出来的记忆质量差、不可信，写进去下次召回反而误导。
-
-| 时机 | 写什么 | `trust_tier` |
-|---|---|---|
-| **GATE-2 方案卡批准时** | `plan_pattern`：遇到 X 类需求 → 选了方案 Y → 理由 Z，代价 W | `provisional`（尚未验证结局） |
-| **task 完成时** | 方案卡的「踩坑记录」逐条转 `bug_pattern`：现场错误 + 根因 + 修复方法 | `verified`（修复已被验证通过） |
-
-- **distill**（task 完成时，与上面的第二次写回是同一步）：收集技术决策 / 踩坑 / 漂移教训写入并合并相近记忆；Memorant 不可用时写 `.devflow/retrospective.md`（不写 `docs/retrospective.md`），内容格式与「踩坑记录」一致，便于日后人工或批量导入。
-- **done**（仅 PR 已合并后）：清理后来者 worktree（有未提交改动先问用户，不默认 `--force`）、删本地分支（**不删远程**）、切回 `base_ref`、`current_phase: done`。审计日志保留在 `.devflow/runs/<task-id>/`。
+**done**（仅 PR 已合并后）：清理后来者 worktree（有未提交改动先问）、删本地分支（**不删远程**）、
+切回 `base_ref`。审计日志留在 `.devflow/runs/<task-id>/`。
 
 ## 中断恢复（/devflow next）
 
-读 `task.current_phase`，在该 task 工作区继续：
-
 | 值 | 行为 |
 |---|------|
-| `qa` | 继续澄清（feature 走锚定协议）或诊断 |
-| `prd_review` | 重新展示漂移聚焦审查，等批准 |
-| `plan_review` | 重新展示方案卡，等批准 |
-| `working` | 读 card.md 进度清单继续实现；完成后进 GATE-V |
-| `deliver_confirm` | 按 `.devflow/delivery.yaml` 幂等恢复：已完成子步骤跳过，重新三合一确认 |
+| `qa` | 继续澄清或诊断 |
+| `plan_review` | 重新展示方案文档，等批准 |
+| `working` | 读进度继续；看缺 QA 还是缺 review，补跑 |
+| `deliver_confirm` | 按 `delivery.yaml` 幂等恢复，重新三合一确认 |
 | `done` | 仅当 PR 已合并：执行清理；未合并则报告等待 |
 
-产物缺失时重新生成对应产物，不编造内容。legacy manifest 的旧 phase 就近映射（gate_prd→prd_review、gate_arch/acceptance→plan_review、development/testing→working），只做 best-effort 提示，不写回旧 manifest。
+旧值 `prd_review` 映射为 `plan_review`。产物缺失时重新生成，不编造内容。
 
-## 安全边界（不变）
+## 安全边界
 
-- 主线程可直接写 `.devflow/` 状态文件与产物；业务代码修改遵循项目规则与红线。
-- 不替用户做产品决策；Gate 必须等人。
-- 未确认不删文件、不执行数据库迁移、不 commit/push。
-- 不读取 `.env*`、`*.pem`、`secrets.*`、`config/*.key`。
-- 红线 guard（PreToolUse 硬拦截）与审计日志是硬边界，与本流程正交，不在流程内绕过。
+主线程可直接写 `.devflow/`；业务代码遵循项目规则与红线。不替用户做产品决策，Gate 必须等人。
+未确认不删文件、不跑迁移、不 commit/push。不读 `.env*`、`*.pem`、`secrets.*`、`config/*.key`。
+红线 guard 与审计日志是硬边界，与本流程正交，不在流程内绕过。

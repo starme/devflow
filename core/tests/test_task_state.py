@@ -72,12 +72,12 @@ class RenderTaskYamlTest(unittest.TestCase):
         rendered = render_task_yaml(_record(title="Explicit Card Title"))
         self.assertIn('  title: "Explicit Card Title"', rendered)
 
-    def test_phase_defaults_to_qa_and_stays_in_six_values(self):
+    def test_phase_defaults_to_qa_and_stays_in_five_values(self):
         rendered = render_task_yaml(_record())
         phase = re.search(r'current_phase: "(.*?)"', rendered).group(1)
         self.assertIn(
             phase,
-            {"qa", "prd_review", "plan_review", "working", "deliver_confirm", "done"},
+            {"qa", "plan_review", "working", "deliver_confirm", "done"},
         )
         self.assertEqual(phase, "qa")
 

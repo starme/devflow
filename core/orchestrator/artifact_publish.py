@@ -74,6 +74,8 @@ PUBLISHABLE_ARTIFACTS = frozenset(
         "scope.yaml",
         "diagnosis.md",
         "card.md",  # v2 plan card (ADR-0005)
+        "plan.md",  # v3 plan document (ADR-0006)
+        "review-report.md",  # v3 reviewer report (ADR-0006)
         "verification-report.md",  # v2 verifier report (ADR-0005)
         # investigation notes (ADR-0005 follow-up)
         "memorant-journal-investigation.md",

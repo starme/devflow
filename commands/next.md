@@ -20,10 +20,10 @@ argument-hint: [--task <task-id>]
 
 | 值 | 行为 |
 |---|------|
-| `qa` | 继续澄清（feature 走锚定协议）或诊断 |
-| `prd_review` | 重新展示漂移聚焦审查，等批准 |
-| `plan_review` | 重新展示方案卡，等批准 |
-| `working` | 读 card.md 进度清单继续实现；完成后进 GATE-V |
+| `qa` | 继续澄清或诊断 |
+| `prd_review` | 旧值，映射到 `plan_review` |
+| `plan_review` | 重新展示方案文档，等批准 |
+| `working` | 读方案文档进度继续；看缺 QA 还是缺 review，补跑 |
 | `deliver_confirm` | 按 `.devflow/delivery.yaml` 幂等恢复：已完成子步骤跳过，重新三合一确认 |
 | `done` | 仅当 PR 已合并：**先确认 `.devflow/tasks/<task-id>/task.yaml` 已归档，缺失则补写**（见下）、清理后来者 worktree（若有）、删本地分支（不删远程）、切回 base_ref。未合并则报告等待 |
 
@@ -41,4 +41,4 @@ in-place 布局下所有 task 共用 `.devflow/task.yaml`，下一个 task 开�
 
 `create_task` 在写新状态前也会调用同一个函数兜底，所以即使跳过了这里，上一个 task 仍然可回溯。
 
-legacy manifest 的旧 phase 就近映射（`gate_prd`→`prd_review`、`gate_arch`/`acceptance`→`plan_review`、`development`/`testing`→`working`），只做 best-effort 提示，不写回旧 manifest；旧任务建议人工收尾。
+legacy manifest 的旧 phase 就近映射（`gate_arch`/`acceptance`→`plan_review`、`gate_prd`→`plan_review`、`development`/`testing`→`working`），只做 best-effort 提示，不写回旧 manifest；旧任务建议人工收尾。

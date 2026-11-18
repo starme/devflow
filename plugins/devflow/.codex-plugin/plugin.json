@@ -1,6 +1,6 @@
 {
   "name": "devflow",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Intent-anchoring, verification-gated lifecycle for AI-assisted development: anchored requirements, executable acceptance criteria, independent verification, and delivery behind explicit approval.",
   "author": {
     "name": "starme",
@@ -9,15 +9,25 @@
   "homepage": "https://github.com/starme/devflow",
   "repository": "https://github.com/starme/devflow",
   "license": "MIT",
-  "keywords": ["devflow", "agent", "plugin", "skill", "mcp", "codex"],
+  "keywords": [
+    "devflow",
+    "agent",
+    "plugin",
+    "skill",
+    "mcp",
+    "codex"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "DevFlow",
     "shortDescription": "Intent-anchoring development lifecycle",
-    "longDescription": "Anchors requirements against drift (frozen original words, provenance-tagged PRD), executes with a plan card of executable acceptance criteria, verifies against evidence, and gates every commit/push/PR behind explicit approval.",
+    "longDescription": "Anchors requirements against drift, executes with a plan document carrying executable acceptance criteria, verifies against evidence, reviews the diff for standards/security/quality, and gates every commit/push/PR behind explicit approval.",
     "developerName": "starme",
     "category": "Developer Tools",
-    "capabilities": ["Interactive", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
     "websiteURL": "https://github.com/starme/devflow",
     "defaultPrompt": [
       "$devflow init",
