@@ -107,8 +107,26 @@ done
 BLOCKED 报环境问题；MANUAL 留到交付确认。
 
 **review** → 派 `devflow:devflow-reviewer`，输入 `plan_path` / `base_commit` / `rules` / 可用 lint 与安全工具，
-产物 `.devflow/review-report.md`（按 high/medium/low 分级，带文件行号）。它**不是 Gate、不阻塞**：
-把结论摆给用户——选「修」回 working 重跑 QA+review，选「直接交付」就带着报告进 GATE-DELIVERY。
+产物 `.devflow/review-report.md`（按 high/medium/low 分级，带文件行号）。它**不是 Gate、不阻塞**。
+
+### review 之后：人来决定（重要）
+
+review 报告出来后，**把结论原样摆给用户，由用户决定修还是直接交付**。
+
+**不要自己发起第二轮 review。** 理由不是流程洁癖——实现者是同一个模型，让它派 agent 复查
+自己刚改的代码、再自己消费结论，就是**自我批准**：第一轮还有真实盲点可抓，第二轮只剩
+「我改完了，确认我改对了」。这个循环在权限层面会被判定为 self-approval 并拒绝，
+即便没被拒绝，它也不产生独立判断。
+
+所以：
+
+| 场景 | 谁决定 |
+|---|---|
+| review 报告出来 | 用户决定修哪些、还是直接交付 |
+| 修完是否需要**第二轮** review | **用户决定**；用户没要求就不重派 |
+| 第二轮的结论 | 交给用户看，不自动开修 |
+
+**review 只做一次是常态。** 修完有 QA 回归 + 测试覆盖，这已经足够支撑交付判断。
 
 ## GATE-DELIVERY
 

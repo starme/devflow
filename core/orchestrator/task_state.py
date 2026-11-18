@@ -113,9 +113,9 @@ def render_task_yaml(record: TaskRecord, current_phase: str = "qa") -> str:
             f"source_task_id: {_yaml_quote(record.source_task_id)}",
             "",
             "artifacts:",
-            "  prd: null",
-            "  card: null",
+            '  plan: ".devflow/plan.md"',
             "  verification: null",
+            "  review: null",
             '  delivery: ".devflow/delivery.yaml"',
         ]
     )

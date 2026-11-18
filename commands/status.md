@@ -31,17 +31,20 @@ argument-hint: [--task <task-id>] [--all]
 5. 验证与审查摘要（最近一轮 overall、FAIL / SKIP / MANUAL 数、review 各等级条数）与下一步操作
 
    review 的条数**必须**来自 `core/orchestrator/task_summary.py`，不要自己数。
-   **两个路径都要传**——任务归档后报告在归档目录，只查工作区会误报「未审查」：
+   **三条路径都要传，按顺序取第一个存在的**——报告可能在工作区、项目根或归档目录：
 
    ```bash
    python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/task_summary.py" \
+     --report <task.yaml 同级>/.devflow/review-report.md \
      --report <worktree>/.devflow/review-report.md \
      --report <project_root>/.devflow/tasks/<task-id>/review-report.md
    ```
 
-   按顺序取第一个存在的报告。它的四种输出要原样呈现，**不可改写**：
+   第一条是主位置（见 SKILL「产物路径」）。后两条是兜底：任务跑在别处、或已经归档。
 
-   - `review: 未审查` —— 两个路径都没有报告
+   四种输出要原样呈现，**不可改写**：
+
+   - `review: 未审查` —— 三条路径都没有报告
    - `review: 报告无法读取（文件存在但打不开，检查权限）` —— 存在但读不了，**不是「未审查」**
    - `review: 报告存在但无法解析（有分节，但没有可识别的 finding 条目）` ——
      **不能显示成 0 条**；「没解析到」和「没有问题」是两件事

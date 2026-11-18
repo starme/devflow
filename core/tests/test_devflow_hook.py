@@ -234,6 +234,55 @@ class NewestPluginDirTest(unittest.TestCase):
             self.assertEqual(hook._newest_dir([str(older), str(newer)]), str(newer))
 
 
+class QaRecallPromptTest(unittest.TestCase):
+    """The 2026-11 dogfood skipped design-time recall entirely: SKILL says to
+    do it in qa, but nothing reminded the model, so it only happened when the
+    implementer thought of it. A hook notice is the difference between a rule
+    and a hope."""
+
+    def test_qa_phase_prompts_for_recall(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            devflow = root / ".devflow"
+            devflow.mkdir()
+            (devflow / "task.yaml").write_text(
+                "schema_version: 2\n"
+                "task:\n"
+                '  id: "t-1"\n'
+                '  slug: "t"\n'
+                '  kind: "feature"\n'
+                '  description: "d"\n'
+                '  current_phase: "qa"\n'
+                '  status: "active"\n',
+                encoding="utf-8",
+            )
+            data = json.loads(run_event(root, "UserPromptSubmit").stdout)
+            ctx = data["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("memorant_recall", ctx)
+        self.assertIn("历史经验", ctx)
+
+    def test_other_gate_phases_keep_the_plain_notice(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            devflow = root / ".devflow"
+            devflow.mkdir()
+            (devflow / "task.yaml").write_text(
+                "schema_version: 2\n"
+                "task:\n"
+                '  id: "t-1"\n'
+                '  slug: "t"\n'
+                '  kind: "feature"\n'
+                '  description: "d"\n'
+                '  current_phase: "plan_review"\n'
+                '  status: "active"\n',
+                encoding="utf-8",
+            )
+            data = json.loads(run_event(root, "UserPromptSubmit").stdout)
+            ctx = data["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Awaiting", ctx)
+        self.assertNotIn("memorant_recall", ctx)
+
+
 class NaturalLanguageEntryTest(unittest.TestCase):
     """ADR-0006 D4: a keyword prefilter decides whether the model is even asked.
 

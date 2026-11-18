@@ -181,6 +181,84 @@ class SubagentDispatchTest(unittest.TestCase):
         self.assertIn("同级", text)
 
 
+class ReviewLoopTest(unittest.TestCase):
+    """Review round 2 was blocked by the permission classifier as
+    self-approval: the flow had the implementer dispatch its own re-review and
+    consume the verdict with no human in between.
+
+    The fix is not to forbid re-review — it is to make the human the one who
+    decides whether a second round is worth running, and to make the second
+    round's findings land in front of that human rather than being applied
+    automatically.
+    """
+
+    def test_review_is_a_human_decision_point(self):
+        text = SKILL.read_text(encoding="utf-8")
+        self.assertIn("review", text)
+        # The rule: after review, the user decides. A re-review is the user's
+        # call, not the implementer's.
+        self.assertIn("由用户决定", text)
+
+    def test_second_review_round_requires_the_user(self):
+        text = SKILL.read_text(encoding="utf-8")
+        self.assertIn("第二轮", text, "SKILL must say who authorises a second review round")
+
+
+class DraftArtifactTest(unittest.TestCase):
+    """``render_task_yaml`` still emitted ``prd``/``card`` keys from v2 while
+    the flow had moved to ``plan.md`` — the plan had no slot at all, so every
+    new task.yaml pointed ``artifacts`` at files that would never exist."""
+
+    def test_task_yaml_has_a_plan_slot(self):
+        sys.path.insert(0, str(ROOT / "core" / "orchestrator"))
+        from task_state import TaskRecord, render_task_yaml
+
+        rendered = render_task_yaml(
+            TaskRecord(
+                task_id="t-1",
+                slug="t",
+                kind="feature",
+                description="d",
+                base_ref="main",
+                base_commit="abc",
+                branch="feature/t",
+                worktree="/tmp/t",
+            )
+        )
+        self.assertIn("plan:", rendered)
+        self.assertIn(".devflow/plan.md", rendered)
+
+    def test_retired_slots_are_gone(self):
+        sys.path.insert(0, str(ROOT / "core" / "orchestrator"))
+        from task_state import TaskRecord, render_task_yaml
+
+        rendered = render_task_yaml(
+            TaskRecord(
+                task_id="t-1",
+                slug="t",
+                kind="feature",
+                description="d",
+                base_ref="main",
+                base_commit="abc",
+                branch="feature/t",
+                worktree="/tmp/t",
+            )
+        )
+        self.assertNotIn("prd:", rendered)
+        self.assertNotIn("card:", rendered)
+
+
+class StatusPathCandidatesTest(unittest.TestCase):
+    """``status`` asked for the workspace path and the archive path, but not
+    the project-root ``.devflow/`` — the very place the dogfood run put its
+    report. The candidate set has to cover where artifacts can actually be."""
+
+    def test_status_covers_project_root_devflow(self):
+        text = (ROOT / "commands" / "status.md").read_text(encoding="utf-8")
+        self.assertIn("project_root", text)
+        self.assertGreaterEqual(text.count("--report"), 3, "expect workspace, project root and archive")
+
+
 class ArtifactWiringTest(unittest.TestCase):
     """The new artifacts must reach delivery, not just exist on disk.
 

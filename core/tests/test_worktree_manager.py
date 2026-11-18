@@ -204,7 +204,8 @@ class WorktreeManagerTest(unittest.TestCase):
             self.assertFalse((root / ".devflow" / "context.json").exists())
             content = (root / ".devflow" / "task.yaml").read_text(encoding="utf-8")
             self.assertIn('current_phase: "qa"', content)
-            self.assertIn("card: null", content)
+            # ADR-0006 D1 replaced the prd/card pair with a single plan slot.
+            self.assertIn('plan: ".devflow/plan.md"', content)
             self.assertIn("verification: null", content)
 
     def test_dirty_in_place_task_does_not_block_latercomer_worktree(self):

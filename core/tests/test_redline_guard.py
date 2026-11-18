@@ -730,5 +730,48 @@ class BulkDestructiveCommandTest(unittest.TestCase):
         self.assertIsNotNone(check_dangerous_command(f"echo {backtick}git clean -f{backtick}"))
 
 
+class TempCleanupTest(unittest.TestCase):
+    """Scratch-file cleanup under /tmp is routine during verification.
+
+    It used to be blocked as a root wipe: the pattern's bare ``/`` alternative
+    matched the leading slash of ``/tmp/scratch``. The QA agent hit this in the
+    2026-11 dogfood, worked around it in memory, and reported it as friction —
+    which is exactly the kind of thing that should become a test rather than a
+    workaround.
+    """
+
+    ALLOWED = (
+        "rm -f /tmp/x.md",
+        "rm -rf /tmp/devflow_dogfood",
+        "rm -f /tmp/probe.json",
+        "rm -rf ./dist",
+        "rm -f out.log",
+    )
+
+    STILL_BLOCKED = (
+        "rm -rf /",
+        "rm -rf /*",
+        "rm -rf ~",
+        "rm -rf $HOME",
+        "rm -rf ~/Documents",
+    )
+
+    def test_scratch_cleanup_is_allowed(self):
+        for command in self.ALLOWED:
+            with self.subTest(command=command):
+                self.assertIsNone(
+                    check_dangerous_command(command),
+                    f"routine cleanup was blocked: {command}",
+                )
+
+    def test_root_and_home_wipes_are_still_blocked(self):
+        for command in self.STILL_BLOCKED:
+            with self.subTest(command=command):
+                self.assertIsNotNone(
+                    check_dangerous_command(command),
+                    f"dangerous wipe was not blocked: {command}",
+                )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
