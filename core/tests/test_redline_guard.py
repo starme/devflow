@@ -713,6 +713,22 @@ class BulkDestructiveCommandTest(unittest.TestCase):
         must keep being checked."""
         self.assertIsNotNone(check_dangerous_command('echo "$(git reset --hard)"'))
 
+    def test_backticks_inside_a_heredoc_are_text(self):
+        """Markdown code spans in a PR body are backticks, not command
+        substitution. Stripping heredocs has to happen before substitutions
+        are hoisted, or writing the PR body blocks itself."""
+        backtick = chr(96)
+        command = (
+            "cat > /tmp/pr.md <<'EOF'\n"
+            f"- {backtick}git checkout .{backtick} and more\n"
+            "EOF\n"
+        )
+        self.assertIsNone(check_dangerous_command(command))
+
+    def test_backticks_outside_a_heredoc_still_execute(self):
+        backtick = chr(96)
+        self.assertIsNotNone(check_dangerous_command(f"echo {backtick}git clean -f{backtick}"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

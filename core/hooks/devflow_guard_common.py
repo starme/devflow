@@ -1110,12 +1110,10 @@ def _shell_source_text(command):
     hoisted out first — they run even inside double quotes.
     """
     text = command or ""
-    # Hoist substitution bodies so quoting removal cannot swallow them.
-    for match in _COMMAND_SUBSTITUTION.finditer(text):
-        body = match.group(1) if match.group(1) is not None else match.group(2)
-        text += "\n" + body
-    # Drop heredoc bodies: everything after a line that opens one, up to the
-    # delimiter line.
+    # Drop heredoc bodies FIRST: everything a heredoc carries is stdin, never
+    # executed. Hoisting substitutions before this step made a markdown code
+    # span inside a heredoc (`` `git checkout .` `` in a PR body) look like a
+    # real command substitution.
     text = re.sub(
         r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\1\s*(?:\n|$)", "\n", text, flags=re.DOTALL
     )
@@ -1124,6 +1122,12 @@ def _shell_source_text(command):
     while prev != text:
         prev = text
         text = re.sub(r"'[^']*'", "''", text)
+    # Only now hoist substitution bodies out of what survives: they run even
+    # inside double quotes, so they must still be checked after the quoting
+    # removal above would otherwise swallow them.
+    for match in _COMMAND_SUBSTITUTION.finditer(text):
+        body = match.group(1) if match.group(1) is not None else match.group(2)
+        text += "\n" + body
     return text
 
 
