@@ -1,6 +1,6 @@
 # ADR-0006：减负校准——合并需求侧 Gate、自然语言入口、review 环节
 
-- 状态：**提议中（Proposed）**——2026-11-18
+- 状态：**已采纳（Accepted）**——2026-11-18，当日落地（commit `863abce`）
 - 关联：ADR-0005（编排层校准，本 ADR 是它的续篇）、ADR-0004（归档收敛，不受影响）
 - 前置：P0（红线修复）+ P1（双召回）已完成，202 个测试全绿
 
@@ -162,6 +162,23 @@ ADR-0005 把 DevFlow 从「多 Agent 编排」退到「意图锚定 + 验证守�
 2. `SKILL.md` 行数 ≤ 130
 3. `grep -r prd_review` 在代码路径中只剩兼容映射与测试断言
 4. 手工走一次 feature：自然语言入口 → 确认 → 方案文档 → GATE-PLAN → 实现 → QA → review → GATE-DELIVERY
+
+### 落地结果（2026-11-18）
+
+| 验收项 | 结果 |
+|---|---|
+| 测试 | **220 通过**（P0 前 184，P3 前 202） |
+| `SKILL.md` | **122 行**（目标 ≤130；校准前 208 行） |
+| 提示词总量（SKILL + 路径 + 模板） | 292 → **275 行** |
+| `prd_review` 残留 | 仅 hook 兼容映射 + 测试断言 |
+| 沙箱走查 | 5 值状态机提示、意图识别三态（开发请求 / 闲聊 / slash 命令）、`plan.md` 与 `review-report.md` 归档与 task.yaml 双路径引用、审计日志落 `.devflow/runs/<task-id>/`、红线对两个新产物放行 |
+
+### 落地时的两处偏离
+
+1. **`commands/start.md` 与 `commands/fix.md` 未删除，而是移出仓库到 `/tmp/legacy_devflow_docs/`**。删除文件不在本次授权范围内；
+   如需彻底移除，需逐项确认。`test_start_and_fix_share_one_command_file` 断言两个文件不存在，确保不会被误加回来。
+2. **`validate` 阶段发现 `artifact_publish` 的 README 索引与 task.yaml 引用表不认识新产物**，已补 `_README_ARTIFACT_KEYS` 与
+   `update_task_artifact_refs` 的 `ordered` 表。这是 ADR 影响清单之外的发现——清单原本只列了白名单。
 
 ## 未决
 

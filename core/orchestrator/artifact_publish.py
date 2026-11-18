@@ -581,8 +581,10 @@ def missing_archived_artifacts(worktree: Path, project_root: Path) -> list[str]:
 # ``test_reports`` entry collapses the walked directory into one entry.
 _README_ARTIFACT_KEYS = [
     ("prd.md", "prd"),
+    ("plan.md", "plan"),
     ("card.md", "card"),
     ("verification-report.md", "verification"),
+    ("review-report.md", "review"),
     ("architecture.md", "architecture"),
     ("frontend-components.md", "frontend_components"),
     ("impact-analysis.md", "impact_analysis"),
@@ -710,8 +712,10 @@ def update_task_artifact_refs(
     # duplicate YAML keys, silently dropping the first reference.
     ordered = [
         ("prd.md", "prd"),
+        ("plan.md", "plan"),
         ("card.md", "card"),
         ("verification-report.md", "verification"),
+        ("review-report.md", "review"),
         ("architecture.md", "architecture"),
         ("scope.yaml", "scope"),
         ("test-report.md", "test_report"),
