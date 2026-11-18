@@ -1014,17 +1014,162 @@ _DANGEROUS_CMD_PATTERNS = [
     (re.compile(r"\bdrop\s+table\b", re.IGNORECASE), "SQL DROP TABLE statement"),
 ]
 
+# Bulk-destructive invocations (2026-11 audit). These discard work in one shot
+# and matched none of the patterns above; recovering means re-doing the work.
+#
+# Anchored with ``match`` against a single shell segment, not searched in the
+# whole command line: ``git reset --hard`` inside a quoted commit message is
+# text, while the same words at the start of a segment are an invocation.
+_BULK_CMD_PATTERNS = [
+    (
+        re.compile(r"git\s+checkout\s+(--\s+)?(\.|:/|\*)($|\s)"),
+        "Discards all working-tree changes",
+    ),
+    (re.compile(r"git\s+reset\s+--hard\b", re.IGNORECASE), "Discards all commits and changes"),
+    (re.compile(r"git\s+clean\s+-[a-z]*f", re.IGNORECASE), "Deletes all untracked files"),
+    (re.compile(r"git\s+branch\s+-D\b"), "Force-deletes an unmerged branch"),
+    (re.compile(r"find\b.*\s-delete\b"), "Recursive delete via find"),
+    (re.compile(r"rsync\b.*\s--delete\b"), "Deletes destination files via rsync"),
+    (re.compile(r"truncate\s+-s\s*0\b", re.IGNORECASE), "Truncates a file to zero bytes"),
+]
+
+# Command substitution executes its body wherever it appears, including inside
+# double quotes, so the body is checked on its own.
+_COMMAND_SUBSTITUTION = re.compile(r"\$\((.*?)\)|`(.*?)`", re.S)
+
+
+def _shell_source_text(command):
+    """Return the command with literal text a shell cannot execute removed:
+    heredoc bodies and single-quoted strings.
+
+    Without this, a commit message passed via ``-F -`` heredoc that merely
+    *describes* a destructive command was blocked as if it ran it. Double
+    quotes are kept, and command substitutions (``$(...)`` / backticks) are
+    hoisted out first — they run even inside double quotes.
+    """
+    text = command or ""
+    # Hoist substitution bodies so quoting removal cannot swallow them.
+    for match in _COMMAND_SUBSTITUTION.finditer(text):
+        body = match.group(1) if match.group(1) is not None else match.group(2)
+        text += "\n" + body
+    # Drop heredoc bodies: everything after a line that opens one, up to the
+    # delimiter line.
+    text = re.sub(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\1\s*(?:\n|$)", "\n", text, flags=re.S)
+    # Single-quoted strings carry no expansion, so nothing in them executes.
+    prev = None
+    while prev != text:
+        prev = text
+        text = re.sub(r"'[^']*'", "''", text)
+    return text
+
 
 def check_dangerous_command(command):
     """Return a reason string if *command* matches a dangerous pattern,
-    otherwise ``None``."""
+    otherwise ``None``.
+
+    Two passes, because the pattern sets answer different questions:
+
+    * The original patterns run over the whole line — they are specific
+      enough (``rm -rf /``, ``mkfs``, force-push) that a mention elsewhere is
+      still worth flagging.
+    * Bulk-destructive patterns run per shell segment and are anchored at the
+      start, so a segment that only *mentions* ``git reset --hard`` (inside a
+      quoted commit message) stays text while a real invocation after ``&&``
+      is caught.
+    """
     try:
+        source = _shell_source_text(command)
         for pattern, reason in _DANGEROUS_CMD_PATTERNS:
-            if pattern.search(command):
+            if pattern.search(source):
                 return reason
+        for segment in _split_shell_segments(source):
+            for pattern, reason in _BULK_CMD_PATTERNS:
+                if pattern.match(segment):
+                    return reason
     except Exception:
         pass
     return None
+
+
+_SHELL_CHAIN = re.compile(r"&&|\|\||[;|\n]")
+
+# A segment may start with leading whitespace, a variable assignment, or a
+# command wrapper (``sudo``/``env``/``time``). Anything before the command name
+# is skipped so ``sudo git clean -fd`` still matches.
+_SEGMENT_PREFIX = re.compile(r"^(?:\s*(?:sudo|env|time|exec)?\s*(?:[A-Za-z_]\w*=\S*\s+)*)+")
+
+
+def _split_shell_segments(command):
+    """Split a shell command line on ``&&``, ``||``, ``;``, ``|`` and newlines,
+    then strip comment lines and leading wrappers."""
+    segments = []
+    for raw in _SHELL_CHAIN.split(command or ""):
+        segment = raw.strip()
+        if not segment or segment.startswith("#"):
+            continue
+        # Drop a trailing comment so ``git status  # not "git clean -fd"``
+        # does not read as an invocation.
+        segment = segment.split(" #", 1)[0].strip()
+        if segment:
+            segments.append(_SEGMENT_PREFIX.sub("", segment, count=1))
+    return segments
+
+
+# Credential markers that make an ``approval_required`` write worth asking
+# about.  The path alone is a poor signal: editing ``config/app.yaml`` to bump
+# a timeout is routine, while writing ``password: ...`` into it is not.
+_CREDENTIAL_MARKER = re.compile(
+    r"password|passwd|secret|token|api[_-]?key|private[_-]?key|credential|access[_-]?key",
+    re.IGNORECASE,
+)
+
+# Tool inputs whose text is what the tool is about to persist. For ``Edit`` and
+# ``MultiEdit`` only the new content counts — matching the old text would make
+# removing a secret look like adding one.
+_CONTENT_FIELDS = {
+    "Write": ("content",),
+    "Edit": ("new_string",),
+    "MultiEdit": ("edits",),
+}
+
+
+def content_carries_credential(tool_name, tool_input):
+    """Return ``True`` when the tool call writes credential-looking content.
+
+    Fail-open on absent content: tools that carry no inspected text (a large
+    ``Edit`` payload that never surfaced ``new_string``, or an unknown tool)
+    must not be *silently* allowed, so the caller decides.  Here ``False``
+    means "no marker found in whatever content we could see".
+    """
+    try:
+        if tool_name == "MultiEdit":
+            for edit in tool_input.get("edits") or ():
+                if isinstance(edit, dict) and _CREDENTIAL_MARKER.search(
+                    str(edit.get("new_string", ""))
+                ):
+                    return True
+            return False
+        for field in _CONTENT_FIELDS.get(tool_name, ()):
+            if _CREDENTIAL_MARKER.search(str(tool_input.get(field, ""))):
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def content_was_inspectable(tool_name, tool_input):
+    """Return ``True`` when the tool call carried text we could inspect.
+
+    ``Edit`` carries only the changed snippet, so the absence of a marker is
+    weaker evidence than for a full ``Write``.  The guard keeps the
+    conservative "ask" whenever no content was available to look at.
+    """
+    try:
+        if tool_name == "MultiEdit":
+            return bool(tool_input.get("edits"))
+        return any(field in tool_input for field in _CONTENT_FIELDS.get(tool_name, ()))
+    except Exception:
+        return False
 
 
 _GIT_COMMIT = re.compile(r"\bgit\s+commit\b", re.IGNORECASE)

@@ -34,6 +34,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from devflow_guard_common import (
     check_dangerous_command,
+    content_carries_credential,
+    content_was_inspectable,
     find_project_root,
     get_target_paths,
     infer_track,
@@ -152,17 +154,29 @@ def check_file_operation(tool_name, tool_input, project_root, context, redlines)
                     f"the test needs updating."
                 )
 
-        # 5. Approval required — ask the user for modifications only
+        # 5. Approval required — only when the write actually looks
+        #    credential-bearing. A path match alone is too coarse: bumping a
+        #    timeout in config/app.yaml or refactoring an auth helper is
+        #    routine work, and asking on every such edit is what makes the
+        #    guard feel like a brake. When no content was inspectable (Edit
+        #    carries only a snippet), keep the conservative ask.
         if tool_name != "Read" and path_in_redline_category(
             rel_path,
             redlines["approval_required"],
             redlines["approval_required_negations"],
         ):
-            ask(
-                f"[DevFlow Approval] '{rel_path}' requires human approval "
-                f"(dependency, migration, auth, or config change). "
-                f"Allow this write?"
-            )
+            if content_carries_credential(tool_name, tool_input):
+                ask(
+                    f"[DevFlow Approval] '{rel_path}' is being written with "
+                    f"credential-looking content (dependency, migration, auth, "
+                    f"or config change). Allow this write?"
+                )
+            elif not content_was_inspectable(tool_name, tool_input):
+                ask(
+                    f"[DevFlow Approval] '{rel_path}' requires human approval "
+                    f"(dependency, migration, auth, or config change). "
+                    f"Allow this write?"
+                )
 
 
 # ---------------------------------------------------------------------------

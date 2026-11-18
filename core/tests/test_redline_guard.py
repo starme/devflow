@@ -29,7 +29,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HOOK = Path(__file__).resolve().parent.parent / "hooks" / "redline-guard.py"
+CORE_DIR = Path(__file__).resolve().parent.parent
+HOOK = CORE_DIR / "hooks" / "redline-guard.py"
+
+sys.path.insert(0, str(CORE_DIR / "hooks"))
+
+from devflow_guard_common import check_dangerous_command
 
 
 def _run_hook(project_root, tool_name, tool_input, cwd):
@@ -448,6 +453,213 @@ class DeliveryArchiveGateTest(unittest.TestCase):
         self._write_context()
         proc = _run_hook(self.root, "Bash", {"command": "git status"}, str(self.root))
         self.assertEqual(_decision(proc), "allow")
+
+
+# ---------------------------------------------------------------------------
+# 2026-11 audit findings
+#
+# Both cases below were written before the fix and failed on the pre-change
+# tree — that is the point: the previous suite was green while these two
+# behaviours were broken.
+# ---------------------------------------------------------------------------
+
+
+class _ApprovalFixture(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        (self.root / ".devflow").mkdir()
+        (self.root / ".devflow" / "task.yaml").write_text(
+            "schema_version: 2\n"
+            "task:\n"
+            '  id: "task-approval"\n'
+            '  slug: "approval"\n'
+            '  kind: "feature"\n'
+            '  description: "approval"\n'
+            '  current_phase: "working"\n'
+            '  status: "active"\n',
+            encoding="utf-8",
+        )
+        (self.root / ".devflow" / "redlines.yaml").write_text(
+            "forbidden:\n"
+            '  - ".env"\n'
+            "protected:\n"
+            '  - ".github/**"\n'
+            "approval_required:\n"
+            '  - "package.json"\n'
+            '  - "**/config/*.yaml"\n'
+            '  - "**/auth/**"\n',
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _write(self, rel_path, content):
+        target = self.root / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return _run_hook(
+            self.root, "Write", {"file_path": str(target), "content": content}, str(self.root)
+        )
+
+
+class ApprovalIsContentGatedTest(_ApprovalFixture):
+    """A path under ``approval_required`` only asks when the content carries a
+    credential marker; routine config/auth edits pass through.
+
+    Before the fix, every edit under ``config/*.yaml`` or ``**/auth/**``
+    raised an "ask", which is the main source of the "intercepted all the
+    time" complaint.
+    """
+
+    def test_config_without_secret_is_allowed(self):
+        proc = self._write("server/config/app.yaml", "timeout: 30\nretries: 2\n")
+        self.assertEqual(_decision(proc), "allow")
+
+    def test_config_with_password_is_asked(self):
+        proc = self._write("server/config/app.yaml", "password: hunter2\n")
+        self.assertEqual(_decision(proc), "ask")
+
+    def test_auth_file_with_secret_is_asked(self):
+        proc = self._write("server/auth/session.py", "API_KEY = 'sk-123'\n")
+        self.assertEqual(_decision(proc), "ask")
+
+    def test_auth_file_without_secret_is_allowed(self):
+        proc = self._write(
+            "server/auth/session.py", "def is_expired(ts, now):\n    return ts < now\n"
+        )
+        self.assertEqual(_decision(proc), "allow")
+
+    def test_sensitive_marker_is_case_insensitive(self):
+        proc = self._write("server/config/db.yaml", "DB_PASSWORD: x\n")
+        self.assertEqual(_decision(proc), "ask")
+
+    def test_edit_without_secret_is_allowed(self):
+        """Edit carries a diff snippet. When neither side mentions a
+        credential, the edit is routine and passes.
+
+        This is the deliberate loosening from the 2026-11 audit: an Edit is by
+        definition a small, reviewable change, so a bare path match is not
+        worth stopping for.
+        """
+        target = self.root / "package.json"
+        target.write_text('{"name": "x"}\n', encoding="utf-8")
+        proc = _run_hook(
+            self.root,
+            "Edit",
+            {"file_path": str(target), "old_string": '"name": "x"', "new_string": '"name": "y"'},
+            str(self.root),
+        )
+        self.assertEqual(_decision(proc), "allow")
+
+    def test_edit_adding_a_secret_is_asked(self):
+        target = self.root / "package.json"
+        target.write_text('{"name": "x"}\n', encoding="utf-8")
+        proc = _run_hook(
+            self.root,
+            "Edit",
+            {"file_path": str(target), "old_string": '"name": "x"', "new_string": '"token": "abc"'},
+            str(self.root),
+        )
+        self.assertEqual(_decision(proc), "ask")
+
+    def test_forbidden_file_still_denied(self):
+        proc = self._write(".env", "TOKEN=1\n")
+        self.assertEqual(_decision(proc), "deny")
+
+
+class BulkDestructiveCommandTest(unittest.TestCase):
+    """Bulk-destructive commands destroy work in one shot and matched none of
+    the original danger patterns (which only caught ``rm -rf /``, ``mkfs``,
+    force-push and friends)."""
+
+    BULK = (
+        "git checkout .",
+        "git checkout -- .",
+        "git reset --hard",
+        "git reset --hard HEAD",
+        "git clean -fdx",
+        "git clean -fd",
+        "find . -name '*.pyc' -delete",
+        "rsync -a --delete src/ dst/",
+        "truncate -s 0 important.log",
+        "git branch -D feature/x",
+    )
+
+    ROUTINE = (
+        "git checkout feature/x",
+        "git clean -n",
+        "git reset HEAD -- src/app.py",
+        "grep -r 'token' src/",
+        "python3 -m unittest discover -s core/tests",
+        "git branch -d merged-branch",
+        "find . -name '*.pyc'",
+    )
+
+    def test_bulk_destructive_commands_are_blocked(self):
+        for command in self.BULK:
+            with self.subTest(command=command):
+                self.assertIsNotNone(
+                    check_dangerous_command(command),
+                    f"bulk-destructive command was not detected: {command}",
+                )
+
+    def test_routine_commands_still_pass(self):
+        for command in self.ROUTINE:
+            with self.subTest(command=command):
+                self.assertIsNone(
+                    check_dangerous_command(command),
+                    f"routine command was wrongly blocked: {command}",
+                )
+
+    def test_command_names_inside_a_commit_message_are_allowed(self):
+        """The words appear as text, not as an invocation. Blocking here made
+        the guard reject its own commit message."""
+        for command in (
+            'git commit -m "fix: stop using git reset --hard"',
+            'git commit -m "docs: explain git clean -fd"',
+            'echo "git checkout ." > notes.md',
+            "git status  # not git clean -fd",
+        ):
+            with self.subTest(command=command):
+                self.assertIsNone(
+                    check_dangerous_command(command),
+                    f"quoted mention was wrongly blocked: {command}",
+                )
+
+    def test_chained_bulk_command_is_still_blocked(self):
+        """A real invocation after a chain operator must not slip through the
+        segment split."""
+        for command in (
+            "echo hi && git reset --hard",
+            "ls; git clean -fdx",
+            "cd /tmp && find . -name '*.tmp' -delete",
+            "sudo git branch -D main",
+        ):
+            with self.subTest(command=command):
+                self.assertIsNotNone(
+                    check_dangerous_command(command),
+                    f"chained bulk command was not detected: {command}",
+                )
+
+    def test_heredoc_body_is_not_scanned_as_a_command(self):
+        """`git commit -F - <<'EOF'` passes a message on stdin. The words in
+        it are prose — scanning them blocked the guard's own commit."""
+        command = (
+            "git commit -F - <<'EOF'\n"
+            "fix: stop calling git reset --hard in CI to truncate -s 0 logs\n"
+            "EOF\n"
+        )
+        self.assertIsNone(check_dangerous_command(command))
+
+    def test_real_command_after_a_heredoc_is_still_blocked(self):
+        command = "cat <<'EOF' > notes.txt\nhello\nEOF\ngit reset --hard\n"
+        self.assertIsNotNone(check_dangerous_command(command))
+
+    def test_expandable_strings_are_still_scanned(self):
+        """Double quotes expand `$(...)`, so their contents can execute and
+        must keep being checked."""
+        self.assertIsNotNone(check_dangerous_command('echo "$(git reset --hard)"'))
 
 
 if __name__ == "__main__":
