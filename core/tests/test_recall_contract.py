@@ -123,6 +123,34 @@ class LeanShapeTest(unittest.TestCase):
         self.assertIn("bugfix", text)
 
 
+class RetiredTemplateTest(unittest.TestCase):
+    """prd.md and task-card.md were merged into plan.md by ADR-0006 D1.
+
+    They stay in ``core/templates/`` because ``/devflow init`` and the adapter
+    docs name them, and old tasks read them — but a file that still teaches
+    GATE-1/GATE-2 to whoever opens it is worse than no file. Each must say at
+    the top that it is retired and point at the replacement.
+    """
+
+    def test_retired_templates_announce_their_successor(self):
+        for name in ("prd.md", "task-card.md"):
+            with self.subTest(name=name):
+                text = (ROOT / "core" / "templates" / name).read_text(encoding="utf-8")
+                head = text[:600]
+                self.assertIn("已退役", head, f"{name} does not announce retirement")
+                self.assertIn("plan.md", head, f"{name} does not point at plan.md")
+
+    def test_flow_points_at_plan_template(self):
+        for rel in ("core/orchestrator/SKILL.md", "commands/workflow.md"):
+            with self.subTest(rel=rel):
+                text = (ROOT / rel).read_text(encoding="utf-8")
+                self.assertIn("core/templates/plan.md", text)
+
+    def test_init_checks_the_live_template(self):
+        text = (ROOT / "commands" / "init.md").read_text(encoding="utf-8")
+        self.assertIn("core/templates/plan.md", text)
+
+
 class ArtifactWiringTest(unittest.TestCase):
     """The new artifacts must reach delivery, not just exist on disk.
 

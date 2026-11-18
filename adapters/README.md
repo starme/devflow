@@ -13,13 +13,13 @@ DevFlow 由两部分组成：
 
 | 资源 | 路径 | 消费方式 |
 |------|------|---------|
-| 工作流引擎 | `core/orchestrator/SKILL.md` | 流程契约（六值状态机、需求锚定协议、Gate、GATE-V 验证、交付守门）。适配层让主 Agent 读取并遵循它；其中 `Task` 派发（仅 `devflow-verifier` 一个 subagent）是 Claude 方言，移植时翻译为目标平台的等价机制，无该机制的平台由主线程自验并在报告标注。 |
+| 工作流引擎 | `core/orchestrator/SKILL.md` | 流程契约（五值状态机、澄清、双时机召回、GATE-PLAN、QA + review、交付守门）。适配层让主 Agent 读取并遵循它；其中 `Task` 派发（`devflow-verifier` 与 `devflow-reviewer` 两个 subagent）是 Claude 方言，移植时翻译为目标平台的等价机制，无该机制的平台由主线程自验并在报告标注。 |
 | 红线守护 | `core/hooks/redline-guard.py` | 纯标准库 CLI，从 stdin 读 JSON，向 stdout 输出拦截决策。 |
 | 审计日志 | `core/hooks/audit-log.py` | 纯标准库 CLI，把操作追加到 `.devflow/runs/<run_id>/audit.log`。 |
 | 共享模块 | `core/hooks/devflow_guard_common.py` | 被上面两个脚本导入；负责定位 `core/`、解析 manifest/redlines。 |
 | 编码规则 | `core/rules/` | 语言/框架规则（Markdown）。 |
-| 项目模板 | `core/templates/` | `project.yaml`、`task.yaml`、`prd.md`、`task-card.md`、`redlines.yaml`、规则模板（`manifest.yaml` 为 legacy 兼容格式）。 |
-| 验证 Agent 定义 | `agents/verifier-agent.md`（唯一 subagent，随 Claude 适配） | 正文平台无关，仅 frontmatter（name/tools/model）是 Claude 专属。移植时复制正文、替换 frontmatter；无 subagent 机制的平台不派发，由主线程自验并标注。 |
+| 项目模板 | `core/templates/` | `project.yaml`、`task.yaml`、`plan.md`、`redlines.yaml`、规则模板（`manifest.yaml` 为 legacy 兼容格式；`prd.md` / `task-card.md` 已于 ADR-0006 退役，仅兼容保留）。 |
+| Agent 定义 | `agents/verifier-agent.md`（QA）、`agents/reviewer-agent.md`（Review） | 正文平台无关，仅 frontmatter（name/tools/model）是 Claude 专属。移植时复制正文、替换 frontmatter；无 subagent 机制的平台不派发，由主线程自验并标注。 |
 
 `core/hooks/*.py` **不 import 任何平台专属模块**，也不假设运行平台。它们通过 `__file__` 自定位 `core/`，并识别 `CLAUDE_PLUGIN_ROOT` 环境变量作为辅助；新增平台可通过设置等价的"插件根目录"环境变量或直接按相对路径调用来复用，无需改动脚本。
 
