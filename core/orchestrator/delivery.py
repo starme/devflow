@@ -34,6 +34,8 @@ DELIVERY_ARTIFACT_FILES = frozenset(
         ".devflow/scope.yaml",
         ".devflow/prd.md",
         ".devflow/card.md",
+        ".devflow/plan.md",
+        ".devflow/review-report.md",
         ".devflow/verification-report.md",
         ".devflow/memorant-journal-investigation.md",
         ".devflow/architecture.md",

@@ -13,6 +13,7 @@ when a Gate is waiting for the user, PreCompact preserves task state.
 import glob
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -348,12 +349,71 @@ def handle_session_start(data):
         return emit("", "SessionStart")
 
 
+# Natural-language entry (ADR-0006 D4): a keyword prefilter keeps the model
+# judgement cheap. This hook runs on every prompt, so a full model call on
+# chit-chat would be waste; the prefilter decides what even deserves a look.
+_INTENT_KEYWORDS = (
+    "开发",
+    "实现",
+    "功能",
+    "需求",
+    "重构",
+    "优化",
+    "修",
+    "bug",
+    "报错",
+    "异常",
+    "崩溃",
+    "feature",
+    "implement",
+    "refactor",
+    "fix",
+)
+
+_SLASH_COMMAND = re.compile(r"^\s*/\w")
+
+
+def detect_intent_candidate(prompt):
+    """Return ``True`` when *prompt* might be a development request.
+
+    Deliberately coarse and local: no model call happens here. A hit only
+    means "worth asking the model", and the confirmation step in the injected
+    context is what protects against a wrong guess.
+    """
+    try:
+        text = (prompt or "").strip()
+        if not text or _SLASH_COMMAND.match(text):
+            return False
+        lowered = text.lower()
+        return any(word in lowered for word in _INTENT_KEYWORDS)
+    except Exception:
+        return False
+
+
 def handle_user_prompt(data):
     try:
         manifest_path, _ = find_manifest(data.get("cwd"))
         if not manifest_path:
+            # No active DevFlow state: the natural-language entry is the one
+            # thing worth doing here. Ask the model to judge, and gate entry
+            # behind an explicit confirmation so a wrong guess costs one reply
+            # rather than a whole workflow.
+            prompt = data.get("prompt") or data.get("user_prompt") or ""
+            if detect_intent_candidate(prompt):
+                return emit(
+                    "[DevFlow] This looks like a development request. Judge the intent: "
+                    "new feature (start) or bug fix (fix). If it is one, confirm with the "
+                    "user in one line before doing anything else — do not start the "
+                    "workflow unprompted. If it is not, ignore this notice.",
+                    "UserPromptSubmit",
+                )
             return emit("", "UserPromptSubmit")
         phase = read_state_phase(manifest_path)
+        # ``prd_review`` is retired (ADR-0006 D1); old task.yaml files still
+        # carry it, so it maps onto the merged gate instead of dropping the
+        # notice.
+        if phase == "prd_review":
+            phase = "plan_review"
         # v2 Gate/waiting statuses plus legacy manifest phases (old projects).
         gate_phases = {
             "qa",

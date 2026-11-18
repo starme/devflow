@@ -1,9 +1,12 @@
 # DevFlow Redlines — 文件保护规则
 #
-# 三类保护级别：
-#   forbidden        — 任何 Agent 不得读取或修改（PreToolUse hook 直接拦截）
-#   protected        — 可读不可改（PreToolUse hook 拦截写入）
+# 四类保护级别：
+#   forbidden         — 任何 Agent 不得读取或修改（PreToolUse hook 直接拦截）
+#   protected         — 可读不可改（PreToolUse hook 拦截写入）
+#   config_protected  — 配置类信息：不可读、不可改（连读也拦）
 #   approval_required — 可读，修改前需用户批准（PreToolUse hook 触发 ask）
+#                       只有写入内容带凭据标记时才 ask；依赖清单、迁移、
+#                       认证代码这类日常改动直接放行
 #
 # glob 语法：
 #   *    匹配单层路径（不含 /）
@@ -106,6 +109,9 @@ protected:
 # ──────────────────────────────────────────────
 # 🟠 APPROVAL_REQUIRED — 修改需人工批准
 # ──────────────────────────────────────────────
+# 路径命中只是「值得看一眼」，不是「一律拦」。hook 只在写入内容带凭据标记
+# （password / secret / token / api_key 等）时才 ask；无标记的日常改动放行。
+# 配置类路径不在这里 —— 它们归上面的 config_protected，读写都拦。
 approval_required:
   # 依赖清单
   - "package.json"
@@ -133,14 +139,31 @@ approval_required:
   - "**/authorize*"
 
   # 全局配置文件
+  - "**/conf/*.yaml"
+  - "**/conf/*.yml"
+  - "**/conf/*.json"
+
+# ──────────────────────────────────────────────
+# 🔵 CONFIG_PROTECTED — 配置类信息：不可读、不可改
+# ──────────────────────────────────────────────
+# 配置里最常见的两件事：一是凭据（读出来就泄露），二是连到哪里（改了就
+# 能重定向到攻击者控制的服务）。所以这一类比 protected 更严——读也拦。
+#
+# 注意：`.devflow/**` 在 protected 里有 negation，DevFlow 自己的 project.yaml
+# 仍然可读；覆盖不了时把需要的具体路径加进下面的 negation 列表。
+config_protected:
   - "**/config/*.yaml"
   - "**/config/*.yml"
   - "**/config/*.json"
   - "**/config/*.toml"
   - "**/config/*.ini"
+  - "**/config/*.env"
+  - "**/config/**"
   - "**/settings/*.py"
   - "**/settings/*.go"
   - "**/settings/*.php"
-  - "**/conf/*.yaml"
-  - "**/conf/*.yml"
-  - "**/conf/*.json"
+  - "**/settings/*.toml"
+  - "**/application*.yml"
+  - "**/application*.yaml"
+  - "**/application*.properties"
+  - "**/appsettings*.json"

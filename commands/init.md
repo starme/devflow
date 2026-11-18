@@ -8,7 +8,9 @@ description: Initialize DevFlow project — detect stack, configure paths, gener
 
 ## 定位插件目录
 
-按原有方式定位 `$DEVFLOW_ROOT`，确认 `core/templates/project.yaml`、`core/templates/task.yaml`、`core/templates/prd.md`、`core/templates/task-card.md` 和 `core/rules/engineering.md` 存在。找不到时提示运行 `bash install.sh`。
+按原有方式定位 `$DEVFLOW_ROOT`，确认 `core/templates/project.yaml`、`core/templates/task.yaml`、`core/templates/plan.md` 和 `core/rules/engineering.md` 存在。找不到时提示运行 `bash install.sh`。
+
+（`core/templates/prd.md` 与 `core/templates/task-card.md` 已被 ADR-0006 退役，仅为旧任务兼容保留，不作必检项。）
 
 ## Step 1: Evidence-based project analysis
 

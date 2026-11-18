@@ -1,30 +1,32 @@
 # DevFlow
 
-**Version: 2.0.0**
+**Version: 2.1.0**
 
 English | [中文](README.zh-CN.md)
 
-DevFlow keeps AI-assisted development honest about the three things a model cannot absorb: **your intent**, **verifiable evidence**, and **delivery authority**. The main thread does the work itself — no role-agent dispatch — while the flow anchors requirements against drift, verifies results with an independent agent, and gates every push behind your approval.
+DevFlow keeps AI-assisted development honest about what a model cannot do for you: **your intent**, **verifiable evidence**, **independent review**, and **delivery authority**. The main thread does the work itself — no role-agent dispatch — and you step in at exactly two points: when the plan freezes and when the work ships.
 
 ```mermaid
 flowchart LR
-    A["Idea or bug"] --> Q["Anchor Q&A<br/>frozen original words"]
-    Q --> P["PRD + plan card<br/>executable acceptance criteria"]
-    P --> H1["GATE-1/2<br/>you review"]
-    H1 --> W["Implement on feature branch"]
+    A["Idea or bug"] --> Q["Clarify<br/>freeze original words"]
+    Q --> P["Plan document<br/>demand · alternatives and why<br/>executable acceptance criteria"]
+    P --> H1["GATE-PLAN<br/>approval freezes it"]
+    H1 --> W["Implement<br/>side issues logged, not fixed"]
     W --> V["devflow-verifier<br/>evidence-backed report"]
-    V --> H2["GATE-3<br/>commit + push + PR"]
-    H2 -.-> R["Review and merge"]
-    R -.-> C["Clean local worktree<br/>return to base branch"]
+    V --> R["devflow-reviewer<br/>standards / security / quality"]
+    R --> H2["GATE-DELIVERY<br/>commit + push + PR"]
+    H2 -.-> M["Review and merge"]
+    M -.-> C["Clean local worktree<br/>return to base branch"]
 ```
 
 ## Why DevFlow?
 
-- **Drift-proof requirements** — your original words are frozen verbatim in the PRD; every requirement is tagged with its source (`your words` / `your answer` / `inference·confirmed`), and the PRD review shows exactly what goes beyond your words.
-- **Independent verification** — a single verifier agent re-checks the work with clean context, executing every acceptance criterion as a command or evidence-backed assertion. No PASS without evidence.
+- **Drift-proof requirements** — your original words are frozen verbatim; every requirement is tagged with its source (`your words` / `your answer` / `inference·confirmed`), and the review shows exactly what goes beyond your words.
+- **A plan that had to compare** — the plan document must list at least two alternatives and say why each was rejected. A plan that cannot name what it rejected never compared anything.
+- **Verification and review** — the verifier runs each acceptance criterion (no PASS without evidence); the reviewer reports standards, security, and quality findings with file:line. Neither one edits code.
+- **Self-evolution** — lessons are recalled twice: before drafting the plan (what did we do last time?) and during development (a failing test, a verifier FAIL, a first edit, a new dependency). The same pit gets stepped in once.
 - **Delivery authority stays yours** — one confirmation covers the allow-listed commit, push, and PR. PRs are never merged automatically.
-- **Safe isolation** — the current demand uses a feature branch in the main workspace; a second unfinished task gets a worktree so the first one is not moved.
-- **Memory across tasks** — optional Memorant integration recalls similar requirements, bugs, and decisions; every task distills its lessons.
+- **No spread** — anything outside the plan gets logged, not fixed. You decide afterwards.
 
 ## Quick Start
 
@@ -69,28 +71,28 @@ Use `/devflow status` to inspect progress. Work continues to the next gate witho
 
 ## How it works
 
-1. **Anchor Q&A** — your original description is frozen verbatim; follow-up questions only fill gaps in the core ask (never add scope), each round shows a running summary, and model inferences must be explicitly confirmed.
-2. **PRD** — a one-and-a-half-page document with per-requirement provenance; GATE-1 reviews the *drift surface* (what goes beyond your words), not the full text.
-3. **Plan card** — approach, affected files, risks, and an acceptance table (`cmd` / `ai` / `manual`, each mapped to a requirement). GATE-2 approval freezes it as the definition of done.
-4. **Implement** — the main thread works directly on the feature branch (a latercomer task gets a worktree; multi-repo projects create the same branch in every repository).
-5. **Verify** — the `devflow-verifier` agent executes every criterion and the regression suite, producing an evidence-backed report.
-6. **Deliver** — one confirmation covers the allow-listed commit, branch push, and PR creation. The verifier report and manual items are shown at the same gate.
+1. **Clarify** — your original description is frozen verbatim; one restatement of the core ask gets your confirmation; follow-up questions only fill gaps (never add scope), and model inferences must be explicitly confirmed.
+2. **Recall at design time** — before drafting the plan, ask Memorant how this kind of demand was handled last time and which options were rejected. Each memory arrives with its trust level (verified / provisional).
+3. **Plan document** — requirements with provenance, historical experience, **at least two alternatives with their rejection reasons**, and an acceptance table (`cmd` / `ai` / `manual`, each mapped to a requirement). GATE-PLAN approval freezes it as the definition of done.
+4. **Implement** — the main thread works directly in the workspace (a latercomer task gets a worktree; multi-repo projects create the same branch in every repository). Anything outside the plan goes into "side issues" instead of being fixed. Recall fires again on a failing test, a verifier FAIL, a first edit, or a new dependency.
+5. **Verify and review** — `devflow-verifier` executes every criterion and the regression suite with evidence; `devflow-reviewer` reports standards, security, and quality findings with file:line. Neither edits code.
+6. **Deliver** — one confirmation covers the allow-listed commit, branch push, and PR creation, with the verification report, review report, manual items, and side issues shown together.
 
-The detailed state machine and the shortened bugfix path are in [docs/workflow.md](docs/workflow.md); the recalibration rationale is in [ADR-0005](docs/adr/0005-orchestration-recalibration.md).
+The detailed state machine and the two paths are in [docs/workflow.md](docs/workflow.md); the rationale is in [ADR-0005](docs/adr/0005-orchestration-recalibration.md) and [ADR-0006](docs/adr/0006-lean-recalibration.md).
 
 ### Human checkpoints
 
-You make decisions at four points:
+You make decisions at two gates:
 
-1. Product Q&A — clarify what to build (anchoring protocol).
-2. PRD review (GATE-1) — approve the requirement set via the drift-focused view.
-3. Plan card review (GATE-2) — approve the approach and the frozen acceptance criteria.
-4. Delivery confirmation (GATE-3) — approve `commit + push + create PR`, with the verification report and manual acceptance items attached.
+1. **GATE-PLAN** — approve the plan document: requirements, alternatives, and acceptance criteria freeze together.
+2. **GATE-DELIVERY** — approve `commit + push + create PR`, with the verification report, review report, manual acceptance items, and side issues attached.
+
+Plus one **non-gate decision**: once the review report lands, you choose to fix or ship.
 
 ## After delivery
 
 - Only code and explicitly listed task artifacts are committed; runtime context, audit logs, and temporary files are excluded.
-- On delivery, task artifacts are archived to `.devflow/tasks/<task-id>/` (the PRD as `prd-<task-slug>.md`, other artifacts keep fixed names) so you can trace what was planned, verified, and delivered. See [the archive decision](docs/adr/0004-task-archive-convergence.md).
+- On delivery, task artifacts are archived to `.devflow/tasks/<task-id>/` (the plan as `plan.md`, other artifacts keep fixed names) so you can trace what was planned, verified, reviewed, and delivered. See [the archive decision](docs/adr/0004-task-archive-convergence.md).
 - PR creation pauses the task. DevFlow never merges the PR automatically.
 - After the PR is merged, run `/devflow next --task <task-id>` to remove the local task worktree and local branch, keep the remote branch, and return to the task's base branch.
 
@@ -99,10 +101,12 @@ You make decisions at four points:
 | Command | Purpose |
 |---------|---------|
 | `/devflow init` | Detect the project and create project-level configuration. |
-| `/devflow start <description>` | Start a feature: anchored Q&A → PRD → plan card → implement → verify → deliver. |
-| `/devflow fix <description>` | Start a bugfix: diagnosis card → fix → regression verification → deliver. |
+| `/devflow start <description>` | Start a feature: clarify → plan document → implement → verify → review → deliver. |
+| `/devflow fix <description>` | Start a bugfix: symptom and root cause fold into a slim plan document → fix → verify → review → deliver. |
 | `/devflow status` | Show project and task status. |
 | `/devflow next --task <task-id>` | Resume the selected task or finish its delivery cleanup. |
+
+You do not have to type the command: "analyze this requirement and start building" or "fix this bug" is recognised, confirmed in one line, and then enters the flow.
 
 ## Supported hosts
 
@@ -131,6 +135,7 @@ Install Memorant separately from the [Memorant project](https://github.com/starm
 
 - [Detailed workflow](docs/workflow.md)
 - [Architecture notes](docs/architecture.md)
+- [Lean recalibration decision (ADR-0006)](docs/adr/0006-lean-recalibration.md)
 - [Recalibration decision (ADR-0005)](docs/adr/0005-orchestration-recalibration.md)
 - [Delivery lifecycle decision](docs/adr/0002-delivery-lifecycle.md)
 - [Task artifact publishing decision](docs/adr/0003-task-artifact-publishing.md)

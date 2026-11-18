@@ -128,7 +128,10 @@ class DevFlowHookLifecycleTest(unittest.TestCase):
             self.assertIn("deliver_confirm", ctx)
             self.assertIn("Awaiting", ctx)
 
-    def test_user_prompt_flags_prd_review(self) -> None:
+    def test_user_prompt_maps_retired_prd_review_onto_plan_review(self) -> None:
+        """ADR-0006 D1 retired ``prd_review``. A task.yaml written before the
+        change still carries it, so the notice must land on the merged gate
+        rather than go silent."""
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             devflow = root / ".devflow"
@@ -137,7 +140,8 @@ class DevFlowHookLifecycleTest(unittest.TestCase):
 
             data = json.loads(run_event(root, "UserPromptSubmit").stdout)
             ctx = data["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("prd_review", ctx)
+            self.assertIn("plan_review", ctx)
+            self.assertIn("Awaiting", ctx)
 
     def test_user_prompt_flags_qa(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -228,6 +232,65 @@ class NewestPluginDirTest(unittest.TestCase):
             os.utime(older, (2_000_000_000, 2_000_000_000))
             os.utime(newer, (1_000_000_000, 1_000_000_000))
             self.assertEqual(hook._newest_dir([str(older), str(newer)]), str(newer))
+
+
+class NaturalLanguageEntryTest(unittest.TestCase):
+    """ADR-0006 D4: a keyword prefilter decides whether the model is even asked.
+
+    The prefilter is deliberately coarse; these cases pin that it fires on
+    development requests, stays quiet on ordinary conversation, and never
+    hijacks an explicit slash command.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.hook = _load_hook_module()
+
+    def test_development_requests_are_candidates(self):
+        for prompt in (
+            "分析需求进行开发",
+            "把这个 bug 修了",
+            "帮我实现一个导出功能",
+            "这个接口报错了",
+            "refactor the auth module",
+            "fix the flaky test",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertTrue(self.hook.detect_intent_candidate(prompt), prompt)
+
+    def test_ordinary_conversation_is_not_a_candidate(self):
+        for prompt in (
+            "今天几号",
+            "解释一下这段历史",
+            "what does this repo do",
+            "",
+            "   ",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertFalse(self.hook.detect_intent_candidate(prompt), prompt)
+
+    def test_explicit_slash_command_is_never_prefiltered(self):
+        """The user already chose a command; guessing on top of it would add
+        a confirmation prompt to an intentional action."""
+        for prompt in ("/devflow start 做点事", "/plan 重构一下", "/fix bug"):
+            with self.subTest(prompt=prompt):
+                self.assertFalse(self.hook.detect_intent_candidate(prompt), prompt)
+
+    def test_intent_notice_demands_confirmation_before_starting(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = json.loads(
+                run_event(root, "UserPromptSubmit", prompt="帮我实现导出功能").stdout
+            )
+            ctx = data["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("confirm", ctx)
+            self.assertIn("do not start the workflow unprompted", ctx)
+
+    def test_no_notice_when_nothing_looks_like_development(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = run_event(root, "UserPromptSubmit", prompt="今天天气不错")
+            self.assertEqual(result.stdout.strip(), "{}")
 
 
 if __name__ == "__main__":

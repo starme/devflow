@@ -1,10 +1,13 @@
 # DevFlow 架构说明
 
-> **v2 校准注记（2026-10-20）**：本文写作于 v1 交付生命周期设计期。v2（ADR-0005）之后：
-> 角色 Agent 全部退役（仅存 `devflow-verifier`）、`current_phase` 收敛为 6 值
-> （`qa → prd_review → plan_review → working → deliver_confirm → done`）、
-> scope.yaml/context.json 退役（`core/templates/` 中从不存在 `context.json` 模板）、Stop hook 不再拦截。本文的**交付机制**（白名单、
-> 三合一确认、幂等恢复、PR 不自动合并）在 v2 原样有效；涉及阶段名与角色 Agent
+> **v3 注记（2026-11-18，ADR-0006）**：`current_phase` 收敛为 5 值
+> （`qa → plan_review → working → deliver_confirm → done`），`prd_review` 退役；
+> PRD 与方案卡合并为 `.devflow/plan.md`；新增 `devflow-reviewer`（只审不改、不阻塞）；
+> `commands/start.md` 与 `commands/fix.md` 合并为 `commands/workflow.md`。
+>
+> **v2 校准注记（2026-10-20，ADR-0005）**：角色 Agent 退役（v3 起存 verifier + reviewer）、
+> scope.yaml/context.json 退役、Stop hook 不再拦截。本文的**交付机制**（白名单、
+> 三合一确认、幂等恢复、PR 不自动合并）原样有效；涉及阶段名与角色 Agent
 > 的段落按上述映射阅读。
 >
 > **历史段落标注**：第二节起是 v1 设计期原文，其中的 9 阶段流水线、角色分工与
@@ -17,10 +20,10 @@ DevFlow 是 Claude Code 上的生命周期编排插件（命令、Agent、Hook�
 
 | 层 | 位置 | 职责 |
 |----|------|------|
-| 命令 | `commands/` | `/devflow init\|start\|fix\|status\|next` |
+| 命令 | `commands/` | `/devflow init\|start\|fix\|status\|next`（start 与 fix 共用 `workflow.md`） |
 | 编排 | `core/orchestrator/` | SKILL、task 状态、worktree、交付、归档 |
-| Guard | `core/hooks/`、`hooks/` | 红线、审计、Stop 续跑到 Gate |
-| 专职 Agent | `agents/` | v2 起仅 `verifier-agent.md`（`devflow-verifier`） |
+| Guard | `core/hooks/`、`hooks/` | 红线、审计、Gate 提示（v2 起不拦截） |
+| 专职 Agent | `agents/` | `verifier-agent.md`（QA）、`reviewer-agent.md`（Review，ADR-0006） |
 | 项目状态 | `<project_root>/.devflow/project.yaml` + `task.yaml` | 仓库级配置 vs 当前需求阶段 |
 | 归档 | `<project_root>/.devflow/tasks/<task-id>/` | 只在 DELIVERY 发布过程物料 |
 
@@ -211,7 +214,7 @@ PR 创建后**不自动清理**——清理发生在 PR 合并、交付闭环确
 | `core/orchestrator/task_state.py` | `artifacts` 段加 `delivery` 引用（或独立 delivery.yaml 解析） |
 | `core/hooks/devflow_guard_common.py` | `_DEVFLOW_ARTIFACT_FILES` 补 `.devflow/pr.md`、`.devflow/delivery.yaml` |
 | `hooks/devflow_hook.py` | v1 阶段名（prd_writing/architecture/…）的 Stop 拦截；v2 起 hook 只提示不拦截，该文件保留为 Stop 续跑机制入口 |
-| `commands/start.md` / `next.md` / `status.md` / `fix.md` | 阶段序列与恢复表接入 DELIVERY |
+| `commands/start.md` / `next.md` / `status.md` / `fix.md` | 阶段序列与恢复表接入 DELIVERY（v3 起 start/fix 合并为 `workflow.md`） |
 | `docs/workflow.md` | 状态机口诀 / 流程图 / 人类介入点（4→5）/ 裁剪表补 DELIVERY |
 | `docs/adr/0002-delivery-lifecycle.md` | 交付生命周期 ADR |
 | `README.md` / `README.zh-CN.md` | 一句话交付闭环说明 |

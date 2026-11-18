@@ -3,15 +3,17 @@
 
 DevFlow runs formal tasks in isolated worktrees at
 ``<repo_root.parent>/.devflow-worktrees/<repo>/<task-id>/``.  Artifacts written
-there (PRD, architecture, scope, test/acceptance reports) stay inside the
-worktree.  This module publishes them, on explicit milestone gates, into a
-per-task namespace under the project's archive root::
+there (plan document, review/verification reports, implementation notes) stay
+inside the worktree.  This module publishes them **once, at delivery**
+(ADR-0004 revision: milestone publishing was retired) into a per-task
+namespace under the project's archive root::
 
     <project_root>/.devflow/tasks/<task-id>/
         README.md                      # source index (task metadata + artifact map)
-        prd-<task-slug>.md             # PRD published under a semantic name
-        architecture.md
-        test_reports/
+        plan.md                        # the plan document (ADR-0006)
+        prd-<task-slug>.md             # legacy: PRD of a pre-0006 task
+        verification-report.md
+        review-report.md
         ...
 
 The archive root derives from ``project_root`` (the directory holding
@@ -74,6 +76,8 @@ PUBLISHABLE_ARTIFACTS = frozenset(
         "scope.yaml",
         "diagnosis.md",
         "card.md",  # v2 plan card (ADR-0005)
+        "plan.md",  # v3 plan document (ADR-0006)
+        "review-report.md",  # v3 reviewer report (ADR-0006)
         "verification-report.md",  # v2 verifier report (ADR-0005)
         # investigation notes (ADR-0005 follow-up)
         "memorant-journal-investigation.md",
@@ -579,8 +583,10 @@ def missing_archived_artifacts(worktree: Path, project_root: Path) -> list[str]:
 # ``test_reports`` entry collapses the walked directory into one entry.
 _README_ARTIFACT_KEYS = [
     ("prd.md", "prd"),
+    ("plan.md", "plan"),
     ("card.md", "card"),
     ("verification-report.md", "verification"),
+    ("review-report.md", "review"),
     ("architecture.md", "architecture"),
     ("frontend-components.md", "frontend_components"),
     ("impact-analysis.md", "impact_analysis"),
@@ -708,8 +714,10 @@ def update_task_artifact_refs(
     # duplicate YAML keys, silently dropping the first reference.
     ordered = [
         ("prd.md", "prd"),
+        ("plan.md", "plan"),
         ("card.md", "card"),
         ("verification-report.md", "verification"),
+        ("review-report.md", "review"),
         ("architecture.md", "architecture"),
         ("scope.yaml", "scope"),
         ("test-report.md", "test_report"),

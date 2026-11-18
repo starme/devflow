@@ -33,7 +33,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from devflow_guard_common import (
+    _extract_shell_read_targets,
     check_dangerous_command,
+    content_carries_credential,
+    content_was_inspectable,
     find_project_root,
     get_target_paths,
     infer_track,
@@ -117,6 +120,21 @@ def check_file_operation(tool_name, tool_input, project_root, context, redlines)
                 f"is genuinely required."
             )
 
+        # 2b. Config — neither read nor write. A configuration file carries
+        #     credentials (reading leaks what the forbidden rules protect) and
+        #     endpoints (writing redirects where those credentials are sent).
+        #     Stricter than ``protected`` on purpose: read is denied too.
+        if path_in_redline_category(
+            rel_path,
+            redlines["config_protected"],
+            redlines["config_protected_negations"],
+        ):
+            deny(
+                f"[DevFlow Redline] '{rel_path}' is configuration and cannot be "
+                f"read or modified by agents. Ask the user for the value you "
+                f"need, or have them make the change."
+            )
+
         # 3. Directory boundary - dev agents can only write in their track.
         # Writes to .devflow/ process artifacts (scope.yaml, task reports, test
         # reports, contracts, runs/) are allowed for any agent, hence the last
@@ -152,17 +170,29 @@ def check_file_operation(tool_name, tool_input, project_root, context, redlines)
                     f"the test needs updating."
                 )
 
-        # 5. Approval required — ask the user for modifications only
+        # 5. Approval required — only when the write actually looks
+        #    credential-bearing. A path match alone is too coarse: bumping a
+        #    timeout in config/app.yaml or refactoring an auth helper is
+        #    routine work, and asking on every such edit is what makes the
+        #    guard feel like a brake. When no content was inspectable (Edit
+        #    carries only a snippet), keep the conservative ask.
         if tool_name != "Read" and path_in_redline_category(
             rel_path,
             redlines["approval_required"],
             redlines["approval_required_negations"],
         ):
-            ask(
-                f"[DevFlow Approval] '{rel_path}' requires human approval "
-                f"(dependency, migration, auth, or config change). "
-                f"Allow this write?"
-            )
+            if content_carries_credential(tool_name, tool_input):
+                ask(
+                    f"[DevFlow Approval] '{rel_path}' is being written with "
+                    f"credential-looking content (dependency, migration, auth, "
+                    f"or config change). Allow this write?"
+                )
+            elif not content_was_inspectable(tool_name, tool_input):
+                ask(
+                    f"[DevFlow Approval] '{rel_path}' requires human approval "
+                    f"(dependency, migration, auth, or config change). "
+                    f"Allow this write?"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +247,21 @@ def check_bash_operation(tool_input, project_root, context, redlines):
             deny(
                 f"[DevFlow Redline] Shell command targets protected file "
                 f"'{rel_path}'. Agents must not modify it via shell either."
+            )
+
+    # 4. Config is refused on read as well, so a shell reader that names a
+    #    config path has to be checked too — otherwise ``cat config/app.yaml``
+    #    walks around the file-tool rule.
+    for rel_path, _abs_path in _extract_shell_read_targets(command, project_root, cwd):
+        if path_in_redline_category(
+            rel_path,
+            redlines["config_protected"],
+            redlines["config_protected_negations"],
+        ):
+            deny(
+                f"[DevFlow Redline] Shell command reads configuration file "
+                f"'{rel_path}'. Configuration cannot be read or modified by "
+                f"agents. Ask the user for the value you need."
             )
 
 
