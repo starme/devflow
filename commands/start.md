@@ -40,11 +40,12 @@ argument-hint: <需求描述>
 
 1. **qa**：需求锚定协议——冻结原话 → 第一轮核心诉求复述确认 → 填空式追问（每轮展示 running summary，`[推断]` 条目显式确认）→ 写 `.devflow/prd.md`（硬约束见契约）。
 2. **prd_review（GATE-1）**：展示漂移聚焦审查（核心诉求复述 + 需求明细表 + 超出原话的条目清单），等用户批准。批准前待确认项必须清零。
-3. 写 `.devflow/card.md`（方案要点 / 影响范围 / 风险 / 验收标准表，每条映射 R#）。
-4. **plan_review（GATE-2）**：展示方案卡，等用户批准。批准即方案与验收标准冻结。
-5. **working**：主线程在该 task 工作区直接实现，勾选 card.md 进度；偏差记录在"偏差"一节。完成后派 `devflow-verifier`（GATE-V），读 `.devflow/verification-report.md`：全 PASS 进 GATE-3；有 FAIL 自己修复重验（连续 3 轮失败停下报告用户）。
-6. **deliver_confirm（GATE-3）**：delivery.py 只读探测 + artifact_publish 归档 + 三合一确认（附验证报告摘要与 manual 验收项）→ commit + push + PR。**PR 创建后暂停，永不自动 merge。**
-7. **distill**：经验写 Memorant（不可用写 `.devflow/retrospective.md`）。PR 合并后 `/devflow next` 做 done 清理。
+3. **设计时召回**：写方案卡之前调一次 `memorant_recall`（检索词 = 核心意图 + 领域词 + 方案/选型/架构），结果填进方案卡「历史经验」表。召回为空写「无相关历史」，**不许删这一节**。
+4. 写 `.devflow/card.md`（方案要点 / 影响范围 / 风险 / 历史经验 / 验收标准表，每条映射 R#）。
+5. **plan_review（GATE-2）**：展示方案卡，等用户批准。批准即方案与验收标准冻结；**批准时写回一条 `plan_pattern`**。
+6. **working**：主线程在该 task 工作区直接实现，勾选 card.md 进度；偏差记录在"偏差"一节。开发中按四个触发条件（测试失败 / verifier FAIL / 首次改文件 / 引入新依赖）召回，结果写进「踩坑记录」。完成后派 `devflow-verifier`（GATE-V），读 `.devflow/verification-report.md`：全 PASS 进 GATE-3；有 FAIL 自己修复重验（连续 3 轮失败停下报告用户）。
+7. **deliver_confirm（GATE-3）**：delivery.py 只读探测 + artifact_publish 归档 + 三合一确认（附验证报告摘要与 manual 验收项）→ commit + push + PR。**PR 创建后暂停，永不自动 merge。**
+8. **distill**：任务完成时把「踩坑记录」逐条写回 `bug_pattern`（`trust_tier: verified`）。Memorant 不可用写 `.devflow/retrospective.md`。PR 合并后 `/devflow next` 做 done 清理。
 
 ## 注意
 

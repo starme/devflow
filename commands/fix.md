@@ -27,11 +27,12 @@ Bug 修复 / 日常维护：诊断 → 方案卡（瘦版）→ 一个 Gate → 
 加载 `core/orchestrator/SKILL.md`，fix 的精简路径（跳过 PRD 与 GATE-1）：
 
 1. **qa（诊断）**：冻结原话症状（逐字）→ 复现步骤 → 根因定位（Memorant 召回相似 bug + 代码分析）。
-2. 写 `.devflow/card.md` 瘦版：原话症状（冻结）/ 复现步骤 / 根因 / 修复方案 / 回归标准（先写能复现 bug 的回归测试再修复；纯文档/配置 bug 可免回归但必须说明原因）/ 影响范围。回归标准同样分 `cmd` / `ai` / `manual` 并可执行。
-3. **plan_review（GATE）**：展示诊断卡，等用户批准。
-4. **working**：主线程修复 + 回归，派 `devflow-verifier` 验证（同 feature 的 GATE-V）。
-5. **deliver_confirm**：与 feature 相同的三合一确认；PR 创建后暂停不自动合并。
-6. PR 合并后 `/devflow next` 清理（后来者 worktree 若有）并切回 base_ref。
+2. **设计时召回**：写诊断卡之前调一次 `memorant_recall`（检索词 = 症状关键词 + 报错行 + 模块名），结果填进诊断卡「历史经验」表。召回为空写「无相关历史」，**不许删这一节**。
+3. 写 `.devflow/card.md` 瘦版：原话症状（冻结）/ 复现步骤 / 根因 / **历史经验** / 修复方案 / 回归标准（先写能复现 bug 的回归测试再修复；纯文档/配置 bug 可免回归但必须说明原因）/ 影响范围。回归标准同样分 `cmd` / `ai` / `manual` 并可执行。
+4. **plan_review（GATE）**：展示诊断卡，等用户批准；**批准时写回一条 `plan_pattern`**。
+5. **working**：主线程修复 + 回归，开发中按四个触发条件召回并写进「踩坑记录」，派 `devflow-verifier` 验证（同 feature 的 GATE-V）。
+6. **deliver_confirm**：与 feature 相同的三合一确认；PR 创建后暂停不自动合并。
+7. **distill**：任务完成时把「踩坑记录」逐条写回 `bug_pattern`（`trust_tier: verified`）。PR 合并后 `/devflow next` 清理（后来者 worktree 若有）并切回 base_ref。
 
 ## 当前需求内的修复
 
