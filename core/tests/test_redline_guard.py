@@ -485,9 +485,11 @@ class _ApprovalFixture(unittest.TestCase):
             '  - ".env"\n'
             "protected:\n"
             '  - ".github/**"\n'
+            "config_protected:\n"
+            '  - "**/config/**"\n'
+            '  - "**/settings/*"\n'
             "approval_required:\n"
             '  - "package.json"\n'
-            '  - "**/config/*.yaml"\n'
             '  - "**/auth/**"\n',
             encoding="utf-8",
         )
@@ -504,34 +506,84 @@ class _ApprovalFixture(unittest.TestCase):
 
 
 class ApprovalIsContentGatedTest(_ApprovalFixture):
-    """A path under ``approval_required`` only asks when the content carries a
-    credential marker; routine config/auth edits pass through.
+    """Two different questions, deliberately answered differently.
 
-    Before the fix, every edit under ``config/*.yaml`` or ``**/auth/**``
-    raised an "ask", which is the main source of the "intercepted all the
-    time" complaint.
+    ``approval_required`` covers dependencies, migrations and auth code: those
+    are routine work, so a path match only asks when the written content
+    carries a credential marker.
+
+    Configuration is not routine — ``**/config/*`` and ``**/settings/*`` are
+    matched by ``config_protected`` and refused outright, reads included. A
+    guard that lets an agent read the config can leak the secrets the
+    ``forbidden`` rules are there to protect; one that lets it write can
+    redirect where those secrets are loaded from.
     """
 
-    def test_config_without_secret_is_allowed(self):
-        proc = self._write("server/config/app.yaml", "timeout: 30\nretries: 2\n")
+    def test_config_write_is_denied_even_without_a_secret(self):
+        proc = self._write("server/config/app.yaml", "timeout: 30\n")
+        self.assertEqual(_decision(proc), "deny")
+
+    def test_config_write_with_password_is_denied(self):
+        proc = self._write("server/config/app.yaml", "password: hunter2\n")
+        self.assertEqual(_decision(proc), "deny")
+
+    def test_settings_file_write_is_denied(self):
+        proc = self._write("server/settings/base.py", "DEBUG = False\n")
+        self.assertEqual(_decision(proc), "deny")
+
+    def test_config_read_is_denied(self):
+        """Reading is what makes the boundary real: otherwise the agent can
+        lift secrets out of a file it may not write."""
+        target = self.root / "server" / "config" / "app.yaml"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("token: abc\n", encoding="utf-8")
+        proc = _run_hook(self.root, "Read", {"file_path": str(target)}, str(self.root))
+        self.assertEqual(_decision(proc), "deny")
+
+    def test_shell_read_of_config_is_denied(self):
+        """``cat config/app.yaml`` names no write target, so the write-target
+        extractor misses it and the whole rule would be bypassable."""
+        target = self.root / "server" / "config" / "app.yaml"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("token: abc\n", encoding="utf-8")
+        for command in (
+            "cat server/config/app.yaml",
+            "grep token server/config/app.yaml",
+            "head -n 5 server/config/app.yaml",
+            "cat server/config/app.yaml | grep token",
+        ):
+            with self.subTest(command=command):
+                proc = _run_hook(self.root, "Bash", {"command": command}, str(self.root))
+                self.assertEqual(_decision(proc), "deny")
+
+    def test_shell_read_of_ordinary_file_is_allowed(self):
+        proc = _run_hook(self.root, "Bash", {"command": "cat server/app.py"}, str(self.root))
         self.assertEqual(_decision(proc), "allow")
 
-    def test_config_with_password_is_asked(self):
-        proc = self._write("server/config/app.yaml", "password: hunter2\n")
-        self.assertEqual(_decision(proc), "ask")
+    def test_project_config_is_still_readable(self):
+        """The guard's own file contract lives in config-shaped paths; denying
+        those would stop DevFlow from reading its own state."""
+        target = self.root / ".devflow" / "project.yaml"
+        target.write_text("project:\n  name: x\n", encoding="utf-8")
+        proc = _run_hook(self.root, "Read", {"file_path": str(target)}, str(self.root))
+        self.assertEqual(_decision(proc), "allow")
 
-    def test_auth_file_with_secret_is_asked(self):
+    def test_ordinary_python_is_allowed(self):
+        proc = self._write("server/app.py", "def handler():\n    return 1\n")
+        self.assertEqual(_decision(proc), "allow")
+
+    def test_auth_with_secret_is_asked(self):
         proc = self._write("server/auth/session.py", "API_KEY = 'sk-123'\n")
         self.assertEqual(_decision(proc), "ask")
 
-    def test_auth_file_without_secret_is_allowed(self):
+    def test_auth_without_secret_is_allowed(self):
         proc = self._write(
             "server/auth/session.py", "def is_expired(ts, now):\n    return ts < now\n"
         )
         self.assertEqual(_decision(proc), "allow")
 
     def test_sensitive_marker_is_case_insensitive(self):
-        proc = self._write("server/config/db.yaml", "DB_PASSWORD: x\n")
+        proc = self._write("server/auth/db.py", "DB_PASSWORD: x\n")
         self.assertEqual(_decision(proc), "ask")
 
     def test_edit_without_secret_is_allowed(self):

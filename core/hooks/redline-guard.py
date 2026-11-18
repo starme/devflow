@@ -33,6 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from devflow_guard_common import (
+    _extract_shell_read_targets,
     check_dangerous_command,
     content_carries_credential,
     content_was_inspectable,
@@ -117,6 +118,21 @@ def check_file_operation(tool_name, tool_input, project_root, context, redlines)
                 f"(CI/CD, infrastructure, or lock file). "
                 f"Agents must not modify it. Report to the Manager if a change "
                 f"is genuinely required."
+            )
+
+        # 2b. Config — neither read nor write. A configuration file carries
+        #     credentials (reading leaks what the forbidden rules protect) and
+        #     endpoints (writing redirects where those credentials are sent).
+        #     Stricter than ``protected`` on purpose: read is denied too.
+        if path_in_redline_category(
+            rel_path,
+            redlines["config_protected"],
+            redlines["config_protected_negations"],
+        ):
+            deny(
+                f"[DevFlow Redline] '{rel_path}' is configuration and cannot be "
+                f"read or modified by agents. Ask the user for the value you "
+                f"need, or have them make the change."
             )
 
         # 3. Directory boundary - dev agents can only write in their track.
@@ -231,6 +247,21 @@ def check_bash_operation(tool_input, project_root, context, redlines):
             deny(
                 f"[DevFlow Redline] Shell command targets protected file "
                 f"'{rel_path}'. Agents must not modify it via shell either."
+            )
+
+    # 4. Config is refused on read as well, so a shell reader that names a
+    #    config path has to be checked too — otherwise ``cat config/app.yaml``
+    #    walks around the file-tool rule.
+    for rel_path, _abs_path in _extract_shell_read_targets(command, project_root, cwd):
+        if path_in_redline_category(
+            rel_path,
+            redlines["config_protected"],
+            redlines["config_protected_negations"],
+        ):
+            deny(
+                f"[DevFlow Redline] Shell command reads configuration file "
+                f"'{rel_path}'. Configuration cannot be read or modified by "
+                f"agents. Ask the user for the value you need."
             )
 
 

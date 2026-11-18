@@ -470,6 +470,8 @@ _EMPTY_REDLINES = {
     "forbidden_negations": [],
     "protected": [],
     "protected_negations": [],
+    "config_protected": [],
+    "config_protected_negations": [],
     "approval_required": [],
     "approval_required_negations": [],
 }
@@ -808,6 +810,64 @@ def _paths_from_patch_file(raw, base):
             yield dest
 
 
+def _extract_shell_read_targets(command, project_root, cwd=None, wt_root=None, main_root=None):
+    """Best-effort extraction of file paths a Bash command reads from.
+
+    Only needed for the ``config_protected`` rule: writing is already covered
+    by :func:`_extract_shell_write_targets`, but ``cat config/app.yaml`` reads
+    with no redirection and would otherwise pass straight through the
+    boundary. Deliberately narrow — it collects bare path arguments of common
+    readers rather than parsing arbitrary shell syntax.
+    """
+    candidates = set()
+    for segment in _split_shell_segments(command):
+        parts = segment.split()
+        if not parts:
+            continue
+        head = Path(parts[0]).name
+        # ``cat file`` / ``head -n 5 file`` / ``grep pattern file``
+        if head in _SHELL_READERS:
+            for token in parts[1:]:
+                if token.startswith("-") or not token:
+                    continue
+                if _looks_like_path(token):
+                    candidates.add(token.strip("'\""))
+
+    base = Path(cwd).resolve() if cwd else project_root
+    results = []
+    for raw in candidates:
+        try:
+            p = Path(raw)
+            p = (base / raw).resolve() if not p.is_absolute() else p.resolve()
+            rel = _compute_rel_path(str(p), project_root, wt_root, main_root)
+            results.append((rel, str(p)))
+        except Exception:
+            continue
+    return results
+
+
+_SHELL_READERS = frozenset(
+    {
+        "cat",
+        "head",
+        "tail",
+        "less",
+        "more",
+        "grep",
+        "egrep",
+        "rg",
+        "awk",
+        "sed",
+        "cut",
+        "sort",
+        "uniq",
+        "diff",
+        "jq",
+        "yq",
+    }
+)
+
+
 def _extract_shell_write_targets(command, project_root, cwd=None, wt_root=None, main_root=None):
     """Best-effort extraction of file paths that a Bash command writes to.
 
@@ -1037,7 +1097,7 @@ _BULK_CMD_PATTERNS = [
 
 # Command substitution executes its body wherever it appears, including inside
 # double quotes, so the body is checked on its own.
-_COMMAND_SUBSTITUTION = re.compile(r"\$\((.*?)\)|`(.*?)`", re.S)
+_COMMAND_SUBSTITUTION = re.compile(r"\$\((.*?)\)|`(.*?)`", re.DOTALL)
 
 
 def _shell_source_text(command):
@@ -1056,7 +1116,9 @@ def _shell_source_text(command):
         text += "\n" + body
     # Drop heredoc bodies: everything after a line that opens one, up to the
     # delimiter line.
-    text = re.sub(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\1\s*(?:\n|$)", "\n", text, flags=re.S)
+    text = re.sub(
+        r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\1\s*(?:\n|$)", "\n", text, flags=re.DOTALL
+    )
     # Single-quoted strings carry no expansion, so nothing in them executes.
     prev = None
     while prev != text:
