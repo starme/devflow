@@ -9,8 +9,8 @@ argument-hint: [--task <task-id>]
 
 ## 任务选择
 
-1. 当前目录有 `.devflow/task.yaml` 时，就用这个 task（主工作区 in-place 或后来者 worktree 都一样）。
-2. 主仓库执行时支持 `/devflow next --task <task-id>`：先看主仓库 `.devflow/task.yaml`，再用 `discover_tasks` / `git worktree list` 找后来者 worktree。
+1. 当前目录有 `.devflow/task.yaml` 时，就用这个 task。
+2. 主仓库执行时支持 `/devflow next --task <task-id>`：先看主仓库 `.devflow/task.yaml`，再用 `discover_tasks` 查活动 task 与 `.devflow/tasks/` 归档（含历史遗留 worktree 的只读兼容）。
 3. 未指定且存在唯一活动 task 时使用它；多个活动 task 要求明确 `--task`。
 4. 旧项目兼容读取 `.devflow/manifest.yaml`，标记 legacy。
 
@@ -25,7 +25,7 @@ argument-hint: [--task <task-id>]
 | `plan_review` | 重新展示方案文档，等批准 |
 | `working` | 读方案文档进度继续；看缺 QA 还是缺 review，补跑 |
 | `deliver_confirm` | 按 `.devflow/delivery.yaml` 幂等恢复：已完成子步骤跳过，重新三合一确认 |
-| `done` | 仅当 PR 已合并：**先确认 `.devflow/tasks/<task-id>/task.yaml` 已归档，缺失则补写**（见下）、清理后来者 worktree（若有）、删本地分支（不删远程）、切回 base_ref。未合并则报告等待 |
+| `done` | 仅当 PR 已合并：**先确认 `.devflow/tasks/<task-id>/task.yaml` 已归档，缺失则补写**（见下）、删本地分支（不删远程）、切回 base_ref。未合并则报告等待 |
 
 产物缺失时重新生成对应产物，不编造内容。
 

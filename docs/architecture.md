@@ -27,7 +27,7 @@ DevFlow 是 Claude Code 上的生命周期编排插件（命令、Agent、Hook�
 | 项目状态 | `<project_root>/.devflow/project.yaml` + `task.yaml` | 仓库级配置 vs 当前需求阶段 |
 | 归档 | `<project_root>/.devflow/tasks/<task-id>/` | 只在 DELIVERY 发布过程物料 |
 
-隔离默认 in-place（主工作区功能分支）。只有主工作区已有未完成 task 时，后来者才进 `.devflow-worktrees/<repo>/<task-id>`。过程物料不是每个里程碑都 publish。
+隔离一律 in-place（主工作区功能分支）。主工作区已有未完成 task 时，新 task 被**拒绝**（提示先完成或归档），不再隔离到 `.devflow-worktrees/<repo>/<task-id>`——该布局已退役，仅作历史 task 的只读兼容。过程物料不是每个里程碑都 publish。
 
 **状态归属：`project_root` 而非 `repo_root`。** 持有 `.devflow/` 的目录是归档权威，`artifact_publish` 也以它为准。普通项目里两者相同；当 git 仓嵌套在项目目录下时（仓库在子目录内），`create_task` 沿 `repo_root` 向上查找最近的 `project.yaml`，读取 `workspace.root` 定位项目根，把 `task.yaml` 与归档都写在那里——避免同一项目出现两个 `.devflow/`。无任何祖先声明时退化为 `repo_root`，普通项目行为不变。
 
@@ -250,7 +250,7 @@ GATE_DELIVERY（确认点，不是独立 phase）——一次询问「commit + p
    │
    ▼
 DISTILL →（PR 合并后 /devflow next）→ DONE
-   │  清理后来者 worktree（若有）+ 本地分支（不删远程）+ 切回 base_ref
+   │  删本地分支（不删远程）+ 切回 base_ref
    ▼
 完成汇报（commit / PR URL / 清理状态 / 当前分支）
 ```

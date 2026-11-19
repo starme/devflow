@@ -7,7 +7,7 @@ description: Intent-anchoring, verification-gated DevFlow lifecycle for any git 
 
 Read the repository's `.devflow/project.yaml` and the current task's `.devflow/task.yaml` before acting. Only old projects fall back to `.devflow/manifest.yaml` (legacy, read-only — no migration inside a lifecycle hook).
 
-Default isolation is in-place: the first unfinished task works on a feature branch in the main workspace. Only a latercomer that would collide with that unfinished task gets a `.devflow-worktrees/<repo>/<task-id>` worktree. Pin `cwd` to the task workspace. Process artifacts are published only in delivery to `.devflow/tasks/<task-id>/`.
+Every task works in-place on a feature branch in the main workspace; a second task is refused while one is unfinished (`/devflow next` finishes or archives it first). The retired `.devflow-worktrees/` layout is only read, never written. Process artifacts are published only in delivery to `.devflow/tasks/<task-id>/`.
 
 Core scripts (`delivery.py`, `artifact_publish.py`, `worktree_manager.py`) live at `$DEVFLOW_CORE_ROOT` or `<plugin-root>/core/orchestrator/`. This marketplace package is the repository root so those scripts are installed with the skill.
 

@@ -18,10 +18,10 @@ argument-hint: [--base <git-ref>] [--source-task <task-id>] <需求或 bug 描�
 
 1. 确认当前目录位于 Git 仓库，且项目已 `/devflow init`（读 `.devflow/project.yaml`；旧项目兼容读 `manifest.yaml`，不覆盖旧状态）。
 2. 主工作区**没有**活动 task 时：已跟踪改动必须干净（临时修改不带进新分支）。
-3. 主工作区**已有**活动 task 时：允许再开，后来者进 worktree，不要求主工作区干净。
+3. 主工作区**已有**活动 task 时：拒绝再开，提示先 `/devflow next` 完成或归档该 task。所有 task 串行在主工作区进行。
 4. 同一 task 重复 start 才拒绝。
 5. bug 只存在于未合并需求时，要求用户明确 `--base <branch>`；`--source-task` 只记录来源，不建依赖图。
-6. 只读对照主分支（查线上）不用本命令，用临时 `git worktree add` 或 `git show`。
+6. 只读对照主分支（查线上）不用本命令，用临时 `git worktree add` 或 `git show`。（与 task 隔离无关，不受影响）
 
 ## 创建 task
 
@@ -35,7 +35,6 @@ argument-hint: [--base <git-ref>] [--source-task <task-id>] <需求或 bug 描�
 1. 生成唯一 `task_id` 与 slug，定格 `git.base_commit`（`--base` 或当前主分支）。
 2. 建 `feature|fix/<slug>-<short-id>` 分支，写 `<project_root>/.devflow/task.yaml`（`current_phase: qa`，fix 记 `kind: bugfix`）。
 3. **默认 in-place**（主仓库 `checkout -b`）。`project_root` 是持有 `.devflow/` 的目录；普通项目里就是仓库根。
-4. **后来者**进 `../.devflow-worktrees/<repo>/<task-id>/`，复制 `project.yaml` / `redlines.yaml` / `rules/`，先到的不搬家。
 5. 多仓库：`project.yaml` 声明 `workspaces:` 时每端点同名分支、各自 `base_commit`，交付时各开一个 PR。
 6. 向用户报告 task id、分支、工作区路径、base commit。
 

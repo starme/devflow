@@ -44,7 +44,7 @@ description: Initialize DevFlow project — detect stack, configure paths, gener
 mkdir -p .devflow/contracts docs docs/adr
 ```
 
-新任务由 `/devflow start` 或 `/devflow fix` 创建：默认在主工作区功能分支上写 `.devflow/task.yaml`；只有主工作区已有未完成 task 时，后来者才进 `.devflow-worktrees/`。`runs/` 属于运行时审计，不应成为共享项目状态。
+新任务由 `/devflow start` 或 `/devflow fix` 创建：一律在主工作区功能分支上写 `.devflow/task.yaml`。主工作区已有未完成 task 时不再新建（拒绝并提示先完成它）；历史遗留的 `.devflow-worktrees/` 仅作只读兼容，不会新写入。`runs/` 属于运行时审计，不应成为共享项目状态。
 
 ## Step 5: 兼容说明
 

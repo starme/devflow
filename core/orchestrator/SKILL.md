@@ -146,8 +146,8 @@ review 报告出来后，**把结论原样摆给用户，由用户决定修还�
 GATE-PLAN 批准时写 `plan_pattern`（`provisional`）；task 完成时把「踩坑记录」逐条转
 `bug_pattern`（现场错误 + 根因 + 修复方法，`verified`）。Memorant 不可用写 `.devflow/retrospective.md`。
 
-**done**（仅 PR 已合并后）：清理后来者 worktree（有未提交改动先问）、删本地分支（**不删远程**）、
-切回 `base_ref`。审计日志留在 `.devflow/runs/<task-id>/`。
+**done**（仅 PR 已合并后）：删本地分支（**不删远程**）、切回 `base_ref`。所有 task 都在主工作区
+in-place 进行，没有需要清理的额外工作区。审计日志留在 `.devflow/runs/<task-id>/`。
 
 ## 中断恢复（/devflow next）
 

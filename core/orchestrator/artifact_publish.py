@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Publish completed formal task artifacts into the project archive root.
 
-DevFlow runs formal tasks in isolated worktrees at
-``<repo_root.parent>/.devflow-worktrees/<repo>/<task-id>/``.  Artifacts written
-there (plan document, review/verification reports, implementation notes) stay
-inside the worktree.  This module publishes them **once, at delivery**
-(ADR-0004 revision: milestone publishing was retired) into a per-task
-namespace under the project's archive root::
+DevFlow tasks work in-place: ``create_task`` never isolates a task in an
+external worktree, so artifacts (plan document, review/verification reports)
+are written under the task's own ``.devflow/`` directory.  This module
+publishes them **once, at delivery** (ADR-0004 revision: milestone publishing
+was retired) into a per-task namespace under the project's archive root::
 
     <project_root>/.devflow/tasks/<task-id>/
         README.md                      # source index (task metadata + artifact map)
@@ -17,13 +16,18 @@ namespace under the project's archive root::
         ...
 
 The archive root derives from ``project_root`` (the directory holding
-``.devflow/``), while the task worktree location derives from ``repo_root``
-(the git repository root).  These two authorities are orthogonal and are passed
-in explicitly (``--root`` and ``--repo-root`` on the CLI), never inferred from a
+``.devflow/``), while the live task state derives from ``repo_root`` (the git
+repository root).  These two authorities are orthogonal and are passed in
+explicitly (``--root`` and ``--repo-root`` on the CLI), never inferred from a
 single ambiguous root — form A (project_root == repo_root), form B
 (project_root == repo_root.parent), and the self-hosted shape
 (project_root == repo_root.parent.parent with the git repo nested inside the
 project) all resolve correctly.
+
+Legacy worktrees still read: a task created by an older DevFlow that isolated a
+latercomer under ``.devflow-worktrees/`` remains locatable by id so its
+unpublished artifacts can still be archived.  Nothing writes to that layout
+anymore.
 
 Publishing is idempotent and content-addressed: an identical target is skipped,
 a differing target is *refused* (never last-writer-wins), and already-published
@@ -34,14 +38,11 @@ Usage:
     python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root>
         --task <id>
     python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root>
-        --worktree <path>
-    python3 artifact_publish.py publish --root <project_root> --repo-root <repo_root>
         --all-tasks [--dry-run]
 
-``--task`` resolves a task by id in either form: a formal worktree under
-``.devflow-worktrees/<repo>/<task-id>/`` (checked first), or the in-place
-default where ``repo_root/.devflow/task.yaml`` holds the task and its artifacts
-live directly under ``repo_root/.devflow/``.
+``--task`` resolves a task by id: the in-place state file at the repo or
+project root first, then a legacy worktree under
+``.devflow-worktrees/<repo>/<task-id>/``, then the archive.
 """
 
 from __future__ import annotations
@@ -121,7 +122,12 @@ def target_name(source_rel: str, meta: dict[str, str]) -> str:
 
 
 def _worktree_root(repo_root: Path, task_id: str) -> Path:
-    """Return the formal task worktree directory for *task_id*."""
+    """Return a legacy task worktree directory for *task_id*.
+
+    Read-only compatibility: tasks isolated under ``.devflow-worktrees/`` by an
+    older DevFlow are still locatable so their unpublished artifacts can be
+    archived. Nothing writes to this layout anymore.
+    """
     return repo_root.parent / ".devflow-worktrees" / repo_root.name / task_id
 
 
@@ -133,12 +139,6 @@ def resolve_archive_root(project_root: Path) -> Path:
     so no existence probing is needed.
     """
     return project_root / ".devflow" / "tasks"
-
-
-def _is_formal_worktree(worktree: Path) -> bool:
-    """Return True when *worktree* sits inside a ``.devflow-worktrees/`` tree."""
-    parts = worktree.resolve().parts
-    return ".devflow-worktrees" in parts
 
 
 def _has_legal_task_state(task_file: Path) -> bool:
@@ -163,8 +163,8 @@ class TaskLocation:
 
     A task is described by exactly one of these, and every caller asks
     ``locate_task`` rather than re-deriving the answer from paths it happens to
-    know. The layout has four such places — a formal worktree, an in-place state
-    file under either the repo root or the project root, and an archive under
+    know. The layout has four such places — an in-place state file under either
+    the repo root or the project root, a legacy worktree, and an archive under
     either root — and treating them ad hoc is what made earlier fixes
     repeatedly incomplete.
     """
@@ -247,11 +247,15 @@ def locate_task(repo_root: Path, project_root: Path, task_id: str) -> TaskLocati
     Search order, matching on the id rather than on whichever task.yaml happens
     to be live right now:
 
-    1. a formal worktree under ``.devflow-worktrees/``
-    2. an in-place state file at the repo root
-    3. an in-place state file at the project root
+    1. an in-place state file at the repo root
+    2. an in-place state file at the project root
+    3. a legacy worktree under ``.devflow-worktrees/``
     4. an archive under the repo root
     5. an archive under the project root
+
+    Steps 1 and 2 come first because in-place is the only way new tasks are
+    created; the legacy worktree step remains so an older isolated task can
+    still be found and archived.
 
     Steps 4 and 5 also match an archive directory with no ``task.yaml`` (older
     archives kept only their artifacts), reporting ``has_state=False`` rather
@@ -263,11 +267,6 @@ def locate_task(repo_root: Path, project_root: Path, task_id: str) -> TaskLocati
     repo_root = repo_root.resolve()
     project_root = project_root.resolve()
 
-    worktree_dir = _worktree_root(repo_root, task_id)
-    state = _worktree_state(worktree_dir)
-    if state is not None:
-        return _task_location(task_id, "worktree", worktree_dir.resolve(), state)
-
     state = _in_place_state(repo_root, task_id)
     if state is not None:
         return _task_location(task_id, "in-place", repo_root, state)
@@ -275,6 +274,11 @@ def locate_task(repo_root: Path, project_root: Path, task_id: str) -> TaskLocati
     state = _in_place_state(project_root, task_id)
     if state is not None:
         return _task_location(task_id, "in-place", project_root, state)
+
+    worktree_dir = _worktree_root(repo_root, task_id)
+    state = _worktree_state(worktree_dir)
+    if state is not None:
+        return _task_location(task_id, "worktree", worktree_dir.resolve(), state)
 
     for root in (resolve_archive_root(repo_root), resolve_archive_root(project_root)):
         directory = (root / task_id).resolve() if task_id else None
@@ -288,12 +292,10 @@ def locate_task(repo_root: Path, project_root: Path, task_id: str) -> TaskLocati
 def discover_task(
     repo_root: Path,
     task_id: str | None = None,
-    worktree: str | None = None,
     all_tasks: bool = False,
     archive_root: Path | None = None,
 ) -> Path:
-    """Locate a publishable task worktree by precedence: ``--worktree``,
-    ``--task``, then ``--all-tasks``.
+    """Locate a publishable task by precedence: ``--task``, then ``--all-tasks``.
 
     *repo_root* is the git repo root; *archive_root* is the directory holding
     ``.devflow/`` (``project_root``), which differs from it in the self-hosted
@@ -306,39 +308,25 @@ def discover_task(
     repo_root = repo_root.resolve()
     project_root = (archive_root or repo_root).resolve()
 
-    if worktree:
-        candidate = Path(worktree).resolve()
-        if not _is_formal_worktree(candidate):
-            raise ValueError(f"worktree outside .devflow-worktrees/: {candidate}")
-        state = _worktree_state(candidate)
-        if state is None:
-            raise ValueError(f"no legal .devflow/task.yaml in worktree: {candidate}")
-        location = _task_location(load_task(state).task_id, "worktree", candidate, state)
-        if not is_publishable(location):
-            raise ValueError(
-                f"task {location.task_id} is {location.phase or 'unstated'}; nothing to publish"
-            )
-        return candidate
-
     if task_id:
         location = locate_task(repo_root, project_root, task_id)
         if location.root is not None and is_publishable(location):
             return location.root
         if location.kind == "missing":
-            raise ValueError(f"formal task worktree not found for task id: {task_id}")
+            raise ValueError(f"task not found for task id: {task_id}")
         detail = location.phase or "no task.yaml"
         raise ValueError(
             f"task {task_id} is {location.kind} ({detail}); not publishable"
         )
 
     if all_tasks:
-        for task_file in find_task_files(repo_root):
+        for task_file in find_task_files(repo_root, state_root=project_root):
             location = locate_task(repo_root, project_root, load_task(task_file).task_id)
             if is_publishable(location) and location.root is not None:
                 return location.root
-        raise ValueError("no formal task worktrees found")
+        raise ValueError("no publishable in-place task found")
 
-    raise ValueError("one of --task, --worktree, or --all-tasks is required")
+    raise ValueError("one of --task or --all-tasks is required")
 
 
 def describe_task(repo_root: Path, project_root: Path, task_id: str) -> dict[str, object]:
@@ -892,11 +880,10 @@ def main(argv: list[str] | None = None) -> int:
     p_publish.add_argument(
         "--repo-root",
         required=True,
-        help="Git repository root (the worktree-location authority)",
+        help="Git repository root (the live task-state authority)",
     )
     group = p_publish.add_mutually_exclusive_group(required=True)
     group.add_argument("--task", help="Publish by task id")
-    group.add_argument("--worktree", help="Publish by explicit worktree path")
     group.add_argument("--all-tasks", action="store_true", help="Publish the first discovered task")
     p_publish.add_argument("--dry-run", action="store_true")
 
@@ -915,7 +902,6 @@ def main(argv: list[str] | None = None) -> int:
         worktree = discover_task(
             repo_root,
             task_id=args.task,
-            worktree=args.worktree,
             all_tasks=args.all_tasks,
             archive_root=project_root,
         )
