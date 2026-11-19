@@ -1062,10 +1062,18 @@ def is_within_boundary(abs_path, workspace, track, cwd=None):
 
 _DANGEROUS_CMD_PATTERNS = [
     (
-        re.compile(r"\brm\s+(-[rRf]+\s+)+(/|~|\$HOME|/\*|\$\(.*\))", re.IGNORECASE),
+        # Recursive delete aimed at the filesystem root, a home directory, or
+        # a substitution result. The shape matters:
+        #   ``/``  must be the whole path — ``/tmp/scratch`` is routine cleanup,
+        #          and matching its leading slash blocked every temp cleanup.
+        #   ``~`` / ``$HOME`` cover their subtrees too — deleting ``~/Documents``
+        #          is as unrecoverable as deleting ``~`` itself.
+        re.compile(
+            r"\brm\s+(-[rRf]+\s+)+(?:/\s*$|/\*|~(?:/|\s|$)|\$HOME(?:/|\s|$)|\$\(.*\))"
+        ),
         "Destructive recursive delete on system/home directory",
     ),
-    (re.compile(r"\brm\s+-rf\s+/\*"), "Destructive recursive delete on root"),
+    (re.compile(r"\brm\s+(-[rRf]+\s+)+/\*"), "Destructive recursive delete on root"),
     (re.compile(r"\bmkfs\b", re.IGNORECASE), "Filesystem formatting command"),
     (re.compile(r"\bdd\s+if=", re.IGNORECASE), "Raw disk write via dd"),
     (re.compile(r">\s*/dev/sd[a-z]", re.IGNORECASE), "Direct write to block device"),

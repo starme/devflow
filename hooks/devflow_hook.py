@@ -428,6 +428,17 @@ def handle_user_prompt(data):
             "delivery",
         }
         if phase in gate_phases:
+            # ``qa`` is the design-time recall point (SKILL: recall before
+            # writing the plan). Left to the model's memory, it was skipped in
+            # the 2026-11 dogfood — the hook has to say it, not hope for it.
+            if phase == "qa":
+                return emit(
+                    "[DevFlow] qa phase: do the design-time recall now if you have not — "
+                    "call memorant_recall with the core intent + domain words, and fill the "
+                    "plan's 历史经验 section before drafting anything. "
+                    "Plan approval and delivery are the only gates; work runs to the next one.",
+                    "UserPromptSubmit",
+                )
             return emit(
                 f"[DevFlow] Awaiting your review/approval in {phase} phase.",
                 "UserPromptSubmit",

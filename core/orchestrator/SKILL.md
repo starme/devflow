@@ -50,15 +50,43 @@ description: >-
 | 触发 | 检索词 |
 |---|---|
 | 测试 / lint / 构建失败 | 第一条错误行（去栈、去绝对路径、限 200 字） |
-| `devflow-verifier` 报 FAIL | 该验收标准 + 失败证据摘要 |
+| `devflow:devflow-verifier` 报 FAIL | 该验收标准 + 失败证据摘要 |
 | 首次修改某个文件 | 文件名 + `修改` / `坑` / `注意` |
 | 准备引入新依赖 | 包名 + `已知问题` |
 
 没命中写「未命中」并继续，**不要自己编经验**。
 
+## 产物路径（先读这条）
+
+**凡是 `.devflow/` 下的过程产物，一律写在与 `task.yaml` 同级的目录。**
+
+`create_task` 把 `task.yaml` 写到 `project_root`——多数普通项目里就是仓库根，但插件自托管仓库里
+它可能在仓库的**上一级**。`artifact_publish` 也按那份 `task.yaml` 找产物。所以「相对工作区」
+这个说法不够：工作区是本任务 checkout 的目录，产物目录是 `task.yaml` 的目录，两者可以不同。
+
+写产物前先定位，**从 `git rev-parse --show-toplevel` 起逐级向上**找最近的 `.devflow/task.yaml`：
+
+```bash
+d="$(git rev-parse --show-toplevel)"
+while [ "$d" != "/" ]; do
+  [ -f "$d/.devflow/task.yaml" ] && { echo "$d/.devflow"; break; }
+  d="$(dirname "$d")"
+done
+```
+
+两条注意：
+
+- 不要用 `find .`——它只搜当前目录树，而 `task.yaml` 可能就在仓库上一级。
+- **找到的 `task.yaml` 要核对其 `phase` 不是 `done`**。仓库内可能残留上一轮任务的 `task.yaml`
+  （本仓库就有一个 10-23 的 `devflow/.devflow/task.yaml`，`phase: done`），
+  而活动 task 在上一级。**`phase: done` 的那份不是当前 task**，继续往上找。
+
+产物落到别处的后果是静默的：文件写成功了，`/devflow status` 显示「未审查」，
+交付归档时找不到它。**不会报错，只会丢东西。**
+
 ## GATE-PLAN：方案文档
 
-写 `.devflow/plan.md`（模板 `core/templates/plan.md`），一份文档同时回答「要不要做」和「怎么做」。
+写 `<task.yaml 同级>/.devflow/plan.md`（模板 `core/templates/plan.md`），一份文档同时回答「要不要做」和「怎么做」。
 
 硬约束：原话逐字；需求明细每条标来源（`原话`/`Q&A·R<N>`/`推断·已确认 <日期>`）且非目标必填；
 历史经验必须存在；**备选方案至少两个并写明否决理由**（说不出理由说明没比过）；验收标准每条标
@@ -74,13 +102,31 @@ description: >-
 **不扩散**：发现方案之外的问题 → 写进第 10 节「待办支线」，**不改**，主线完成后统一报告。
 顺手改掉就是扩散，会让本任务的验收标准失效。偏差记进第 11 节；涉及验收标准变更回 GATE-PLAN。
 
-**QA** → 派 `devflow-verifier`，输入 `plan_path` / `rules` / `memorant_context` / `round`，
+**QA** → 派 `devflow:devflow-verifier`，输入 `plan_path` / `rules` / `memorant_context` / `round`，
 产物 `.devflow/verification-report.md`。全 PASS 进 review；FAIL 自己修后重派（3 轮仍 FAIL 停下报告）；
 BLOCKED 报环境问题；MANUAL 留到交付确认。
 
-**review** → 派 `devflow-reviewer`，输入 `plan_path` / `base_commit` / `rules` / 可用 lint 与安全工具，
-产物 `.devflow/review-report.md`（按 high/medium/low 分级，带文件行号）。它**不是 Gate、不阻塞**：
-把结论摆给用户——选「修」回 working 重跑 QA+review，选「直接交付」就带着报告进 GATE-DELIVERY。
+**review** → 派 `devflow:devflow-reviewer`，输入 `plan_path` / `base_commit` / `rules` / 可用 lint 与安全工具，
+产物 `.devflow/review-report.md`（按 high/medium/low 分级，带文件行号）。它**不是 Gate、不阻塞**。
+
+### review 之后：人来决定（重要）
+
+review 报告出来后，**把结论原样摆给用户，由用户决定修还是直接交付**。
+
+**不要自己发起第二轮 review。** 理由不是流程洁癖——实现者是同一个模型，让它派 agent 复查
+自己刚改的代码、再自己消费结论，就是**自我批准**：第一轮还有真实盲点可抓，第二轮只剩
+「我改完了，确认我改对了」。这个循环在权限层面会被判定为 self-approval 并拒绝，
+即便没被拒绝，它也不产生独立判断。
+
+所以：
+
+| 场景 | 谁决定 |
+|---|---|
+| review 报告出来 | 用户决定修哪些、还是直接交付 |
+| 修完是否需要**第二轮** review | **用户决定**；用户没要求就不重派 |
+| 第二轮的结论 | 交给用户看，不自动开修 |
+
+**review 只做一次是常态。** 修完有 QA 回归 + 测试覆盖，这已经足够支撑交付判断。
 
 ## GATE-DELIVERY
 

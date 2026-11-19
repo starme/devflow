@@ -50,14 +50,14 @@ argument-hint: [--base <git-ref>] [--source-task <task-id>] <需求或 bug 描�
 3. 写 `.devflow/plan.md`（模板 `core/templates/plan.md`）：需求明细带来源 + 历史经验 + **备选方案与否决理由（至少两个）** + 实现要点 + 验收标准表（映射 R#）。fix 用瘦版。
 4. **plan_review（GATE-PLAN）**：展示方案文档，重点给来源 ≠ 原话的行，等用户批准。批准即冻结，同时写回一条 `plan_pattern`。
 5. **working**：直接实现，勾进度；方案之外的问题写进「待办支线」不修；按四个触发条件召回并写进「踩坑记录」。
-6. **QA**：派 `devflow-verifier` → `.devflow/verification-report.md`。FAIL 自己修后重派，连续 3 轮失败停下报告。
-7. **review**：派 `devflow-reviewer` → `.devflow/review-report.md`。把结论摆给用户，**由用户决定修还是直接交付**。
+6. **QA**：派 `devflow:devflow-verifier` → `.devflow/verification-report.md`。FAIL 自己修后重派，连续 3 轮失败停下报告。
+7. **review**：派 `devflow:devflow-reviewer` → `.devflow/review-report.md`。把结论摆给用户，**由用户决定修还是直接交付**。
 8. **deliver_confirm（GATE-DELIVERY）**：探测 + 归档 + 一次三合一确认 → commit + push + PR。**PR 创建后暂停，永不自动 merge。**
 9. **distill**：把「踩坑记录」逐条写回 `bug_pattern`（`verified`）；Memorant 不可用写 `.devflow/retrospective.md`。PR 合并后 `/devflow next` 做清理。
 
 ## 注意
 
-- 需求澄清在当前会话完成；派发的只有 `devflow-verifier` 和 `devflow-reviewer`。
+- 需求澄清在当前会话完成；派发的只有 `devflow:devflow-verifier` 和 `devflow:devflow-reviewer`。
 - Gate 等人时停；其余阶段直接干到下一个 Gate，不要求用户打 `/devflow next`。
 - 不自动 merge。交付确认通过后才 push 和创建 PR。
 - Memorant 不可用时静默降级，不阻塞流程。
