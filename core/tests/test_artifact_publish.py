@@ -40,7 +40,15 @@ def _meta(**overrides) -> dict:
     return meta
 
 
-def _task_yaml(task_id: str, slug: str, kind: str = "feature", phase: str = "qa") -> str:
+def _task_yaml(
+    task_id: str,
+    slug: str,
+    kind: str = "feature",
+    phase: str = "qa",
+    worktree: str = "",
+) -> str:
+    # In-place is the only layout new tasks use, so the recorded path defaults
+    # to an empty marker rather than a worktree path tests no longer create.
     record = TaskRecord(
         task_id=task_id,
         slug=slug,
@@ -49,7 +57,7 @@ def _task_yaml(task_id: str, slug: str, kind: str = "feature", phase: str = "qa"
         base_ref="main",
         base_commit="deadbeef" * 5,
         branch=f"{kind}/{task_id}",
-        worktree=f"/tmp/.devflow-worktrees/repo/{task_id}",
+        worktree=worktree or f"/tmp/in-place/{task_id}",
     )
     return render_task_yaml(record, current_phase=phase)
 
@@ -81,10 +89,25 @@ class _Fixture:
         return self.repo.parent / ".devflow-worktrees" / self.repo.name / task_id
 
     def make_task(self, task_id: str, slug: str, kind: str = "feature") -> Path:
+        """Create an in-place task rooted at the repo (the default layout).
+
+        New tasks are always in-place, so this is what every publishing test
+        exercises. Use ``make_legacy_worktree`` when testing the read-only
+        compatibility path for older isolated tasks.
+        """
+        devflow = self.repo / ".devflow"
+        devflow.mkdir(parents=True, exist_ok=True)
+        (devflow / "task.yaml").write_text(_task_yaml(task_id, slug, kind), encoding="utf-8")
+        return self.repo
+
+    def make_legacy_worktree(self, task_id: str, slug: str, kind: str = "feature") -> Path:
+        """Create a task under ``.devflow-worktrees/``, the retired layout."""
         wt = self.worktree_dir(task_id)
         devflow = wt / ".devflow"
         devflow.mkdir(parents=True, exist_ok=True)
-        (devflow / "task.yaml").write_text(_task_yaml(task_id, slug, kind), encoding="utf-8")
+        (devflow / "task.yaml").write_text(
+            _task_yaml(task_id, slug, kind, worktree=str(wt)), encoding="utf-8"
+        )
         return wt
 
     def artifact(self, worktree: Path, name: str, content: str = "") -> Path:
@@ -152,10 +175,12 @@ class ArchiveRootTest(unittest.TestCase):
 
 
 class DiscoveryTest(unittest.TestCase):
-    def test_discover_by_explicit_worktree(self):
+    def test_discover_legacy_worktree_by_task_id(self):
+        # A task isolated by an older DevFlow is still locatable so its
+        # unpublished artifacts can be archived.
         f = _Fixture(tempfile.mkdtemp())
-        wt = f.make_task("t-1", "t-1")
-        found = ap.discover_task(f.repo, worktree=str(wt))
+        wt = f.make_legacy_worktree("t-1", "t-1")
+        found = ap.discover_task(f.repo, task_id="t-1")
         self.assertEqual(found, wt.resolve())
 
     def test_discover_by_task_id(self):
@@ -210,7 +235,7 @@ class DiscoveryTest(unittest.TestCase):
         f = _Fixture(tempfile.mkdtemp())
         f.make_task("t-3", "t-3")
         found = ap.discover_task(f.repo, all_tasks=True)
-        self.assertEqual(found.name, "t-3")
+        self.assertEqual(found, f.repo.resolve())
 
     def test_missing_task_yaml_not_identified(self):
         # Directory name matches a task but has no task.yaml -> not recognized.
@@ -221,26 +246,19 @@ class DiscoveryTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             ap.discover_task(f.repo, task_id="ghost")
 
-    def test_explicit_worktree_outside_tree_rejected(self):
+    def test_in_place_wins_over_legacy_worktree(self):
+        # In-place is the live layout, so it must be located first even when a
+        # stale .devflow-worktrees/ entry carries the same id.
         f = _Fixture(tempfile.mkdtemp())
-        outside = f.parent / "elsewhere"
-        outside.mkdir(parents=True)
-        (outside / ".devflow").mkdir()
-        (outside / ".devflow" / "task.yaml").write_text(_task_yaml("x", "x"), encoding="utf-8")
-        with self.assertRaises(ValueError):
-            ap.discover_task(f.repo, worktree=str(outside))
-
-    def test_explicit_worktree_without_task_yaml_rejected(self):
-        f = _Fixture(tempfile.mkdtemp())
-        wt = f.worktree_dir("t-4")
-        (wt / ".devflow").mkdir(parents=True)
-        with self.assertRaises(ValueError):
-            ap.discover_task(f.repo, worktree=str(wt))
+        f.make_legacy_worktree("t-dup", "t-dup")
+        live = f.make_task("t-dup", "t-dup")
+        self.assertEqual(ap.discover_task(f.repo, task_id="t-dup"), live.resolve())
 
     def test_no_selector_raises(self):
         f = _Fixture(tempfile.mkdtemp())
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as ctx:
             ap.discover_task(f.repo)
+        self.assertIn("one of --task or --all-tasks", str(ctx.exception))
 
     def test_read_task_meta(self):
         f = _Fixture(tempfile.mkdtemp())
@@ -276,9 +294,11 @@ class TaskLocationTest(unittest.TestCase):
         state.write_text(_task_yaml(task_id, task_id, phase=phase), encoding="utf-8")
         return state
 
-    def test_locates_formal_worktree(self):
+    def test_locates_legacy_worktree(self):
+        # Read-only compatibility: a task isolated by an older DevFlow is still
+        # located and publishable so its artifacts can be archived.
         f = _Fixture(tempfile.mkdtemp())
-        wt = f.make_task("t-wt", "t-wt")
+        wt = f.make_legacy_worktree("t-wt", "t-wt")
         location = ap.locate_task(f.repo, f.project_root, "t-wt")
         self.assertEqual(location.kind, "worktree")
         self.assertEqual(location.root, wt.resolve())
@@ -690,13 +710,16 @@ class PublishTest(unittest.TestCase):
         self.assertEqual((wt / ".devflow" / "prd.md").read_text(encoding="utf-8"), "new content")
 
     def test_two_tasks_same_prd_name_do_not_overwrite(self):
+        # Tasks run serially in one checkout, so the second task's plan replaces
+        # the first's at the same path; each must still land in its own archive
+        # namespace instead of overwriting the other.
         f = _Fixture(tempfile.mkdtemp())
         wt1 = f.make_task("task-one", "task-one")
-        wt2 = f.make_task("task-two", "task-two")
         f.artifact(wt1, "prd.md", "prd for one")
-        f.artifact(wt2, "prd.md", "prd for two")
-
         ap.publish(f.project_root, wt1)
+
+        wt2 = f.make_task("task-two", "task-two")
+        f.artifact(wt2, "prd.md", "prd for two")
         ap.publish(f.project_root, wt2)
 
         one = f.archive_dir() / "task-one" / "prd-task-one.md"
@@ -772,9 +795,9 @@ class TaskYamlRefUpdateTest(unittest.TestCase):
         record = load_task(wt / ".devflow" / "task.yaml")
         self.assertEqual(record.task_id, "t-14")
 
-    def test_update_preserves_delivery_field_and_does_not_touch_root(self):
+    def test_update_preserves_delivery_field_and_writes_single_state_file(self):
         f = _Fixture(tempfile.mkdtemp())
-        wt = f.make_task("t-15", "t-fifteen")
+        wt = f.make_legacy_worktree("t-15", "t-fifteen")
         f.artifact(wt, "prd.md", "prd")
 
         _actions, mapping = ap.plan_publish(wt, f.archive_dir() / "t-15")
@@ -783,8 +806,11 @@ class TaskYamlRefUpdateTest(unittest.TestCase):
         content = (wt / ".devflow" / "task.yaml").read_text(encoding="utf-8")
         # delivery is a legacy scalar, preserved.
         self.assertIn('delivery: ".devflow/delivery.yaml"', content)
-        # Root .devflow/task.yaml must never be created.
-        self.assertFalse((f.repo / ".devflow" / "task.yaml").exists())
+        # Publishing an isolated task updates only its own state: the archive
+        # root (f.project_root) must gain no second task.yaml.
+        self.assertFalse((f.project_root / ".devflow" / "task.yaml").exists())
+        # ...and the copy really did rewrite refs at the source.
+        self.assertIn("published:", content)
 
 
 class CliTest(unittest.TestCase):

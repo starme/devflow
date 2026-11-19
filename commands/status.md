@@ -9,7 +9,7 @@ argument-hint: [--task <task-id>] [--all]
 
 - `/devflow status`：当前 worktree 的 task；主仓库只有一个活动 task 时显示它。
 - `/devflow status --task <task-id>`：显示指定 task。
-- `/devflow status --all`：通过 `git worktree list --porcelain` 发现并汇总全部 DevFlow task worktree。
+- `/devflow status --all`：通过 `discover_tasks` 发现并汇总活动 task 与归档（历史遗留 `.devflow-worktrees/` 只读兼容）。
 - 旧项目没有 `project.yaml`/`task.yaml` 时读取 `.devflow/manifest.yaml`，明确标记 `legacy single-manifest`。
 
 ## 输出内容

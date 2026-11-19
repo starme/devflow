@@ -16,7 +16,7 @@ flowchart LR
     V --> R["devflow-reviewer<br/>standards / security / quality"]
     R --> H2["GATE-DELIVERY<br/>commit + push + PR"]
     H2 -.-> M["Review and merge"]
-    M -.-> C["Clean local worktree<br/>return to base branch"]
+    M -.-> C["Clean local branch<br/>return to base branch"]
 ```
 
 ## Why DevFlow?
@@ -74,7 +74,7 @@ Use `/devflow status` to inspect progress. Work continues to the next gate witho
 1. **Clarify** — your original description is frozen verbatim; one restatement of the core ask gets your confirmation; follow-up questions only fill gaps (never add scope), and model inferences must be explicitly confirmed.
 2. **Recall at design time** — before drafting the plan, ask Memorant how this kind of demand was handled last time and which options were rejected. Each memory arrives with its trust level (verified / provisional).
 3. **Plan document** — requirements with provenance, historical experience, **at least two alternatives with their rejection reasons**, and an acceptance table (`cmd` / `ai` / `manual`, each mapped to a requirement). GATE-PLAN approval freezes it as the definition of done.
-4. **Implement** — the main thread works directly in the workspace (a latercomer task gets a worktree; multi-repo projects create the same branch in every repository). Anything outside the plan goes into "side issues" instead of being fixed. Recall fires again on a failing test, a verifier FAIL, a first edit, or a new dependency.
+4. **Implement** — the main thread works directly in the workspace (a second task is refused while one is unfinished; multi-repo projects create the same branch in every repository). Anything outside the plan goes into "side issues" instead of being fixed. Recall fires again on a failing test, a verifier FAIL, a first edit, or a new dependency.
 5. **Verify and review** — `devflow-verifier` executes every criterion and the regression suite with evidence; `devflow-reviewer` reports standards, security, and quality findings with file:line. Neither edits code.
 6. **Deliver** — one confirmation covers the allow-listed commit, branch push, and PR creation, with the verification report, review report, manual items, and side issues shown together.
 
@@ -94,7 +94,7 @@ Plus one **non-gate decision**: once the review report lands, you choose to fix 
 - Only code and explicitly listed task artifacts are committed; runtime context, audit logs, and temporary files are excluded.
 - On delivery, task artifacts are archived to `.devflow/tasks/<task-id>/` (the plan as `plan.md`, other artifacts keep fixed names) so you can trace what was planned, verified, reviewed, and delivered. See [the archive decision](docs/adr/0004-task-archive-convergence.md).
 - PR creation pauses the task. DevFlow never merges the PR automatically.
-- After the PR is merged, run `/devflow next --task <task-id>` to remove the local task worktree and local branch, keep the remote branch, and return to the task's base branch.
+- After the PR is merged, run `/devflow next --task <task-id>` to remove the local task branch, keep the remote branch, and return to the task's base branch.
 
 ## Commands
 
@@ -145,4 +145,4 @@ Install Memorant separately from the [Memorant project](https://github.com/starm
 
 Update the marketplace and reinstall the plugin using the host's normal plugin commands. Do not upgrade while an active task is running unless you have reviewed the release changes.
 
-To uninstall the Claude Code marketplace installation, remove the installed marketplace through Claude Code's plugin management. Project task branches and worktrees should be cleaned through `/devflow next --task <task-id>` after their PRs are merged.
+To uninstall the Claude Code marketplace installation, remove the installed marketplace through Claude Code's plugin management. Project task branches should be cleaned through `/devflow next --task <task-id>` after their PRs are merged.

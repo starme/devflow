@@ -64,32 +64,33 @@ class WorktreeManagerTest(unittest.TestCase):
         )
         return root
 
-    def test_first_task_is_in_place_second_gets_worktree(self):
+    def test_first_task_is_in_place_second_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = self._repository(temp_dir)
             feature = create_task(root, "Add weekly report", "feature")
-            bugfix = create_task(
-                root, "Fix completed report bug", "bugfix", source_task_id=feature.task_id
-            )
 
             self.assertEqual(Path(feature.worktree).resolve(), root.resolve())
-            self.assertIn(".devflow-worktrees", bugfix.worktree)
-            self.assertNotEqual(feature.branch, bugfix.branch)
-            self.assertEqual(feature.base_commit, bugfix.base_commit)
             self.assertEqual(load_task(root / ".devflow" / "task.yaml").kind, "feature")
+
+            with self.assertRaises(WorktreeError) as ctx:
+                create_task(
+                    root, "Fix completed report bug", "bugfix", source_task_id=feature.task_id
+                )
+            self.assertIn("/devflow next", str(ctx.exception))
+
+            # Nothing was created for the refused task: no worktree tree, and
+            # the only branches are the base plus the first task's feature.
+            self.assertFalse((root.parent / ".devflow-worktrees").exists())
+            branches = subprocess.run(
+                ["git", "branch", "--format=%(refname:short)"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.split()
+            self.assertEqual(sorted(branches), sorted(["main", feature.branch]))
             self.assertEqual(
-                load_task(Path(bugfix.worktree) / ".devflow" / "task.yaml").source_task_id,
-                feature.task_id,
-            )
-            # The latercomer is seeded into its own worktree; the in-place task
-            # is still active there, so nothing gets archived.
-            self.assertFalse((root / ".devflow" / "tasks" / feature.task_id).exists())
-            self.assertFalse(
-                (Path(bugfix.worktree) / ".devflow" / "tasks" / feature.task_id).exists()
-            )
-            self.assertEqual(
-                {record.task_id for record in discover_tasks(root)},
-                {feature.task_id, bugfix.task_id},
+                {record.task_id for record in discover_tasks(root)}, {feature.task_id}
             )
 
     def test_new_in_place_task_snapshots_the_finished_one(self):
@@ -114,6 +115,17 @@ class WorktreeManagerTest(unittest.TestCase):
             snapshot = root / ".devflow" / "tasks" / first.task_id / "task.yaml"
             self.assertTrue(snapshot.is_file(), "previous task state was not snapshotted")
             self.assertEqual(load_task(snapshot).task_id, first.task_id)
+
+    def test_create_task_always_writes_in_place_worktree_path(self):
+        # The record always names the repo itself; the retired isolation layout
+        # must never appear in state written today.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._repository(temp_dir)
+            record = create_task(root, "In-place only", "feature")
+            self.assertEqual(Path(record.worktree).resolve(), root.resolve())
+            self.assertNotIn(".devflow-worktrees", record.worktree)
+            content = (root / ".devflow" / "task.yaml").read_text(encoding="utf-8")
+            self.assertNotIn(".devflow-worktrees", content)
 
     def test_writes_state_to_project_root_when_repo_is_nested(self):
         # Self-hosted layout: the project owns .devflow/ while the git repo sits
@@ -164,8 +176,8 @@ class WorktreeManagerTest(unittest.TestCase):
             self.assertEqual(resolve_project_root(repo), project.resolve())
 
     def test_unfinished_task_under_project_root_blocks_in_place(self):
-        # A task left running at the project root must force the next one into a
-        # worktree; otherwise both would claim the same working tree.
+        # A task left running at the project root must block the next one;
+        # otherwise both would claim the same working tree.
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir) / "project"
             (project / ".devflow").mkdir(parents=True)
@@ -184,11 +196,10 @@ class WorktreeManagerTest(unittest.TestCase):
                 check=True,
             )
             first = create_task(repo, "First task", "chore")
-            second_record = create_task(repo, "Second task", "chore")
-            # The second task was isolated, so both records still exist.
-            self.assertNotEqual(Path(second_record.worktree), repo)
+            with self.assertRaises(WorktreeError):
+                create_task(repo, "Second task", "chore")
             ids = {r.task_id for r in discover_tasks(repo)}
-            self.assertIn(first.task_id, ids)
+            self.assertEqual(ids, {first.task_id})
 
     def test_create_task_writes_v2_state_without_context_json(self):
         # ADR-0005: task.yaml is self-sufficient; the runtime context.json is
@@ -208,14 +219,19 @@ class WorktreeManagerTest(unittest.TestCase):
             self.assertIn('plan: ".devflow/plan.md"', content)
             self.assertIn("verification: null", content)
 
-    def test_dirty_in_place_task_does_not_block_latercomer_worktree(self):
+    def test_dirty_workspace_with_active_task_is_still_rejected(self):
+        # Uncommitted work in a busy workspace makes sharing it even worse, so
+        # the refusal must hold regardless of dirtiness — it is the active task
+        # that blocks the request, not the cleanliness check.
         with tempfile.TemporaryDirectory() as temp_dir:
             root = self._repository(temp_dir)
             feature = create_task(root, "Add weekly report", "feature")
             (root / "README.md").write_text("wip\n", encoding="utf-8")
-            bugfix = create_task(root, "Prod hotfix", "bugfix", source_task_id=feature.task_id)
-            self.assertIn(".devflow-worktrees", bugfix.worktree)
-            self.assertTrue((Path(bugfix.worktree) / ".devflow" / "task.yaml").is_file())
+            with self.assertRaises(WorktreeError) as ctx:
+                create_task(root, "Prod hotfix", "bugfix", source_task_id=feature.task_id)
+            self.assertIn("unfinished task", str(ctx.exception))
+            # The in-place task's state is untouched.
+            self.assertEqual(load_task(root / ".devflow" / "task.yaml").task_id, feature.task_id)
 
     def test_untracked_files_do_not_block_task_creation(self):
         # AC-15: an untracked file (e.g. a prior task's unpublished artifacts)
@@ -338,6 +354,42 @@ class WorktreeManagerTest(unittest.TestCase):
                 check=True,
             ).stdout.strip()
             self.assertEqual(current, "main")
+
+    def test_multi_repo_failure_leaves_no_task_state(self):
+        # Regression: state used to be seeded before the endpoint checkouts, so
+        # a failed endpoint left a task.yaml naming branches the rollback then
+        # deleted. The rollback must leave the workspace as it found it.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, frontend = self._multi_repo_fixture(temp_dir)
+            shutil.rmtree(frontend / ".git")
+            with self.assertRaises(WorktreeError):
+                create_task(anchor, "Broken cross repo", "feature")
+            self.assertFalse((anchor / ".devflow" / "task.yaml").exists())
+            self.assertFalse((anchor / ".devflow" / "tasks").exists())
+
+    def test_multi_repo_failure_preserves_the_previous_task_state(self):
+        # A failed multi-repo start must not disturb the record of the task that
+        # already finished (its state is the one live when the next one starts).
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, frontend = self._multi_repo_fixture(temp_dir)
+            first = create_task(anchor, "First task", "chore")
+            state_file = anchor / ".devflow" / "task.yaml"
+            state_file.write_text(
+                render_task_yaml(first, current_phase="done").replace(
+                    'status: "active"', 'status: "done"'
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "checkout", "-q", "main"], cwd=anchor, check=True)
+            broken = anchor / ".devflow" / "task.yaml"
+            before = broken.read_text(encoding="utf-8")
+
+            shutil.rmtree(frontend / ".git")
+            with self.assertRaises(WorktreeError):
+                create_task(anchor, "Second task", "chore")
+
+            self.assertEqual(broken.read_text(encoding="utf-8"), before)
+            self.assertEqual(load_task(broken).task_id, first.task_id)
 
 
 if __name__ == "__main__":

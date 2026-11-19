@@ -5,7 +5,7 @@ You are executing DevFlow in Codex. Read `core/orchestrator/SKILL.md`, `.devflow
 ## Commands
 
 - `devflow init`: run the core project analyzer, classify the repository, and write category, capabilities, and evidence to `project.yaml`.
-- `devflow start <request>`: begin the v2 lifecycle — anchored Q&A, PRD, plan card, implementation, verification, delivery. The first unfinished task works in-place on a feature branch; a latercomer gets a `.devflow-worktrees/<repo>/<task-id>` worktree.
+- `devflow start <request>`: begin the v2 lifecycle — anchored Q&A, PRD, plan card, implementation, verification, delivery. Every task works in-place on a feature branch; a second task is refused while one is unfinished.
 - `devflow fix <bug>`: run the reduced bugfix lifecycle (diagnosis card, single gate).
 - `devflow status`: report category, capability, phase, artifacts, and next action.
 - `devflow next`: resume the selected task; after a merged PR this is the path into done cleanup.
@@ -16,7 +16,7 @@ This adapter is **soft**. Do not claim Claude Code-style hard `PreToolUse` inter
 
 ## Delivery (soft)
 
-Delivery lifecycle is **soft** under Codex. `git commit` / `git push` are executed through the host approval mechanism (not claimed as a Codex hard capability). PR creation is delegated via `router` mode: the host reports back the PR URL under `gh_pr_url`, which is written to `.devflow/pr.md`. Codex does **not** fabricate a hard PR-creation capability, and the PR is never merged automatically. After delivery closes, local cleanup (`git worktree remove`, `git branch -d`, `git checkout <base_ref>`) may run; the remote branch is never deleted.
+Delivery lifecycle is **soft** under Codex. `git commit` / `git push` are executed through the host approval mechanism (not claimed as a Codex hard capability). PR creation is delegated via `router` mode: the host reports back the PR URL under `gh_pr_url`, which is written to `.devflow/pr.md`. Codex does **not** fabricate a hard PR-creation capability, and the PR is never merged automatically. After delivery closes, local cleanup (`git branch -d`, `git checkout <base_ref>`) may run; the remote branch is never deleted.
 
 ## Verification (GATE-V)
 

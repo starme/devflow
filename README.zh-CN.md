@@ -16,7 +16,7 @@ flowchart LR
     V --> R["devflow-reviewer<br/>规范 / 安全 / 质量"]
     R --> H2["GATE-DELIVERY<br/>commit + push + PR"]
     H2 -.-> M["评审与合并"]
-    M -.-> C["清理本地 worktree<br/>返回基准分支"]
+    M -.-> C["清理本地分支<br/>返回基准分支"]
 ```
 
 ## 为什么使用 DevFlow？
@@ -74,7 +74,7 @@ Bug 或维护类改动使用：
 1. **澄清**——原话逐字冻结；一次复述核心诉求获你确认；追问只补核心诉求的缺口（不做加法），模型推断必须显式确认。
 2. **设计时召回**——写方案之前先问 Memorant：这类需求上次怎么做的、否掉过什么方案。信任级别（verified / provisional）随结果一起显示。
 3. **方案文档**——需求明细（带来源）+ 历史经验 + **备选方案与否决理由（至少两个）** + 验收标准表（`cmd` / `ai` / `manual`，每条映射需求 R#）。GATE-PLAN 批准后冻结为"怎么算做完"。
-4. **实现**——主线程直接在工作区做（后来者 task 进 worktree；多仓库项目在每个仓库建同名分支）。方案之外的问题只记进「待办支线」，不顺手改。开发中遇到报错、verifier FAIL、首次改文件、加依赖时再召回一次。
+4. **实现**——主线程直接在工作区做（有未完成 task 时新 task 被拒绝，先完成或归档；多仓库项目在每个仓库建同名分支）。方案之外的问题只记进「待办支线」，不顺手改。开发中遇到报错、verifier FAIL、首次改文件、加依赖时再召回一次。
 5. **验证与审查**——`devflow-verifier` 逐条执行验收标准与回归（带证据）；`devflow-reviewer` 从规范 / 安全 / 质量三个维度出带行号的问题清单。两者都不改代码。
 6. **交付**——一次确认覆盖白名单提交、推送和创建 PR，验证报告、审查报告、manual 项与待办支线同场展示。
 
@@ -94,7 +94,7 @@ Bug 或维护类改动使用：
 - 只提交代码和明确列入 task 产物清单的文档；运行时上下文、审计日志和临时文件都会排除。
 - 交付时，task 产物会归档到 `.devflow/tasks/<task-id>/`（方案文档为 `plan.md`，其余保持固定名），用来追溯方案、验证、审查与交付。详见[归档决策](docs/adr/0004-task-archive-convergence.md)。
 - 创建 PR 后流程暂停，DevFlow 不会自动合并 PR。
-- PR 合并后，执行 `/devflow next --task <task-id>`，删除本地 task worktree 和本地分支，保留远程分支，并返回该 task 的基准分支。
+- PR 合并后，执行 `/devflow next --task <task-id>`，删除本地 task 分支，保留远程分支，并返回该 task 的基准分支。
 - 详细恢复规则见[交付决策](docs/adr/0002-delivery-lifecycle.md)。
 
 ## 常用命令
@@ -146,4 +146,4 @@ Memorant 提供经验召回、Bug 模式、产品决策和经验蒸馏。未安�
 
 使用宿主提供的 marketplace 命令更新并重新安装插件。活动 task 执行期间不要升级，除非已确认版本变更（v2.1 是破坏性升级：阶段值、Agent 与产物路径都有变化，见 ADR-0006）。
 
-Claude Code marketplace 的卸载请通过 Claude Code 的插件管理功能完成。task 的 PR 合并后，使用 `/devflow next --task <task-id>` 清理项目分支和 worktree。
+Claude Code marketplace 的卸载请通过 Claude Code 的插件管理功能完成。task 的 PR 合并后，使用 `/devflow next --task <task-id>` 清理项目本地分支。
