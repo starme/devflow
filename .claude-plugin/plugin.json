@@ -1,6 +1,6 @@
 {
   "name": "devflow",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "DevFlow: 意图锚定 · 独立验证 · 独立审查 · 交付守门。主线程直接实现；verifier 判「按标准做完了吗」，reviewer 判「代码本身行不行」；人只在方案冻结与交付确认两个 Gate 拍板，PR 永不自动合并；适配任意 git 仓库。",
   "author": {
     "name": "starme",

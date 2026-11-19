@@ -86,5 +86,26 @@ class MarketplaceManifestTest(unittest.TestCase):
                 self.assertEqual([p["name"] for p in plugins], ["devflow"])
 
 
+class ReadmeVersionTest(unittest.TestCase):
+    """The README states the version in bold at the top.
+
+    Nothing enforced it, so it drifted: after ADR-0006 and the dogfood fixes
+    the manifests read 2.1.0 while the installed build was stuck at the
+    pre-fix code under the same number. A version that does not change when
+    the code does defeats the whole point of reading it before an update.
+    """
+
+    def test_readme_version_matches_the_manifests(self):
+        version = _load(PLUGIN_MANIFESTS["claude"])["version"]
+        for name in ("README.md", "README.zh-CN.md"):
+            with self.subTest(readme=name):
+                text = (ROOT / name).read_text(encoding="utf-8")
+                self.assertIn(
+                    version,
+                    text.split("\n\n")[1],
+                    f"{name} does not state version {version} in its header",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
