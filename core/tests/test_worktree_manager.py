@@ -14,9 +14,10 @@ from unittest import mock
 ORCHESTRATOR = Path(__file__).resolve().parents[1] / "orchestrator"
 sys.path.insert(0, str(ORCHESTRATOR))
 
-from task_state import TaskRecord, load_task, render_task_yaml  # noqa: E402
+from task_state import RepoEndpoint, TaskRecord, load_task, render_task_yaml  # noqa: E402
 from worktree_manager import (  # noqa: E402
     WorktreeError,
+    activate_endpoint,
     create_task,
     describe_git_skips,
     discover_tasks,
@@ -41,6 +42,45 @@ class TaskStateTest(unittest.TestCase):
             path = Path(temp_dir) / "task.yaml"
             path.write_text(render_task_yaml(record), encoding="utf-8")
             self.assertEqual(load_task(path), record)
+
+    def test_endpoint_activated_round_trips(self):
+        record = TaskRecord(
+            task_id="feat-x-a1b2",
+            slug="feat-x",
+            kind="feature",
+            description="Cross repo",
+            base_ref="main",
+            base_commit="abc123",
+            branch="feature/feat-x-a1b2",
+            working_dir="/tmp/anchor",
+            endpoints=(
+                RepoEndpoint("frontend", "/tmp/fe", "main", "def456",
+                             "feature/feat-x-a1b2", activated=False),
+                RepoEndpoint("backend", "/tmp/be", "main", "ghi789",
+                             "feature/feat-x-a1b2", activated=True),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "task.yaml"
+            path.write_text(render_task_yaml(record), encoding="utf-8")
+            self.assertEqual(load_task(path), record)
+
+    def test_endpoint_without_activated_defaults_false(self):
+        # Legacy task.yaml predates the activated field; absence reads as False.
+        content = (
+            'schema_version: 2\n\ntask:\n  id: "t1"\n  slug: "t"\n'
+            '  kind: "feature"\n  description: "d"\n  current_phase: "done"\n'
+            '  status: "done"\n\ngit:\n  base_ref: "main"\n  base_commit: "c"\n'
+            '  branch: "feature/t1"\n  working_dir: "/tmp/a"\n'
+            '  endpoints:\n    - track: "frontend"\n      git_root: "/tmp/fe"\n'
+            '      base_ref: "main"\n      base_commit: "c"\n'
+            '      branch: "feature/t1"\n'
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "task.yaml"
+            path.write_text(content, encoding="utf-8")
+            ep = load_task(path).endpoints[0]
+            self.assertFalse(ep.activated)
 
 
 class WorktreeManagerTest(unittest.TestCase):
@@ -310,7 +350,10 @@ class WorktreeManagerTest(unittest.TestCase):
         )
         return anchor, frontend
 
-    def test_multi_repo_creates_same_branch_in_each_endpoint(self):
+    def test_multi_repo_defers_endpoint_branch_until_activation(self):
+        # Lazy endpoint branches (plan A): create_task branches only the anchor.
+        # Endpoints are recorded as candidates (activated=False) with their base
+        # commit frozen, but no branch is created and HEAD stays on main.
         with tempfile.TemporaryDirectory() as temp_dir:
             anchor, frontend = self._multi_repo_fixture(temp_dir)
             record = create_task(anchor, "Cross repo feature", "feature")
@@ -321,47 +364,144 @@ class WorktreeManagerTest(unittest.TestCase):
             self.assertEqual(ep.track, "frontend")
             self.assertEqual(ep.git_root, str(frontend.resolve()))
             self.assertEqual(ep.branch, record.branch)
+            self.assertFalse(ep.activated)
 
-            # Both repositories carry the same branch name.
+            # Anchor carries the branch; the endpoint does NOT yet.
             be_branches = subprocess.run(
                 ["git", "branch", "--list", record.branch],
-                cwd=anchor,
-                text=True,
-                capture_output=True,
-                check=True,
+                cwd=anchor, text=True, capture_output=True, check=True,
             ).stdout.strip()
             fe_branches = subprocess.run(
                 ["git", "branch", "--list", record.branch],
-                cwd=frontend,
-                text=True,
-                capture_output=True,
-                check=True,
+                cwd=frontend, text=True, capture_output=True, check=True,
             ).stdout.strip()
             self.assertIn(record.branch, be_branches)
-            self.assertIn(record.branch, fe_branches)
+            self.assertNotIn(record.branch, fe_branches)
+            fe_head = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=frontend, text=True, capture_output=True, check=True,
+            ).stdout.strip()
+            self.assertEqual(fe_head, "main")
 
-            # Each endpoint froze its own base commit.
+            # Base commit is frozen at creation even though the branch is deferred.
             self.assertTrue(ep.base_commit)
 
-            # task.yaml (not the retired context.json) carries the endpoint list.
+            # task.yaml carries the candidate endpoint, marked not activated.
             anchor_task = load_task(anchor / ".devflow" / "task.yaml")
             self.assertEqual(len(anchor_task.endpoints), 1)
             self.assertEqual(anchor_task.endpoints[0].track, "frontend")
+            self.assertFalse(anchor_task.endpoints[0].activated)
 
-    def test_multi_repo_rolls_back_endpoint_branch_on_failure(self):
+    def test_activate_endpoint_creates_branch_and_marks_activated(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             anchor, frontend = self._multi_repo_fixture(temp_dir)
-            # Break the frontend repo's git so the endpoint branch checkout fails.
+            record = create_task(anchor, "Cross repo feature", "feature")
+            state_file = anchor / ".devflow" / "task.yaml"
+            # Advance phase + add an artifact ref so writeback must preserve them.
+            text = state_file.read_text(encoding="utf-8")
+            text = text.replace('current_phase: "qa"', 'current_phase: "working"')
+            state_file.write_text(text, encoding="utf-8")
+
+            ep = activate_endpoint(anchor, "frontend")
+            self.assertTrue(ep.activated)
+            self.assertEqual(ep.branch, record.branch)
+
+            fe_branches = subprocess.run(
+                ["git", "branch", "--list", record.branch],
+                cwd=frontend, text=True, capture_output=True, check=True,
+            ).stdout.strip()
+            self.assertIn(record.branch, fe_branches)
+            fe_head = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=frontend, text=True, capture_output=True, check=True,
+            ).stdout.strip()
+            self.assertEqual(fe_head, record.branch)
+
+            # Writeback preserved phase and flipped only this endpoint's flag.
+            reloaded = load_task(state_file)
+            self.assertTrue(reloaded.endpoints[0].activated)
+            self.assertIn('current_phase: "working"', state_file.read_text(encoding="utf-8"))
+
+    def test_activate_endpoint_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, _frontend = self._multi_repo_fixture(temp_dir)
+            record = create_task(anchor, "Cross repo feature", "feature")
+            first = activate_endpoint(anchor, "frontend")
+            # Second call must not raise (branch already exists) and stays activated.
+            second = activate_endpoint(anchor, "frontend")
+            self.assertTrue(first.activated)
+            self.assertTrue(second.activated)
+            self.assertEqual(second.branch, record.branch)
+
+    def test_activate_endpoint_unknown_track_raises(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, _frontend = self._multi_repo_fixture(temp_dir)
+            create_task(anchor, "Cross repo feature", "feature")
+            with self.assertRaises(WorktreeError):
+                activate_endpoint(anchor, "nonexistent")
+
+    def test_activate_endpoint_git_failure_writes_no_state(self):
+        # plan promise: "On git failure nothing is written." A checkout failure
+        # must leave task.yaml byte-identical (activated still false).
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, _frontend = self._multi_repo_fixture(temp_dir)
+            create_task(anchor, "Cross repo feature", "feature")
+            state_file = anchor / ".devflow" / "task.yaml"
+            before = state_file.read_text(encoding="utf-8")
+            with mock.patch(
+                "worktree_manager._git", side_effect=WorktreeError("checkout failed")
+            ), self.assertRaises(WorktreeError):
+                activate_endpoint(anchor, "frontend")
+            self.assertEqual(state_file.read_text(encoding="utf-8"), before)
+            self.assertFalse(load_task(state_file).endpoints[0].activated)
+
+    def test_mark_endpoint_activated_missing_field_raises(self):
+        # Legacy/hand-edited endpoint without an activated: line must raise and
+        # leave the file untouched (no truncation).
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, _frontend = self._multi_repo_fixture(temp_dir)
+            create_task(anchor, "Cross repo feature", "feature")
+            state_file = anchor / ".devflow" / "task.yaml"
+            text = state_file.read_text(encoding="utf-8")
+            stripped = "\n".join(
+                l for l in text.splitlines() if not l.strip().startswith("activated:")
+            ) + "\n"
+            state_file.write_text(stripped, encoding="utf-8")
+            from worktree_manager import _mark_endpoint_activated
+            with self.assertRaises(WorktreeError):
+                _mark_endpoint_activated(state_file, "frontend")
+            self.assertEqual(state_file.read_text(encoding="utf-8"), stripped)
+
+    def test_activate_endpoint_cli_entry(self):
+        # The contract prose names an executable command; verify it runs.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, frontend = self._multi_repo_fixture(temp_dir)
+            record = create_task(anchor, "Cross repo feature", "feature")
+            from worktree_manager import main
+            rc = main(["activate-endpoint", "--root", str(anchor), "--track", "frontend"])
+            self.assertEqual(rc, 0)
+            self.assertTrue(load_task(anchor / ".devflow" / "task.yaml").endpoints[0].activated)
+            fe_head = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=frontend, text=True, capture_output=True, check=True,
+            ).stdout.strip()
+            self.assertEqual(fe_head, record.branch)
+            # Unknown track via CLI returns non-zero, not a traceback.
+            rc = main(["activate-endpoint", "--root", str(anchor), "--track", "nope"])
+            self.assertEqual(rc, 1)
+
+    def test_multi_repo_rolls_back_anchor_branch_on_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, frontend = self._multi_repo_fixture(temp_dir)
+            # A declared endpoint that is not a git repo is a config error raised
+            # during candidate resolution, before any checkout. Break it so
+            # _build_endpoints raises; the anchor must stay on main.
             shutil.rmtree(frontend / ".git")
             with self.assertRaises(WorktreeError):
                 create_task(anchor, "Broken cross repo", "feature")
-            # The anchor's own branch must have been rolled back too.
             current = subprocess.run(
                 ["git", "branch", "--show-current"],
-                cwd=anchor,
-                text=True,
-                capture_output=True,
-                check=True,
+                cwd=anchor, text=True, capture_output=True, check=True,
             ).stdout.strip()
             self.assertEqual(current, "main")
 

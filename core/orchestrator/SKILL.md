@@ -99,6 +99,15 @@ done
 
 **实现**：在工作区分支直接做，完成一项勾一项。
 
+**多仓延迟建分支**：创建 task 时只在 anchor 建了分支，子仓是候选端点（`activated: false`）。
+首次要改某子仓前，先激活其分支再动手改：
+
+```bash
+python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_manager.py" activate-endpoint --root <project_root> --track <track>
+```
+
+幂等（已激活则跳过），成功后该端点标 `activated: true`。没改到的子仓不建分支、不切换。
+
 **不扩散**：发现方案之外的问题 → 写进第 10 节「待办支线」，**不改**，主线完成后统一报告。
 顺手改掉就是扩散，会让本任务的验收标准失效。偏差记进第 11 节；涉及验收标准变更回 GATE-PLAN。
 
@@ -136,7 +145,7 @@ review 报告出来后，**把结论原样摆给用户，由用户决定修还�
 3. 一次询问：待提交清单 + 分支 + remote + PR 预览 + 验证摘要 + review 摘要 + manual 项 +
    待办支线 → 「是否 commit + push + 创建 PR？」
 4. commit（白名单内）→ push → `gh pr create`（codex 走 router 回传）→ 写 `.devflow/delivery.yaml`。
-5. **PR 创建后暂停，永不自动 merge。** 多仓库每端点各自 commit/push/PR，逐仓报成败。
+5. **PR 创建后暂停，永不自动 merge。** 多仓库每个**已激活**端点（`activated: true`）各自 commit/push/PR，逐仓报成败；未激活的候选端点不开 PR。
 
 `gh` 缺失或未认证时明确告知用户，不静默跳过、不伪造 PR。
 

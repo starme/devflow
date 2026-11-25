@@ -21,6 +21,13 @@ class RepoEndpoint:
     A multi-repo task (separated backend/frontend) touches several independent
     git roots.  Each endpoint carries its own base ref/commit and shares the
     same branch name across repositories.
+
+    ``activated`` distinguishes a *candidate* endpoint (declared in
+    ``project.yaml``, base commit frozen at task creation, but no branch yet)
+    from one whose branch has been created.  Branches are deferred until the
+    working phase first edits that repository, so an unrelated sub-repo is never
+    branched or checked out just because a task started.  Legacy state without
+    the field reads as ``False``.
     """
 
     track: str
@@ -28,6 +35,7 @@ class RepoEndpoint:
     base_ref: str
     base_commit: str
     branch: str
+    activated: bool = False
 
 
 @dataclass(frozen=True)
@@ -78,6 +86,7 @@ def _render_endpoint_lines(record: TaskRecord) -> list[str]:
         lines.append(f"      base_ref: {_yaml_quote(ep.base_ref)}")
         lines.append(f"      base_commit: {_yaml_quote(ep.base_commit)}")
         lines.append(f"      branch: {_yaml_quote(ep.branch)}")
+        lines.append(f"      activated: {'true' if ep.activated else 'false'}")
     return lines
 
 
@@ -193,6 +202,8 @@ def _read_endpoints(content: str) -> tuple:
                 key = key.strip()
                 if key in ("git_root", "base_ref", "base_commit", "branch"):
                     current[key] = _unquote(val.strip())
+                elif key == "activated":
+                    current[key] = _unquote(val.strip()) == "true"
     if current:
         endpoints.append(_endpoint_from(current))
     return tuple(ep for ep in endpoints if ep is not None)
@@ -218,6 +229,7 @@ def _endpoint_from(fields: dict) -> RepoEndpoint | None:
         base_ref=fields.get("base_ref", ""),
         base_commit=fields.get("base_commit", ""),
         branch=fields.get("branch", ""),
+        activated=bool(fields.get("activated", False)),
     )
 
 

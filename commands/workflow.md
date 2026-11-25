@@ -35,7 +35,7 @@ argument-hint: [--base <git-ref>] [--source-task <task-id>] <需求或 bug 描�
 1. `project_root` = 启动目录本身，不向上查找 `.devflow`；从子仓启动而该子仓没有自己的 `.devflow` 时视为未初始化（提示 `/devflow init`）。
 2. 生成唯一 `task_id`、slug 与分支名 `feature|fix/<slug>-<short-id>`，写 `<project_root>/.devflow/task.yaml`（`current_phase: qa`，fix 记 `kind: bugfix`）。
 3. **git 可选**：启动目录是 git 仓时建分支、冻结 `git.base_commit`（`--base` 或当前分支）；不是 git 仓时跳过 git 操作并打印提示（`workspace.git_policy: auto_skip` 可关闭提示）。`git.working_dir` 记录启动目录。
-4. 多仓库：仅当 `project.yaml` 在**启动目录**声明 `workspaces:` 时生效——每端点同名分支、各自 `base_commit`，交付时各开一个 PR。端点必须自身是 git 仓，否则报错；从子仓启动不跨仓。
+4. 多仓库：仅当 `project.yaml` 在**启动目录**声明 `workspaces:` 时生效——创建时**只在 anchor（启动目录）建分支**；各子仓作为候选端点记录进 `task.yaml`（`activated: false`，各自冻结 `base_commit`），**不建分支、不切换**。working 阶段首次要改某子仓前先激活其分支：`python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/worktree_manager.py" activate-endpoint --root <project_root> --track <track>`（幂等，标 `activated: true`）；交付时每个**已激活**端点各开一个 PR。端点必须自身是 git 仓，否则报错；从子仓启动不跨仓。
 5. 向用户报告 task id、分支（无 git 时说明已跳过）、`working_dir`、base commit（无则为空）。
 
 ## 执行
