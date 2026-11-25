@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -13,8 +14,10 @@ from task_state import (
     RepoEndpoint,
     TaskRecord,
     _read_scalar,
+    _unquote,
     archive_task_state,
     find_task_files,
+    load_task,
     render_task_yaml,
 )
 
@@ -239,10 +242,13 @@ def create_task(
     concurrency model the serial lifecycle does not provide), reject the
     request and let the caller finish or archive the active task first.
 
-    Multi-repo projects (a ``workspaces:`` list in ``project.yaml``) create the
-    same feature branch across every endpoint repository; each endpoint freezes
-    its own ``base_commit``. The anchor repository (where ``.devflow/`` lives)
-    gets the in-place checkout.
+    Multi-repo projects (a ``workspaces:`` list in ``project.yaml``) record every
+    endpoint as a *candidate*: each freezes its own ``base_commit`` but no branch
+    is created yet (``activated=False``). Only the anchor repository (where
+    ``.devflow/`` lives) gets the in-place checkout at creation. A sub-repo's
+    branch is deferred until the working phase first edits it, via
+    :func:`activate_endpoint`, so an unrelated repository is never branched or
+    checked out just because a task started.
 
     *project_root* is the directory that owns ``.devflow/`` — the archive
     authority that ``artifact_publish`` publishes into. It defaults to
@@ -295,16 +301,15 @@ def create_task(
         title=title or "",
     )
 
-    created_branches: list[tuple[Path, str, str]] = []
     try:
         if root_is_git:
             _git(root, "checkout", "-b", branch, base_commit)
-        for ep in endpoints:
-            _git(Path(ep.git_root), "checkout", "-b", branch, ep.base_commit)
-            created_branches.append((Path(ep.git_root), branch, ep.base_ref))
-        # Write state only after every endpoint checkout succeeded: seeding
-        # earlier leaves a task.yaml pointing at branches the rollback then
-        # deletes, and the previous task's state already archived over it.
+        # Endpoints are candidates only: their base commits are frozen above but
+        # no branch is created here. Each is branched lazily by activate_endpoint
+        # when the working phase first edits that repository.
+        # Write state only after the anchor checkout succeeded: seeding earlier
+        # leaves a task.yaml pointing at a branch the rollback then deletes, and
+        # the previous task's state already archived over it.
         # In-place state belongs to the project root, not the nested repo: it
         # is the same directory artifact_publish archives into.
         _seed_task_devflow(state_root / ".devflow", record)
@@ -312,12 +317,8 @@ def create_task(
             print(f"[DevFlow] {message}")
         return record
     except Exception:
-        for ep_root, ep_branch, ep_ref in reversed(created_branches):
-            try:
-                _git(ep_root, "checkout", "--force", ep_ref)
-                _git(ep_root, "branch", "-D", ep_branch)
-            except WorktreeError:
-                pass
+        # Only the anchor was branched; endpoints stay untouched candidates, so
+        # rollback just restores the anchor checkout.
         if root_is_git:
             try:
                 current = _git(root, "branch", "--show-current")
@@ -330,11 +331,13 @@ def create_task(
 
 
 def _build_endpoints(root: Path, branch: str, base_ref: str | None) -> list[RepoEndpoint]:
-    """Resolve project endpoints and freeze each one's base commit.
+    """Resolve project endpoints as candidates and freeze each one's base commit.
 
     The anchor repository itself is not re-listed as an endpoint — endpoints are
     the *additional* repositories a multi-repo task spans. Each endpoint shares
-    the task's branch name but freezes its own base commit.
+    the task's branch name and freezes its own base commit, but stays
+    ``activated=False``: no branch is created until :func:`activate_endpoint`
+    runs in the working phase.
 
     A declared endpoint that is not a git repository is a configuration error,
     not an optional-git situation: ``workspaces:`` is an explicit intent to
@@ -365,6 +368,105 @@ def _build_endpoints(root: Path, branch: str, base_ref: str | None) -> list[Repo
             )
         )
     return endpoints
+
+
+def _mark_endpoint_activated(task_file: Path, track: str) -> None:
+    """Flip one endpoint's ``activated`` flag to true in *task_file*, in place.
+
+    Rewrites only that endpoint's ``activated:`` line; every other line keeps its
+    order and content (phase, artifacts, parent chain, other endpoints). A full
+    ``render_task_yaml`` would drop ``current_phase`` (``load_task`` does not carry
+    it) and reset the artifacts section, so the writeback must be surgical,
+    mirroring ``artifact_publish``'s field-preserving rewrite. The new content is
+    written to a sibling temp file and ``os.replace``d over the original so a
+    crash mid-write never leaves a truncated task.yaml. Raises when the track is
+    absent or has no ``activated`` line.
+    """
+    lines = task_file.read_text(encoding="utf-8").splitlines()
+    in_git = False
+    in_endpoints = False
+    in_track = False
+    target_idx = None
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent == 0 and stripped.endswith(":"):
+            in_git = stripped[:-1] == "git"
+            in_endpoints = False
+            in_track = False
+            continue
+        if not in_git:
+            continue
+        if indent == 2 and stripped == "endpoints:":
+            in_endpoints = True
+            continue
+        if not in_endpoints:
+            continue
+        if indent == 2 and stripped.endswith(":") and stripped != "endpoints:":
+            in_endpoints = False
+            in_track = False
+            continue
+        if indent == 4 and stripped.startswith("- "):
+            _, _, track_val = stripped[2:].partition(":")
+            in_track = _unquote(track_val.strip()) == track
+            continue
+        if in_track and indent >= 6 and stripped.startswith("activated:"):
+            target_idx = idx
+            break
+    if target_idx is None:
+        raise WorktreeError(
+            f"endpoint {track!r} has no activated field in {task_file} "
+            "(task.yaml modified concurrently?)"
+        )
+    prefix = lines[target_idx][: len(lines[target_idx]) - len(lines[target_idx].lstrip())]
+    lines[target_idx] = f"{prefix}activated: true"
+    tmp = task_file.with_name(task_file.name + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.replace(tmp, task_file)
+
+
+def activate_endpoint(project_root: Path, track: str) -> RepoEndpoint:
+    """Create the deferred branch for one candidate endpoint and mark it active.
+
+    Called in the working phase before the first edit to a sub-repository. The
+    endpoint must already be recorded in ``task.yaml`` (a candidate frozen at
+    creation). Idempotent: an already-activated endpoint returns unchanged; a
+    repository already on the target branch is adopted without re-creating it.
+
+    On success the endpoint's ``activated`` flag is written back to
+    ``project_root/.devflow/task.yaml`` preserving every other field. On git
+    failure nothing is written and :class:`WorktreeError` propagates, so the
+    state never claims a branch that does not exist.
+    """
+    state_root = resolve_project_root(Path(project_root))
+    task_file = state_root / ".devflow" / "task.yaml"
+    record = load_task(task_file)
+    match = next((ep for ep in record.endpoints if ep.track == track), None)
+    if match is None:
+        raise WorktreeError(f"no endpoint with track {track!r} in {task_file}")
+    if match.activated:
+        return match
+    ep_root = Path(match.git_root)
+    if not _is_git_root(ep_root):
+        raise WorktreeError(f"endpoint is not a git repository root: {ep_root}")
+    current = _git(ep_root, "branch", "--show-current")
+    if current != match.branch:
+        existing = _git(ep_root, "branch", "--list", match.branch)
+        if existing:
+            _git(ep_root, "checkout", match.branch)
+        else:
+            _git(ep_root, "checkout", "-b", match.branch, match.base_commit)
+    _mark_endpoint_activated(task_file, track)
+    return RepoEndpoint(
+        track=match.track,
+        git_root=match.git_root,
+        base_ref=match.base_ref,
+        base_commit=match.base_commit,
+        branch=match.branch,
+        activated=True,
+    )
 
 
 def describe_git_skips(project_root: Path) -> list[str]:
@@ -406,9 +508,44 @@ def discover_tasks(root: Path) -> list[TaskRecord]:
     records = []
     for path in find_task_files(repo_root, state_root=resolve_project_root(repo_root)):
         try:
-            from task_state import load_task
-
             records.append(load_task(path))
         except (OSError, ValueError):
             continue
     return records
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Thin CLI so the working-phase contract has an executable entry point.
+
+    ``activate-endpoint`` creates a candidate endpoint's deferred branch and marks
+    it active. The SKILL/workflow prose names this command rather than asking the
+    agent to improvise a ``python3 -c`` import call.
+    """
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(description="DevFlow task workspace management")
+    sub = parser.add_subparsers(dest="command", required=True)
+    p_activate = sub.add_parser(
+        "activate-endpoint", help="Create a candidate endpoint's deferred branch"
+    )
+    p_activate.add_argument("--root", required=True, help="Project root (.devflow/ parent)")
+    p_activate.add_argument("--track", required=True, help="Endpoint track to activate")
+
+    args = parser.parse_args(argv)
+    try:
+        ep = activate_endpoint(Path(args.root), args.track)
+    except WorktreeError as exc:
+        print(json.dumps({"error": str(exc)}, ensure_ascii=False))
+        return 1
+    print(
+        json.dumps(
+            {"track": ep.track, "git_root": ep.git_root, "branch": ep.branch, "activated": ep.activated},
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
