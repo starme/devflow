@@ -10,14 +10,20 @@ Responsibilities:
 
 1. Probe delivery capability: ``gh_available``, ``branch_pushed``,
    ``remote_name`` and ``dirty_files``.
-2. Declare the delivery artifact whitelist ``DELIVERY_ARTIFACT_FILES``
+2. Probe delivery completeness: ``endpoint_has_changes`` (does an activated
+   endpoint have anything to deliver, so a zero-diff one can skip its PR).
+3. Declare the delivery artifact whitelist ``DELIVERY_ARTIFACT_FILES``
    (kept in sync with ``core/hooks/devflow_guard_common.py``).
-3. Read/write the independent ``.devflow/delivery.yaml`` sub-state, referenced
+4. Read/write the independent ``.devflow/delivery.yaml`` sub-state, referenced
    from ``task.yaml``'s ``artifacts`` section, so delivery progress survives
    session interruptions and is idempotent on resume.
 
-All probes are fail-safe: when ``git``/``gh`` are missing or unauthenticated,
-they return safe defaults (``False``/``None``/``[]``) instead of raising.
+Probes are fail-safe but the safe direction depends on what they guard:
+*capability* probes (gh/upstream/dirty) default to ``False``/``None``/``[]``
+when git/gh is missing — "cannot confirm, so don't claim it". The
+*completeness* probe ``endpoint_has_changes`` defaults to ``True`` on unknown
+state — "cannot confirm emptiness, so never silently skip a real delivery".
+New probes must pick the direction that cannot lose work.
 """
 
 from __future__ import annotations
@@ -120,6 +126,43 @@ def dirty_files(root: Path | None = None) -> list[str]:
     if not output:
         return []
     return [line for line in output.splitlines() if line.strip()]
+
+
+def endpoint_has_changes(git_root: Path, base_commit: str) -> bool:
+    """Return ``True`` when an activated endpoint has anything to deliver.
+
+    An endpoint counts as changed when its working tree has **tracked** edits
+    (``status --porcelain --untracked-files=no`` — same rule as
+    ``worktree_manager._ensure_clean``: ``??`` residue is not deliverable
+    content) **or** its branch carries commits beyond the frozen
+    ``base_commit`` (committed but undelivered work). A zero-diff endpoint —
+    activated but never actually edited — returns ``False`` so delivery can
+    skip its commit/push/PR and report the skip instead of producing an empty
+    PR.
+
+    Fail-safe direction is ``True``: when git is unavailable, the repository is
+    broken, or ``base_commit`` is empty/invalid, the state is unknown and must
+    NOT silently skip a real delivery — the caller surfaces it for a human
+    decision instead. (Note: a *reachable-but-unrelated* base — e.g. after a
+    rebase — makes ``rev-list`` return 0 with rc=0, which reads as False; only
+    a missing/malformed base errors out into the fail-safe.)
+    """
+    if not base_commit:
+        return True
+    status = _git(git_root, "status", "--porcelain", "--untracked-files=no")
+    if status is None:
+        return True
+    if status.strip():
+        return True
+    ahead = _git(git_root, "rev-list", "--count", f"{base_commit}..HEAD")
+    if ahead is None:
+        return True
+    try:
+        return int(ahead) > 0
+    except ValueError:
+        # Defensive only: _run strips output and rev-list --count emits a bare
+        # integer; a non-numeric result means something unexpected → fail-safe.
+        return True
 
 
 @dataclass(frozen=True)
