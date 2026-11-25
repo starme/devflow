@@ -29,7 +29,7 @@ DevFlow 是 Claude Code 上的生命周期编排插件（命令、Agent、Hook�
 
 隔离一律 in-place（主工作区功能分支）。主工作区已有未完成 task 时，新 task 被**拒绝**（提示先完成或归档），不再隔离到 `.devflow-worktrees/<repo>/<task-id>`——该布局已退役，仅作历史 task 的只读兼容。过程物料不是每个里程碑都 publish。
 
-**状态归属：`project_root` 而非 `repo_root`。** 持有 `.devflow/` 的目录是归档权威，`artifact_publish` 也以它为准。普通项目里两者相同；当 git 仓嵌套在项目目录下时（仓库在子目录内），`create_task` 沿 `repo_root` 向上查找最近的 `project.yaml`，读取 `workspace.root` 定位项目根，把 `task.yaml` 与归档都写在那里——避免同一项目出现两个 `.devflow/`。无任何祖先声明时退化为 `repo_root`，普通项目行为不变。
+**状态归属：启动目录（项目根）是唯一权威。** 持有 `.devflow/` 的目录就是 `project_root`，`task.yaml` 与归档都写在那里；`git` 仓根与项目根可以不同（嵌套子仓场景），但 `create_task` **不做向上查找**——`project_root` 由调用方显式传入，省略时取 `worktree_manager.resolve_project_root`（委托 `core/workspace.py`，目录无 `.devflow/` 时回退为输入目录本身；「未初始化」由调用方前置检查拒绝）。`artifact_publish` 接收两个必填权威源：`--root`（`project_root`，归档权威）与 `--repo-root`（live 状态权威），按 task id 在两处定位 `task.yaml`，写入 `<project_root>/.devflow/tasks/<task-id>/`。hooks 的 `resolve_session_project_root` 与编排的 `resolve_project_root` 共享「不向上查找」原则并各自委托 `core/workspace.py`，但入口与缺省语义不同。从子仓启动而该子仓没有自己的 `.devflow/` 时视为**未初始化**（提示 `/devflow init`），父级 `.devflow/` 不会接管；多仓 `workspaces:` 能力只属于声明它的那个目录。
 
 下文是交付闭环的详细方案（文件曾只以 Delivery Lifecycle 为题；系统总览以本节为准）。
 
