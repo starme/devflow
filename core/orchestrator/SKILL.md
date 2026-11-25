@@ -60,26 +60,31 @@ description: >-
 
 **凡是 `.devflow/` 下的过程产物，一律写在与 `task.yaml` 同级的目录。**
 
-`create_task` 把 `task.yaml` 写到 `project_root`——多数普通项目里就是仓库根，但插件自托管仓库里
-它可能在仓库的**上一级**。`artifact_publish` 也按那份 `task.yaml` 找产物。所以「相对工作区」
-这个说法不够：工作区是本任务 checkout 的目录，产物目录是 `task.yaml` 的目录，两者可以不同。
+**两类解析要分清**：hook 侧以**启动目录**为唯一权威（`core/workspace.py` 的
+`resolve_session_project_root`，不做向上查找，目录无 `.devflow/` 即未初始化）；
+`create_task` 侧的 `project_root` 是**可选参数**，缺省时用 `worktree_manager.resolve_project_root(repo_root)`
+——只判 git 仓根是否自带 `.devflow/`，否则回退为仓根本身。两种形态下 `task.yaml` 都写在 `project_root`，
+产物就写在 `<project_root>/.devflow/`。self-hosted 形态（项目根在仓库上一级）**必须由调用方显式传
+`project_root`**，否则归档会落到仓库根——静默丢失。
 
-写产物前先定位，**从 `git rev-parse --show-toplevel` 起逐级向上**找最近的 `.devflow/task.yaml`：
+归档**仅在 GATE-DELIVERY 交付时执行一次**（ADR-0004），用双根 CLI，两个参数都必填
+（`artifact_publish.py` 从不明推单一根）：
 
 ```bash
-d="$(git rev-parse --show-toplevel)"
-while [ "$d" != "/" ]; do
-  [ -f "$d/.devflow/task.yaml" ] && { echo "$d/.devflow"; break; }
-  d="$(dirname "$d")"
-done
+python3 "$CLAUDE_PLUGIN_ROOT/core/orchestrator/artifact_publish.py" publish \
+  --root <project_root> --repo-root <repo_root> --task <task-id>
 ```
+
+`--root` 是归档权威（= `project_root`），`--repo-root` 是 live 状态权威：必须是 git 仓根
+（`task.yaml` 的 `git.working_dir`），非 git 项目时与 `--root` 相同。脚本按 task id 在两处定位
+`task.yaml`，把产物写进 `<project_root>/.devflow/tasks/<task-id>/`。不要自己拼 `find` 或向上循环找。
 
 两条注意：
 
-- 不要用 `find .`——它只搜当前目录树，而 `task.yaml` 可能就在仓库上一级。
-- **找到的 `task.yaml` 要核对其 `phase` 不是 `done`**。仓库内可能残留上一轮任务的 `task.yaml`
-  （本仓库就有一个 10-23 的 `devflow/.devflow/task.yaml`，`phase: done`），
-  而活动 task 在上一级。**`phase: done` 的那份不是当前 task**，继续往上找。
+- `--task <id>` 只发布该 id 的活动 task：`is_publishable` 只判 `current_phase != "done"`（`status`
+  不参与判定）。task id 不存在或已 `done` 时脚本报 `not publishable` 退出 1，**报给用户，别拿别的
+  task.yaml 顶替**；仓库里残留的上一轮 `phase: done` 状态不是当前 task。
+- 不要用 `find .`：产物目录由 `--root`/`--repo-root` 显式给出，不靠搜。
 
 产物落到别处的后果是静默的：文件写成功了，`/devflow status` 显示「未审查」，
 交付归档时找不到它。**不会报错，只会丢东西。**

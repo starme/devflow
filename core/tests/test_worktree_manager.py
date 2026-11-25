@@ -43,7 +43,7 @@ class TaskStateTest(unittest.TestCase):
             path.write_text(render_task_yaml(record), encoding="utf-8")
             self.assertEqual(load_task(path), record)
 
-    def test_endpoint_activated_round_trips(self):
+    def test_endpoint_activated_round_trips(self) -> None:
         record = TaskRecord(
             task_id="feat-x-a1b2",
             slug="feat-x",
@@ -65,7 +65,7 @@ class TaskStateTest(unittest.TestCase):
             path.write_text(render_task_yaml(record), encoding="utf-8")
             self.assertEqual(load_task(path), record)
 
-    def test_endpoint_without_activated_defaults_false(self):
+    def test_endpoint_without_activated_defaults_false(self) -> None:
         # Legacy task.yaml predates the activated field; absence reads as False.
         content = (
             'schema_version: 2\n\ntask:\n  id: "t1"\n  slug: "t"\n'
@@ -350,7 +350,7 @@ class WorktreeManagerTest(unittest.TestCase):
         )
         return anchor, frontend
 
-    def test_multi_repo_accepts_path_alias(self):
+    def test_multi_repo_accepts_path_alias(self) -> None:
         # path: is an alias of git_root: (same key name as workspace.*.path);
         # the endpoint must not be silently dropped.
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -366,7 +366,7 @@ class WorktreeManagerTest(unittest.TestCase):
             self.assertEqual(record.endpoints[0].track, "frontend")
             self.assertEqual(record.endpoints[0].git_root, str(frontend.resolve()))
 
-    def test_multi_repo_git_root_wins_over_path(self):
+    def test_multi_repo_git_root_wins_over_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             anchor, frontend = self._multi_repo_fixture(temp_dir)
             (anchor / ".devflow" / "project.yaml").write_text(
@@ -379,7 +379,7 @@ class WorktreeManagerTest(unittest.TestCase):
             record = create_task(anchor, "Both keys task", "feature")
             self.assertEqual(record.endpoints[0].git_root, str(frontend.resolve()))
 
-    def test_multi_repo_named_endpoint_missing_root_raises(self):
+    def test_multi_repo_named_endpoint_missing_root_raises(self) -> None:
         # A named endpoint declaring neither git_root: nor path: is a config
         # error — raise with track + file context, never silently drop it.
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -397,7 +397,7 @@ class WorktreeManagerTest(unittest.TestCase):
             self.assertIn("project.yaml", message)
             self.assertIn("git_root", message)
 
-    def test_multi_repo_trackless_entry_skipped(self):
+    def test_multi_repo_trackless_entry_skipped(self) -> None:
         # An entry without a track has nothing to name or fix — skip, not raise.
         # Regression (verifier Round 1): the natural `- remote: origin` residue
         # used to be misread as track='origin' and triggered the new loud error.
