@@ -197,7 +197,7 @@ def _read_endpoints(content: str) -> tuple:
                 _, _, track_val = stripped[2:].partition(":")
                 current = {"track": _unquote(track_val.strip())}
                 continue
-            if indent >= 6 and current is not None:
+            if indent >= 6:
                 key, _, val = stripped.partition(":")
                 key = key.strip()
                 if key in ("git_root", "base_ref", "base_commit", "branch"):
