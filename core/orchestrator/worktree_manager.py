@@ -14,12 +14,12 @@ from task_state import (
     RepoEndpoint,
     TaskRecord,
     _read_scalar,
-    _unquote,
     archive_task_state,
     find_task_files,
     load_task,
     render_task_yaml,
 )
+from yaml_list import unquote as _unquote
 
 # ``core/workspace.py`` owns the single rule for project-root discovery; share
 # it with the hooks so task creation and the guards name the same directory.
