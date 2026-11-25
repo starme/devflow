@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Task state records used by DevFlow's isolated worktree mode.
 
-The parser intentionally handles only the scalar fields written by this module.
+The parser intentionally handles only the scalar fields written by this module;
+indented list parsing delegates to ``yaml_list`` (shared with delivery state).
 It keeps the task manager dependency-free while allowing users to inspect the
 YAML with ordinary tools.
 """
@@ -12,6 +13,9 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+
+from yaml_list import parse_list_items
+from yaml_list import unquote as _unquote
 
 
 @dataclass(frozen=True)
@@ -163,59 +167,21 @@ def _read_endpoints(content: str) -> tuple:
     """Parse the optional ``git.endpoints`` list into ``RepoEndpoint`` tuples.
 
     Fail-safe: any malformed entry is skipped; an absent section yields ``()``.
-    The parser walks the ``git:`` section looking for ``endpoints:`` then reads
-    each ``- track:`` item's indented scalar fields.
+    The shared scanner in ``yaml_list`` owns the indentation state machine;
+    this reader only applies the endpoint field rules and builds the record.
     """
     endpoints = []
-    lines = content.splitlines()
-    in_git = False
-    in_endpoints = False
-    current: dict = {}
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        indent = len(line) - len(line.lstrip())
-        if indent == 0 and stripped.endswith(":"):
-            in_git = stripped[:-1] == "git"
-            in_endpoints = False
-            continue
-        if not in_git:
-            continue
-        if indent == 2 and stripped == "endpoints:":
-            in_endpoints = True
-            continue
-        if in_endpoints:
-            if indent == 2 and stripped.endswith(":") and stripped != "endpoints:":
-                # left the endpoints list into another git: subkey
-                in_endpoints = False
-                continue
-            if indent == 4 and stripped.startswith("- "):
-                if current:
-                    endpoints.append(_endpoint_from(current))
-                # ``- track: "backend"`` → track value after the first colon
-                _, _, track_val = stripped[2:].partition(":")
-                current = {"track": _unquote(track_val.strip())}
-                continue
-            if indent >= 6:
-                key, _, val = stripped.partition(":")
-                key = key.strip()
-                if key in ("git_root", "base_ref", "base_commit", "branch"):
-                    current[key] = _unquote(val.strip())
-                elif key == "activated":
-                    current[key] = _unquote(val.strip()) == "true"
-    if current:
-        endpoints.append(_endpoint_from(current))
-    return tuple(ep for ep in endpoints if ep is not None)
-
-
-def _unquote(value: str) -> str:
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] == '"':
-        return value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
-    if len(value) >= 2 and value[0] == value[-1] == "'":
-        return value[1:-1]
-    return value
+    for item in parse_list_items(content, "git", "endpoints"):
+        parsed: dict[str, str | bool] = {"track": _unquote(item.first_value)}
+        for key, val in item.fields.items():
+            if key in ("git_root", "base_ref", "base_commit", "branch"):
+                parsed[key] = _unquote(val.strip())
+            elif key == "activated":
+                parsed[key] = _unquote(val.strip()) == "true"
+        ep = _endpoint_from(parsed)
+        if ep is not None:
+            endpoints.append(ep)
+    return tuple(endpoints)
 
 
 def _endpoint_from(fields: dict) -> RepoEndpoint | None:

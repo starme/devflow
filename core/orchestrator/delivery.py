@@ -32,6 +32,9 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from yaml_list import parse_list_items
+from yaml_list import unquote as _unquote
+
 # Delivery artifact whitelist.  Must stay in sync with
 # ``_DEVFLOW_ARTIFACT_FILES`` in ``core/hooks/devflow_guard_common.py`` so the
 # guard hooks permit the same files the delivery flow may commit.
@@ -258,61 +261,27 @@ def _read_bool(content: str, key: str) -> bool:
     return value == "true"
 
 
-def _unquote(value: str) -> str:
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] == '"':
-        return value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
-    if len(value) >= 2 and value[0] == value[-1] == "'":
-        return value[1:-1]
-    return value
-
-
 def _read_repos(content: str) -> tuple[RepoDelivery, ...]:
     """Parse the optional ``delivery.repos`` list into ``RepoDelivery`` tuples.
 
     Fail-safe: malformed entries are skipped; an absent section yields ``()``.
+    The shared scanner in ``yaml_list`` owns the indentation state machine;
+    this reader only applies the repo field rules and builds the record.
     """
     repos = []
-    lines = content.splitlines()
-    in_delivery = False
-    in_repos = False
-    current: dict = {}
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        indent = len(line) - len(line.lstrip())
-        if indent == 0 and stripped.endswith(":"):
-            in_delivery = stripped[:-1] == "delivery"
-            in_repos = False
-            continue
-        if not in_delivery:
-            continue
-        if indent == 2 and stripped == "repos:":
-            in_repos = True
-            continue
-        if in_repos:
-            if indent == 2 and stripped.endswith(":") and stripped != "repos:":
-                in_repos = False
-                continue
-            if indent == 4 and stripped.startswith("- "):
-                if current:
-                    repos.append(_repo_from(current))
-                _, _, track_val = stripped[2:].partition(":")
-                current = {"track": _unquote(track_val.strip())}
-                continue
-            if indent >= 6:
-                key, _, val = stripped.partition(":")
-                key = key.strip()
-                if key == "git_root":
-                    current[key] = _unquote(val)
-                elif key in ("commit", "pr_url"):
-                    current[key] = _unquote(val) if val.strip() not in {"null", "~"} else None
-                elif key == "pushed":
-                    current[key] = val.strip() == "true"
-    if current:
-        repos.append(_repo_from(current))
-    return tuple(r for r in repos if r is not None)
+    for item in parse_list_items(content, "delivery", "repos"):
+        parsed: dict[str, str | bool | None] = {"track": _unquote(item.first_value)}
+        for key, val in item.fields.items():
+            if key == "git_root":
+                parsed[key] = _unquote(val)
+            elif key in ("commit", "pr_url"):
+                parsed[key] = _unquote(val) if val.strip() not in {"null", "~"} else None
+            elif key == "pushed":
+                parsed[key] = val.strip() == "true"
+        repo = _repo_from(parsed)
+        if repo is not None:
+            repos.append(repo)
+    return tuple(repos)
 
 
 def _repo_from(fields: dict) -> RepoDelivery | None:
