@@ -20,9 +20,9 @@ description: Initialize DevFlow project — detect stack, configure paths, gener
 
 语义：
 
-- 选中的节点已有 `.devflow/` 配置 → 以其规则与配置为底，在本目录生成并在其上定制。
+- 选中的节点已有 `.devflow/` 配置 → 以其 `.devflow/rules/` 与 `redlines.yaml` 为底，复制到本目录并在其上定制（具体在 Step 2 执行）。
 - 选中的节点**没有** `.devflow/` 配置 → 本目录这份即最完整的一份，不向上寻找任何其他配置。
-- 继承只发生在初始化这一刻；之后各份 `.devflow` 独立，不自动同步。
+- 继承只发生在初始化这一刻；之后各份 `.devflow` 独立，不自动同步。**init 一旦完成（`project.yaml` 落盘），就不能再补做继承**——rules/ 届时已被守卫保护，需重新 init 才能重来。
 
 `.devflow/` 始终建在**当前目录**（运行 `/devflow init` 的 cwd），不会建到别处。运行时根判定只认当前目录有无 `.devflow`，不向上搜索；从子仓启动时若子仓自身没有 `.devflow`，按未初始化处理。
 
@@ -48,7 +48,17 @@ description: Initialize DevFlow project — detect stack, configure paths, gener
 
 ## Step 2: 生成项目规则
 
-按原有流程创建 `.devflow/rules/project.md`、存在后端/前端时创建对应规则，复制 `.devflow/redlines.yaml`。这些是项目级策略，任务只引用它们，不放入 task 状态。
+**先继承，再定制。** 若 Step 0 指定了继承来源（自己 / 直接父级 / 自定义路径）：
+
+1. 读取该来源的 `.devflow/rules/` 下全部 `.md` 与 `.devflow/redlines.yaml`。
+2. 将其内容复制到本目录的 `.devflow/rules/`、`.devflow/redlines.yaml`，作为基础。
+3. 在副本之上按本项目的实际情况定制（增删规则、调整红线）。
+
+来源没有 `.devflow/` 配置时跳过继承，直接从模板生成。
+
+无论是否继承，本步骤务必产出完整的 `.devflow/rules/project.md`、存在后端/前端时的对应规则文件，以及 `.devflow/redlines.yaml`。
+
+**这一步必须在写入 `project.yaml`（Step 4）之前完成**：守卫在 `project.yaml` 落盘后即视为已初始化，此后对本目录 `rules/`、`redlines.yaml` 的写入会被拦截——事后无法再补。
 
 ## Step 3: 创建项目目录
 
