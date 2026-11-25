@@ -209,7 +209,7 @@ def _resolve_endpoints(project_root: Path) -> list[dict]:
     resolved = []
     for ep in endpoints:
         track = ep.get("track", "")
-        raw_root = ep.get("git_root") or ep.get("path") or ""
+        raw_root = ep.get("git_root") or ep.get("path")
         if not track:
             continue
         if not raw_root:

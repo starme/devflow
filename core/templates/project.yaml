@@ -35,9 +35,14 @@ workspace:
 # (git_root wins when both appear); a named endpoint missing both is an error.
 # workspaces:
 #   - track: "frontend"
-#     git_root: "../fe-app"   # or: path: "../fe-app"
+#     git_root: "../fe-app"
 #     remote: "origin"
 #     base_branch: "main"
+# Alternatively write `path:` instead of `git_root:` on its own line (same
+# value, given as a complete key — never leave an empty `git_root:` behind):
+#   - track: "frontend"
+#     path: "../fe-app"
+#     # remote / base_branch 同上，按需保留。
 
 # Adapters this project runs on. Keep the comment on its own line — putting a
 # "# ..." explanation inside the quoted value makes the parsed string literal.

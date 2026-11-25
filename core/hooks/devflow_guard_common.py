@@ -332,7 +332,7 @@ def _parse_workspaces(project_root):
                     if first_key.strip() in ("git_root", "path") and val:
                         current[first_key.strip()] = val
                 continue
-            if indent >= 4 and current is not None and ":" in stripped:
+            if indent >= 4 and ":" in stripped:
                 key, _, val = stripped.partition(":")
                 key = key.strip()
                 val = scalar(val)
