@@ -20,9 +20,9 @@ description: Initialize DevFlow project — detect stack, configure paths, gener
 
 语义：
 
-- 选中的节点已有 `.devflow/` 配置 → 以其规则与配置为底，在本目录生成并在其上定制。
+- 选中的节点已有 `.devflow/` 配置 → 以其 `.devflow/rules/` 与 `redlines.yaml` 为底，复制到本目录并在其上定制（具体在 Step 2 执行）。
 - 选中的节点**没有** `.devflow/` 配置 → 本目录这份即最完整的一份，不向上寻找任何其他配置。
-- 继承只发生在初始化这一刻；之后各份 `.devflow` 独立，不自动同步。
+- 继承只发生在初始化这一刻；之后各份 `.devflow` 独立，不自动同步。**init 一旦完成（`project.yaml` 落盘），就不能再补做继承**——rules/ 届时已被守卫保护，需重新 init 才能重来。
 
 `.devflow/` 始终建在**当前目录**（运行 `/devflow init` 的 cwd），不会建到别处。运行时根判定只认当前目录有无 `.devflow`，不向上搜索；从子仓启动时若子仓自身没有 `.devflow`，按未初始化处理。
 
@@ -46,23 +46,37 @@ description: Initialize DevFlow project — detect stack, configure paths, gener
 
 如果置信度低或候选接近，展示证据并请求用户确认，不静默选择不匹配轨道。
 
-## Step 2: 写入项目级配置
+## Step 2: 生成项目规则
+
+**先继承，再定制。** 若 Step 0 指定了继承来源（自己 / 直接父级 / 自定义路径）：
+
+1. 读取该来源的 `.devflow/rules/` 下全部 `.md` 与 `.devflow/redlines.yaml`。
+2. 将其内容复制到本目录的 `.devflow/rules/`、`.devflow/redlines.yaml`，作为基础。
+3. 在副本之上按本项目的实际情况定制（增删规则、调整红线）。
+
+来源没有 `.devflow/` 配置时跳过继承，直接从模板生成。
+
+无论是否继承，本步骤务必产出完整的 `.devflow/rules/project.md`、存在后端/前端时的对应规则文件，以及 `.devflow/redlines.yaml`。
+
+**这一步必须在写入 `project.yaml`（Step 4）之前完成**：守卫在 `project.yaml` 落盘后即视为已初始化，此后对本目录 `rules/`、`redlines.yaml` 的写入会被拦截——事后无法再补。
+
+## Step 3: 创建项目目录
+
+```bash
+mkdir -p .devflow/contracts docs docs/adr
+```
+
+## Step 4: 写入项目级配置（最后一步）
+
+**顺序要求：`project.yaml` 必须在 `rules/`、`redlines.yaml`、`contracts/` 全部写入之后才写。**
+
+守卫把「`.devflow/` 下出现 `project.yaml`」视为"本项目已初始化"的标志；在它落盘之前，`/devflow init` 可以写项目级配置，一旦落盘，后续对 `rules/`、`redlines.yaml` 等的写入就会被 DevFlow 保护规则拦截。因此 `project.yaml` 只能作为 init 的收尾动作。
 
 创建 `.devflow/project.yaml`，只写跨需求稳定的内容：项目名称、分类/置信度/证据、capabilities、workspace 路径、支持的 adapter、安全规则和 Memorant project key。`project.yaml` 不得包含当前 phase、需求描述、分支、worktree、PRD、测试轮次或某个 Agent 的 cwd。
 
 将项目能力全集写入 `project.capabilities`，供方案卡的"影响范围"参考；v2 不再有 track 派发与 `selected_tracks` 概念。
 
-如果项目已有旧 `.devflow/manifest.yaml`，不删除、不静默覆盖；旧命令通过兼容适配器继续读取。
-
-## Step 3: 生成项目规则
-
-按原有流程创建 `.devflow/rules/project.md`、存在后端/前端时创建对应规则，复制 `.devflow/redlines.yaml`。这些是项目级策略，任务只引用它们，不放入 task 状态。
-
-## Step 4: 创建项目目录
-
-```bash
-mkdir -p .devflow/contracts docs docs/adr
-```
+如果项目已有旧 `.devflow/manifest.yaml`，不删除、不静默覆盖；旧命令通过兼容适配器继续读取。已有 `project.yaml` 的项目重跑 init 时，守卫会视为已初始化并拒绝改写配置——此类调整必须由用户本人完成，不由 agent 执行。
 
 新任务由 `/devflow start` 或 `/devflow fix` 创建：一律在**启动目录**（持有 `.devflow/` 的那个目录）写 `.devflow/task.yaml`。该目录是 git 仓时创建功能分支并冻结 base commit；不是 git 仓时跳过 git 操作、在任务卡上显式提示（除非 `workspace.git_policy: auto_skip`）。启动目录已有未完成 task 时不再新建（拒绝并提示先完成它）；历史遗留的 `.devflow-worktrees/` 仅作只读兼容，不会新写入。`runs/` 属于运行时审计，不应成为共享项目状态。
 
