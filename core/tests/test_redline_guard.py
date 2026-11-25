@@ -901,6 +901,44 @@ class WorkspaceRootGuardTest(unittest.TestCase):
     def test_agent_can_write_devflow_artifact(self):
         self.assertEqual(self._decide(self.ws, self.ws / ".devflow/plan.md"), "allow")
 
+    def test_init_window_allows_writing_config(self):
+        # A never-initialised project (bare .devflow, no state file) — /devflow
+        # init must be able to create project.yaml / rules/ / redlines.yaml.
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "fresh"
+            (proj / ".devflow").mkdir(parents=True)
+            for rel in ("project.yaml", "redlines.yaml", "rules/frontend.md"):
+                self.assertEqual(
+                    self._decide(proj, proj / ".devflow" / rel), "allow",
+                    f"init should be able to write {rel}",
+                )
+
+    def test_init_window_rejects_non_init_paths(self):
+        # Even during init, arbitrary .devflow/ files are not writable.
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "fresh"
+            (proj / ".devflow").mkdir(parents=True)
+            self.assertEqual(
+                self._decide(proj, proj / ".devflow/random.md"), "deny"
+            )
+
+    def test_initialised_project_denies_config_without_a_task(self):
+        # project.yaml already exists but no task yet → init window is closed;
+        # config stays protected (a configured project can't treat itself as
+        # still-initialising to rewrite its rules).
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "configured"
+            (proj / ".devflow").mkdir(parents=True)
+            (proj / ".devflow/project.yaml").write_text(
+                'project:\n  name: x\n', encoding="utf-8"
+            )
+            self.assertEqual(
+                self._decide(proj, proj / ".devflow/redlines.yaml"), "deny"
+            )
+            self.assertEqual(
+                self._decide(proj, proj / ".devflow/rules/a.md"), "deny"
+            )
+
     def test_uninitialised_dir_is_transparent(self):
         # repo-b has no .devflow; a session launched there is uninitialised.
         with tempfile.TemporaryDirectory() as td:

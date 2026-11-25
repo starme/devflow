@@ -708,7 +708,56 @@ def is_devflow_artifact(rel_path):
     return False
 
 
-def is_devflow_protected(rel_path):
+# Configuration files ``/devflow init`` is allowed to create while a project is
+# being initialised. The init command's whole job is to write these from the
+# bundled templates, so blocking them makes init impossible. This list is only
+# honoured while the init window is open (see :func:`is_init_window_open`); in
+# the task phase these same paths stay DevFlow-protected.
+_INIT_CONFIG_FILES = frozenset(
+    {
+        ".devflow/project.yaml",
+        ".devflow/redlines.yaml",
+        ".devflow/manifest.yaml",
+    }
+)
+_INIT_CONFIG_PREFIXES = (
+    ".devflow/rules/",
+    ".devflow/contracts/",
+)
+
+
+def is_init_window_open(project_root):
+    """Return ``True`` while *project_root* has not been initialised yet.
+
+    The window is open only when the project carries no DevFlow state at all:
+    no ``task.yaml`` (never started a task), no ``project.yaml`` and no legacy
+    ``manifest.yaml`` (never written project config). In that state
+    ``/devflow init`` legitimately creates the config from templates. The
+    moment any of those exist the project counts as initialised, the window
+    closes, and the DevFlow-protected rule applies in full — so an already
+    configured project cannot use "no task yet" to rewrite its own config.
+
+    Fail-closed: any error reading the state counts as "window closed", so a
+    guard bug can never open the window by accident.
+    """
+    try:
+        devflow = Path(project_root).resolve() / ".devflow"
+        for name in ("task.yaml", "project.yaml", "manifest.yaml"):
+            if (devflow / name).is_file():
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def is_devflow_init_path(rel_path):
+    """Return ``True`` for the config paths init is allowed to create."""
+    if rel_path in _INIT_CONFIG_FILES:
+        return True
+    return any(rel_path.startswith(prefix) for prefix in _INIT_CONFIG_PREFIXES)
+
+
+def is_devflow_protected(rel_path, init_window_open=False):
     """Return ``True`` when *rel_path* is DevFlow's own machinery, not an agent
     artifact — anything under ``.devflow/`` that is not a permitted artifact.
 
@@ -718,8 +767,15 @@ def is_devflow_protected(rel_path):
     per-track boundary retired, this is the dedicated guard for that area: the
     boundary rule now allows everything inside the project root, so without
     this check an agent could edit its own redlines or state.
+
+    While *init_window_open* is true (no task yet), the init config paths are
+    exempt — ``/devflow init`` writes exactly those from templates. Every other
+    ``.devflow/`` path stays protected even then, so init cannot be used to
+    scribble arbitrary files into DevFlow's machinery.
     """
-    return rel_path.startswith(".devflow/") and not is_devflow_artifact(rel_path)
+    if not rel_path.startswith(".devflow/") or is_devflow_artifact(rel_path):
+        return False
+    return not (init_window_open and is_devflow_init_path(rel_path))
 
 
 def to_rel_path(file_path, project_root):

@@ -43,6 +43,7 @@ from devflow_guard_common import (
     is_devflow_artifact,
     is_devflow_protected,
     is_git_commit,
+    is_init_window_open,
     is_test_file,
     is_within_boundary,
     load_context,
@@ -92,6 +93,7 @@ def check_file_operation(tool_name, tool_input, project_root, context, redlines)
     """Apply all file-path-based rules.  Calls deny()/ask() on violation."""
     cwd = context.get("cwd", "")
     phase = context.get("current_phase", "")
+    init_window = is_init_window_open(project_root)
 
     targets = get_target_paths(tool_name, tool_input, project_root, cwd)
 
@@ -139,7 +141,7 @@ def check_file_operation(tool_name, tool_input, project_root, context, redlines)
         #    artifact (redlines.yaml, task.yaml, project.yaml, rules/, contracts).
         #    The boundary rule below allows everything inside the project root,
         #    so this dedicated check stops an agent editing its own guardrails.
-        if tool_name != "Read" and is_devflow_protected(rel_path):
+        if tool_name != "Read" and is_devflow_protected(rel_path, init_window):
             deny(
                 f"[DevFlow Redline] '{rel_path}' is DevFlow configuration and "
                 f"cannot be modified by agents. Report to the Manager if a change "
@@ -239,6 +241,7 @@ def check_bash_operation(tool_input, project_root, context, redlines):
         )
 
     # 3. Check shell redirect / tee / sed -i targets against redlines
+    init_window = is_init_window_open(project_root)
     targets = get_target_paths("Bash", tool_input, project_root, cwd)
     for rel_path, abs_path in targets:
         if path_in_redline_category(
@@ -263,7 +266,7 @@ def check_bash_operation(tool_input, project_root, context, redlines):
         # 3b. DevFlow-protected files — same rule as the file tools. Without
         #     this, ``echo > .devflow/redlines.yaml`` would rewrite the guard
         #     while ``Write`` to the same file is denied.
-        if is_devflow_protected(rel_path):
+        if is_devflow_protected(rel_path, init_window):
             deny(
                 f"[DevFlow Redline] Shell command targets DevFlow configuration "
                 f"'{rel_path}'. Agents may not modify it via shell either."
