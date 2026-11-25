@@ -22,9 +22,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from devflow_guard_common import (
-    find_project_root,
     get_target_paths,
     load_context,
+    find_project_root,
 )
 
 MAX_DETAIL = 200

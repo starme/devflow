@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ORCHESTRATOR = Path(__file__).resolve().parents[1] / "orchestrator"
 sys.path.insert(0, str(ORCHESTRATOR))
@@ -17,6 +18,7 @@ from task_state import TaskRecord, load_task, render_task_yaml  # noqa: E402
 from worktree_manager import (  # noqa: E402
     WorktreeError,
     create_task,
+    describe_git_skips,
     discover_tasks,
     resolve_project_root,
 )
@@ -32,7 +34,7 @@ class TaskStateTest(unittest.TestCase):
             base_ref="main",
             base_commit="abc123",
             branch="fix/fix-login-a1b2",
-            worktree="/tmp/fix-login-a1b2",
+            working_dir="/tmp/fix-login-a1b2",
             source_task_id="feature-login-old",
         )
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -69,7 +71,7 @@ class WorktreeManagerTest(unittest.TestCase):
             root = self._repository(temp_dir)
             feature = create_task(root, "Add weekly report", "feature")
 
-            self.assertEqual(Path(feature.worktree).resolve(), root.resolve())
+            self.assertEqual(Path(feature.working_dir).resolve(), root.resolve())
             self.assertEqual(load_task(root / ".devflow" / "task.yaml").kind, "feature")
 
             with self.assertRaises(WorktreeError) as ctx:
@@ -110,7 +112,7 @@ class WorktreeManagerTest(unittest.TestCase):
 
             second = create_task(root, "Second chore", "chore")
 
-            self.assertEqual(Path(second.worktree).resolve(), root.resolve())
+            self.assertEqual(Path(second.working_dir).resolve(), root.resolve())
             self.assertEqual(load_task(root / ".devflow" / "task.yaml").task_id, second.task_id)
             snapshot = root / ".devflow" / "tasks" / first.task_id / "task.yaml"
             self.assertTrue(snapshot.is_file(), "previous task state was not snapshotted")
@@ -122,15 +124,16 @@ class WorktreeManagerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = self._repository(temp_dir)
             record = create_task(root, "In-place only", "feature")
-            self.assertEqual(Path(record.worktree).resolve(), root.resolve())
-            self.assertNotIn(".devflow-worktrees", record.worktree)
+            self.assertEqual(Path(record.working_dir).resolve(), root.resolve())
+            self.assertNotIn(".devflow-worktrees", record.working_dir)
             content = (root / ".devflow" / "task.yaml").read_text(encoding="utf-8")
             self.assertNotIn(".devflow-worktrees", content)
 
-    def test_writes_state_to_project_root_when_repo_is_nested(self):
-        # Self-hosted layout: the project owns .devflow/ while the git repo sits
-        # in a subdirectory. State belongs with the project, which is also the
-        # directory artifact_publish archives into.
+    def test_state_written_to_launch_dir_when_started_at_project_root(self):
+        # The root is the launch directory. Starting a task at the project
+        # (which owns .devflow/) writes state there, even when git repositories
+        # live in subdirectories. The project itself is not a git repository,
+        # so git operations are skipped and reported, not fatal.
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir) / "project"
             project.mkdir()
@@ -150,11 +153,13 @@ class WorktreeManagerTest(unittest.TestCase):
                 check=True,
             )
 
-            record = create_task(repo, "Nested repo task", "chore")
+            with mock.patch("builtins.print"):
+                record = create_task(project, "Project-root task", "chore")
 
             state = project / ".devflow" / "task.yaml"
-            self.assertTrue(state.is_file(), "state was not written to the project root")
+            self.assertTrue(state.is_file(), "state was not written to the launch dir")
             self.assertEqual(load_task(state).task_id, record.task_id)
+            self.assertEqual(Path(record.working_dir).resolve(), project.resolve())
             self.assertFalse((repo / ".devflow" / "task.yaml").exists())
 
     def test_resolve_project_root_falls_back_to_repo_root(self):
@@ -164,7 +169,9 @@ class WorktreeManagerTest(unittest.TestCase):
             root = self._repository(temp_dir)
             self.assertEqual(resolve_project_root(root), root.resolve())
 
-    def test_resolve_project_root_reads_declared_workspace_root(self):
+    def test_resolve_project_root_does_not_search_upward(self):
+        # Root = the directory itself when it owns .devflow. An ancestor's
+        # .devflow must never capture a nested directory: "drill down, never up".
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir) / "project"
             (project / ".devflow").mkdir(parents=True)
@@ -173,7 +180,10 @@ class WorktreeManagerTest(unittest.TestCase):
             )
             repo = project / "repo"
             repo.mkdir()
-            self.assertEqual(resolve_project_root(repo), project.resolve())
+            # repo has no .devflow of its own → falls back to itself, not project.
+            self.assertEqual(resolve_project_root(repo), repo.resolve())
+            # project owns .devflow → it is its own root.
+            self.assertEqual(resolve_project_root(project), project.resolve())
 
     def test_unfinished_task_under_project_root_blocks_in_place(self):
         # A task left running at the project root must block the next one;
@@ -390,6 +400,82 @@ class WorktreeManagerTest(unittest.TestCase):
 
             self.assertEqual(broken.read_text(encoding="utf-8"), before)
             self.assertEqual(load_task(broken).task_id, first.task_id)
+
+
+class GitOptionalTest(unittest.TestCase):
+    """Git is optional: non-git roots skip git ops; declared endpoints must be git."""
+
+    def test_non_git_root_creates_task_without_branch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "plain"
+            (root / ".devflow").mkdir(parents=True)
+            with mock.patch("builtins.print"):
+                record = create_task(root, "Plain task", "chore")
+            self.assertEqual(Path(record.working_dir).resolve(), root.resolve())
+            self.assertEqual(record.base_commit, "")
+            # State is readable even though git fields are empty.
+            self.assertEqual(
+                load_task(root / ".devflow" / "task.yaml").task_id, record.task_id
+            )
+            self.assertEqual(describe_git_skips(root), [f"not a git repository: {root.resolve()} (no branch, no base_commit)"])
+
+    def test_clean_git_root_reports_no_skips(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = WorktreeManagerTest()._repository(temp_dir)
+            self.assertEqual(describe_git_skips(root), [])
+
+    def test_declared_non_git_endpoint_raises(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ws = Path(temp_dir) / "ws"
+            WorktreeManagerTest()._repository(temp_dir, name="ws")  # ws is a git repo
+            (ws / ".devflow").mkdir(exist_ok=True)
+            (ws / ".devflow/project.yaml").write_text(
+                'workspace:\n  root: "."\nworkspaces:\n'
+                '  - track: "frontend"\n    git_root: "./repo-x"\n',
+                encoding="utf-8",
+            )
+            (ws / "repo-x").mkdir()  # exists but not a git repo root
+            with self.assertRaises(WorktreeError) as ctx:
+                create_task(ws, "Broken cross repo", "feature")
+            self.assertIn("not a git repository root", str(ctx.exception))
+
+    def test_auto_skip_suppresses_the_report(self):
+        # Explicit opt-in to silence; git_policy: ask (or absent) still reports.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "plain"
+            (root / ".devflow").mkdir(parents=True)
+            (root / ".devflow/project.yaml").write_text(
+                'workspace:\n  root: "."\n  git_policy: auto_skip\n', encoding="utf-8"
+            )
+            self.assertEqual(describe_git_skips(root), [])
+            with mock.patch("builtins.print") as printed:
+                create_task(root, "Quiet task", "chore")
+            printed.assert_not_called()
+
+    def test_non_git_root_announces_the_skip(self):
+        # "Show a hint unless auto-agreed": create_task must actually print.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "plain"
+            (root / ".devflow").mkdir(parents=True)
+            with mock.patch("builtins.print") as printed:
+                create_task(root, "Announced task", "chore")
+            messages = [str(call.args[0]) for call in printed.call_args_list if call.args]
+            self.assertTrue(any("not a git repository" in m for m in messages))
+
+    def test_git_root_prints_nothing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = WorktreeManagerTest()._repository(temp_dir)
+            with mock.patch("builtins.print") as printed:
+                create_task(root, "Git task", "feature")
+            printed.assert_not_called()
+
+    def test_subdirectory_of_repo_is_not_a_git_root(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = WorktreeManagerTest()._repository(temp_dir)
+            sub = root / "sub"
+            sub.mkdir()
+            # sub is inside a repository but is not its own top level.
+            self.assertTrue(describe_git_skips(sub))
 
 
 if __name__ == "__main__":

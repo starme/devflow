@@ -8,8 +8,9 @@ plugin is enabled.  When a ``.devflow/`` directory is present it enforces:
 2. **Protected files** (CI/CD, Docker, lockfiles) → deny for every agent
 3. **Approval-required files** (package.json, migrations, auth code)
                                                   → ask the user
-4. **Directory boundaries**                       → deny if a dev agent
-   writes outside its workspace track (server/ vs web/)
+4. **Directory boundary** — writes must stay inside the project root
+   (the session's launch directory); drilling down is allowed, going up or
+   outside is denied.
 5. **Test file protection during development**    → deny edits to existing
    test files unless the current phase is ``testing``
 6. **Dangerous Bash commands** (rm -rf /, force push, …) → deny
@@ -39,8 +40,8 @@ from devflow_guard_common import (
     content_was_inspectable,
     find_project_root,
     get_target_paths,
-    infer_track,
     is_devflow_artifact,
+    is_devflow_protected,
     is_git_commit,
     is_test_file,
     is_within_boundary,
@@ -90,7 +91,6 @@ def _emit_decision(decision, reason):
 def check_file_operation(tool_name, tool_input, project_root, context, redlines):
     """Apply all file-path-based rules.  Calls deny()/ask() on violation."""
     cwd = context.get("cwd", "")
-    track = infer_track(cwd, context.get("workspace", {}))
     phase = context.get("current_phase", "")
 
     targets = get_target_paths(tool_name, tool_input, project_root, cwd)
@@ -135,23 +135,34 @@ def check_file_operation(tool_name, tool_input, project_root, context, redlines)
                 f"need, or have them make the change."
             )
 
-        # 3. Directory boundary - dev agents can only write in their track.
-        # Writes to .devflow/ process artifacts (scope.yaml, task reports, test
-        # reports, contracts, runs/) are allowed for any agent, hence the last
-        # clause rather than a nested check.
+        # 3. DevFlow-protected files — anything under .devflow/ that is not an agent
+        #    artifact (redlines.yaml, task.yaml, project.yaml, rules/, contracts).
+        #    The boundary rule below allows everything inside the project root,
+        #    so this dedicated check stops an agent editing its own guardrails.
+        if tool_name != "Read" and is_devflow_protected(rel_path):
+            deny(
+                f"[DevFlow Redline] '{rel_path}' is DevFlow configuration and "
+                f"cannot be modified by agents. Report to the Manager if a change "
+                f"is genuinely required."
+            )
+
+        # 4. Directory boundary - agents may only write inside the project
+        # root (the session's launch directory), drilling down but never up.
+        # A workspace may span several repositories, so no per-repo track
+        # gating applies. Writes to .devflow/ process artifacts stay allowed
+        # even when they resolve outside the root (worktree mapping).
         if (
             tool_name != "Read"
-            and track
-            and not is_within_boundary(abs_path, context.get("workspace", {}), track, cwd)
+            and not is_within_boundary(abs_path, project_root, cwd)
             and not is_devflow_artifact(rel_path)
         ):
             deny(
-                f"[DevFlow Boundary] The {track} agent cannot write to "
-                f"'{rel_path}' - it is outside the {track} workspace. "
-                f"If this file truly needs changes, report to the Manager."
+                f"[DevFlow Boundary] Cannot write to '{rel_path}' - it is outside "
+                f"the project root. Agents work within the launch directory only; "
+                f"if this file truly needs changes, report to the Manager."
             )
 
-        # 4. Test file protection during development
+        # 5. Test file protection during development
         if tool_name != "Read" and phase == "development" and is_test_file(rel_path):
             # Allow creating NEW test files (Write when file doesn't exist),
             # but block editing existing ones so dev agents can't game tests.
@@ -170,7 +181,7 @@ def check_file_operation(tool_name, tool_input, project_root, context, redlines)
                     f"the test needs updating."
                 )
 
-        # 5. Approval required — only when the write actually looks
+        # 6. Approval required — only when the write actually looks
         #    credential-bearing. A path match alone is too coarse: bumping a
         #    timeout in config/app.yaml or refactoring an auth helper is
         #    routine work, and asking on every such edit is what makes the
@@ -229,7 +240,7 @@ def check_bash_operation(tool_input, project_root, context, redlines):
 
     # 3. Check shell redirect / tee / sed -i targets against redlines
     targets = get_target_paths("Bash", tool_input, project_root, cwd)
-    for rel_path, _abs_path in targets:
+    for rel_path, abs_path in targets:
         if path_in_redline_category(
             rel_path,
             redlines["forbidden"],
@@ -247,6 +258,27 @@ def check_bash_operation(tool_input, project_root, context, redlines):
             deny(
                 f"[DevFlow Redline] Shell command targets protected file "
                 f"'{rel_path}'. Agents must not modify it via shell either."
+            )
+
+        # 3b. DevFlow-protected files — same rule as the file tools. Without
+        #     this, ``echo > .devflow/redlines.yaml`` would rewrite the guard
+        #     while ``Write`` to the same file is denied.
+        if is_devflow_protected(rel_path):
+            deny(
+                f"[DevFlow Redline] Shell command targets DevFlow configuration "
+                f"'{rel_path}'. Agents may not modify it via shell either."
+            )
+
+        # 4. Directory boundary — a shell write outside the project root must
+        #    be denied just like the Write tool's. ``is_within_boundary``
+        #    exempts user-level state (``~/.claude``, Memorant) and worktree
+        #    mapping; DevFlow process artifacts are not shell-writable outside
+        #    the root, matching the file-tool behaviour.
+        if not is_within_boundary(abs_path, project_root, cwd):
+            deny(
+                f"[DevFlow Boundary] Shell command writes '{rel_path}', which is "
+                f"outside the project root. Agents work within the launch "
+                f"directory only; report to the Manager if this is needed."
             )
 
     # 4. Config is refused on read as well, so a shell reader that names a
@@ -294,10 +326,9 @@ def main():
 
         # Load DevFlow context and redline rules.
         context = load_context(project_root)
-        # The hook input's cwd is the authoritative source for track inference.
-        # A task may span several directories (multi-repo endpoints, nested
-        # repos), and the tool can run from any of them, so the platform's
-        # per-call cwd always wins over anything derived from task state.
+        # The hook's per-call cwd locates relative tool paths; the project
+        # root itself comes from the fixed launch directory (CLAUDE_PROJECT_DIR)
+        # so it does not drift when the agent cd's.
         context["cwd"] = cwd
 
         redlines = load_redlines(project_root)

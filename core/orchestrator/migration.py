@@ -149,7 +149,7 @@ def migrate_legacy_project(root: Path) -> dict[str, object]:
         f"  base_ref: {_yaml(branch or 'HEAD')}\n"
         f"  base_commit: {_yaml(commit)}\n"
         f"  branch: {_yaml(branch)}\n"
-        f"  worktree: {_yaml(str(root))}\n\n"
+        f"  working_dir: {_yaml(str(root))}\n\n"
         'isolation:\n  mode: "legacy"\n  isolated: false\n\n'
         'legacy:\n  source_manifest: ".devflow/manifest.yaml"\n  read_only: true\n'
     )

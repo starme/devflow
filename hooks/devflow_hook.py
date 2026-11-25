@@ -131,26 +131,63 @@ def memorant_available():
         return False
 
 
-def find_manifest(cwd=None):
-    """Walk up from *cwd* (or process CWD) to find DevFlow state. Read-only.
+def _workspace_resolver():
+    """Load the shared project-root resolver from ``core/workspace.py``.
 
-    Lookup order: ``task.yaml`` (per-task phase), ``project.yaml``, then
-    legacy ``manifest.yaml``. Migration stays in ``/devflow init`` / ``next``.
-    Prefer the hook payload ``cwd`` so a latercomer worktree is not missed
-    when the hook process starts in the main workspace.
+    The hook runs with ``python3 -B -S`` from the plugin's ``hooks/`` directory,
+    so ``core`` is not on ``sys.path``.  Read the resolver by file location;
+    on any failure return ``None`` and let ``find_manifest`` fall back to its
+    own local check, so the hook never breaks the session.
     """
     try:
-        raw = cwd or str(Path.cwd())
-        start = Path(raw)
-        start = (Path.cwd() / start).resolve() if not start.is_absolute() else start.resolve()
-        for parent in [start, *list(start.parents)]:
-            devflow = parent / ".devflow"
-            if (devflow / "task.yaml").is_file():
-                return devflow / "task.yaml", parent
-            if (devflow / "project.yaml").is_file():
-                return devflow / "project.yaml", parent
-            if (devflow / "manifest.yaml").is_file():
-                return devflow / "manifest.yaml", parent
+        import importlib.util
+
+        core = Path(__file__).resolve().parent.parent / "core" / "workspace.py"
+        if not core.is_file():
+            plugin_root = find_plugin_root()
+            if not plugin_root:
+                return None
+            core = Path(plugin_root) / "core" / "workspace.py"
+        spec = importlib.util.spec_from_file_location("devflow_core_workspace", core)
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
+
+
+def find_manifest(cwd=None):
+    """Return ``(state_file, project_root)`` for the current session.
+
+    The root is the single authoritative launch directory — ``CLAUDE_PROJECT_DIR``
+    when set (fixed at session start; the stdin ``cwd`` drifts after a ``cd``),
+    otherwise the payload ``cwd``.  It is a root only when it owns ``.devflow/``
+    itself; when it does not, the session is uninitialised and NO other
+    directory (a child, an ancestor, or the process cwd) may stand in.  Lookup
+    order inside that root is ``task.yaml`` (per-task phase), ``project.yaml``,
+    then legacy ``manifest.yaml``; migration stays in ``/devflow init`` /
+    ``next``.
+    """
+    try:
+        module = _workspace_resolver()
+        if module is not None:
+            root = module.resolve_session_project_root(cwd)
+        else:
+            raw = os.environ.get("CLAUDE_PROJECT_DIR") or cwd or os.getcwd()
+            start = Path(raw).resolve()
+            root = start if (start / ".devflow").is_dir() else None
+        # The launch directory is authoritative: if it is uninitialised, no
+        # other directory (payload cwd, process cwd, a child) may stand in.
+        if root is None:
+            return None, None
+        devflow = root / ".devflow"
+        for name in ("task.yaml", "project.yaml", "manifest.yaml"):
+            candidate = devflow / name
+            if candidate.is_file():
+                return candidate, root
+        return None, None
     except Exception:
         pass
     return None, None
@@ -326,10 +363,35 @@ def emit_text(text):
         print("")
 
 
+def _session_launch_dir(data):
+    """Return the session's launch directory, using the shared resolver."""
+    module = _workspace_resolver()
+    if module is not None:
+        return module.session_launch_dir(data.get("cwd"))
+    raw = os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd") or os.getcwd()
+    try:
+        return Path(raw).resolve()
+    except Exception:
+        return None
+
+
 def handle_session_start(data):
     try:
         manifest_path, project_root = find_manifest(data.get("cwd"))
         if not manifest_path:
+            # No DevFlow state in this directory. Distinguish "never initialised"
+            # (offer /devflow init) from "initialised but no active task yet"
+            # (stay quiet). The session's launch directory is the authority.
+            launch = _session_launch_dir(data)
+            has_devflow = bool(launch and (launch / ".devflow").is_dir())
+            if not has_devflow and check_rules_installed():
+                return emit(
+                    "[DevFlow] This directory is not initialised for DevFlow. "
+                    "Run /devflow init to set it up (init will ask which workspace "
+                    "to inherit rules/config from: itself, its parent, or a custom "
+                    "path). Until then DevFlow stays inactive here.",
+                    "SessionStart",
+                )
             if not check_rules_installed():
                 return emit(
                     "[DevFlow] Plugin installed but rules not yet set up. "

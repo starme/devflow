@@ -57,7 +57,7 @@ def _task_yaml(
         base_ref="main",
         base_commit="deadbeef" * 5,
         branch=f"{kind}/{task_id}",
-        worktree=worktree or f"/tmp/in-place/{task_id}",
+        working_dir=worktree or f"/tmp/in-place/{task_id}",
     )
     return render_task_yaml(record, current_phase=phase)
 

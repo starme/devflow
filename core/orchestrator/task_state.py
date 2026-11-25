@@ -39,7 +39,10 @@ class TaskRecord:
     base_ref: str
     base_commit: str
     branch: str
-    worktree: str
+    # Directory the task works in (where its ``.devflow/`` lives). Named
+    # ``working_dir`` rather than the retired ``worktree``: external worktrees
+    # are gone, and every task works in place.
+    working_dir: str
     parent_task_id: str | None = None
     source_task_id: str | None = None
     endpoints: tuple[RepoEndpoint, ...] = ()
@@ -103,7 +106,7 @@ def render_task_yaml(record: TaskRecord, current_phase: str = "qa") -> str:
         f"  base_ref: {_yaml_quote(record.base_ref)}",
         f"  base_commit: {_yaml_quote(record.base_commit)}",
         f"  branch: {_yaml_quote(record.branch)}",
-        f"  worktree: {_yaml_quote(record.worktree)}",
+        f"  working_dir: {_yaml_quote(record.working_dir)}",
     ]
     lines.extend(_render_endpoint_lines(record))
     lines.extend(
@@ -229,11 +232,20 @@ def load_task(path: Path) -> TaskRecord:
         "base_ref": _read_scalar(content, "base_ref", "git"),
         "base_commit": _read_scalar(content, "base_commit", "git"),
         "branch": _read_scalar(content, "branch", "git"),
-        "worktree": _read_scalar(content, "worktree", "git"),
+        "working_dir": _read_scalar(content, "working_dir", "git")
+        or _read_scalar(content, "worktree", "git"),  # legacy key, read-only
         "parent_task_id": _read_scalar(content, "parent_task_id"),
         "source_task_id": _read_scalar(content, "source_task_id"),
     }
-    required = ("task_id", "slug", "kind", "base_ref", "base_commit", "branch", "worktree")
+    required = (
+        "task_id",
+        "slug",
+        "kind",
+        "working_dir",
+    )
+    # ``base_ref`` / ``base_commit`` / ``branch`` are optional: git is optional,
+    # and a task created in a directory under no version control has no branch
+    # or base commit. Their absence is valid state, not corruption.
     missing = [key for key in required if not values[key]]
     if missing:
         raise ValueError(f"invalid task state {path}: missing {', '.join(missing)}")
@@ -247,7 +259,7 @@ def load_task(path: Path) -> TaskRecord:
         base_ref=values["base_ref"] or "",
         base_commit=values["base_commit"] or "",
         branch=values["branch"] or "",
-        worktree=values["worktree"] or "",
+        working_dir=values["working_dir"] or "",
         parent_task_id=values["parent_task_id"],
         source_task_id=values["source_task_id"],
         endpoints=_read_endpoints(content),

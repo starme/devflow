@@ -16,18 +16,23 @@ from pathlib import Path
 HOOK = Path(__file__).resolve().parents[2] / "hooks" / "devflow_hook.py"
 
 
-def run_event(root: Path, event: str, **extra) -> subprocess.CompletedProcess:
+def run_event(root: Path, event: str, project_dir=None, **extra) -> subprocess.CompletedProcess:
     payload = {
         "hook_event_name": event,
         "cwd": str(root),
         **extra,
     }
+    env = dict(os.environ)
+    # Claude Code exports the fixed session launch dir; simulate it so tests
+    # exercise the same signal production uses.
+    env["CLAUDE_PROJECT_DIR"] = str(project_dir if project_dir is not None else root)
     return subprocess.run(
         [sys.executable, str(HOOK)],
         input=json.dumps(payload),
         text=True,
         capture_output=True,
         cwd=root,
+        env=env,
         check=True,
     )
 

@@ -22,6 +22,21 @@ workspace:
   contract_path: ".devflow/contracts"
   docs_path: "docs"
   rules_path: ".devflow/rules"
+  # What to do when a directory is not a git repository: git is optional, so
+  # branch creation and base_commit freezing are skipped there.
+  #   ask       (default) report each skipped repository — never silent
+  #   auto_skip suppress the report (opt-in to silence)
+  git_policy: ask
+
+# Multi-repo endpoints. Only the project whose ``.devflow/`` declares this list
+# gains cross-repo capability; starting a session inside a child repository
+# operates on that child alone. Relative ``git_root`` resolves against the
+# directory holding this ``.devflow/``.
+# workspaces:
+#   - track: "frontend"
+#     git_root: "../fe-app"
+#     remote: "origin"
+#     base_branch: "main"
 
 # Adapters this project runs on. Keep the comment on its own line — putting a
 # "# ..." explanation inside the quoted value makes the parsed string literal.
