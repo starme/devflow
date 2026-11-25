@@ -267,7 +267,10 @@ def _parse_workspaces(project_root):
     anchor root.
 
     Relative ``git_root`` values resolve against *project_root* — the directory
-    that owns the ``.devflow/`` being read.
+    that owns the ``.devflow/`` being read. ``path:`` is an alias of
+    ``git_root:``; git_root wins when both appear. Only a first-key
+    ``- track:`` item names an endpoint; residue items and legacy shapes whose
+    track would only come from an indented line are skipped.
 
     Multi-repo capability belongs to the directory that *declares* the list.
     Callers pass the root the session actually started in, so a child
@@ -275,6 +278,12 @@ def _parse_workspaces(project_root):
     declares ``workspaces:`` those endpoints are the child's, not an ancestor's,
     and cross-repo behaviour is a property of where the session runs, not of an
     upward search.
+
+    Raises: never. This is a zero-dependency fail-safe hook: an endpoint with a
+    track but no root key is skipped here, not rejected. The orchestrator's
+    ``_resolve_endpoints`` raises loudly at task creation for first-key named
+    endpoints — the disambiguation belongs there, not in a hook that gates
+    every tool call.
     """
     manifest = project_root / ".devflow" / "project.yaml"
     if not manifest.is_file():
@@ -283,6 +292,16 @@ def _parse_workspaces(project_root):
         lines = manifest.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return []
+
+    def scalar(val):
+        # Keep in sync with worktree_manager._scalar: strip trailing comments
+        # before quotes so ``path: ./fe # alias`` stays a usable path.
+        if "#" in val:
+            val = val.split("#", 1)[0]
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("\"", "'"):
+            val = val[1:-1]
+        return val.strip()
 
     endpoints = []
     in_workspaces = False
@@ -300,23 +319,37 @@ def _parse_workspaces(project_root):
             if indent == 0 and stripped.endswith(":"):
                 break
             if indent == 2 and stripped.startswith("- "):
-                if current and current.get("track") and current.get("git_root"):
+                if current and current.get("track") and (current.get("git_root") or current.get("path")):
                     endpoints.append(current)
-                _, _, track_val = stripped[2:].partition(":")
-                current = {"track": track_val.strip().strip('"').strip("'")}
+                # Only a first-key ``- track:`` item names an endpoint. Other
+                # first keys are residue or a legacy shape main never parsed.
+                first_key, _, first_val = stripped[2:].partition(":")
+                if first_key.strip() == "track":
+                    current = {"track": scalar(first_val)}
+                else:
+                    current = {}
+                    val = scalar(first_val)
+                    if first_key.strip() in ("git_root", "path") and val:
+                        current[first_key.strip()] = val
                 continue
             if indent >= 4 and current is not None and ":" in stripped:
                 key, _, val = stripped.partition(":")
                 key = key.strip()
-                val = val.strip().strip('"').strip("'")
-                if key == "git_root" and val:
-                    current["git_root"] = val
-    if current and current.get("track") and current.get("git_root"):
+                val = scalar(val)
+                # Indented track: is deliberately NOT recorded (H1 parity).
+                if key in ("git_root", "path") and val:
+                    current[key] = val
+    if current and current.get("track") and (current.get("git_root") or current.get("path")):
         endpoints.append(current)
 
     resolved = []
     for ep in endpoints:
-        git_root = Path(ep["git_root"])
+        # ``path:`` is an alias of ``git_root:``; git_root wins when both appear.
+        # A named endpoint missing both keys is skipped here (fail-safe hook —
+        # never raise); the orchestrator's _resolve_endpoints raises loudly at
+        # task creation so the misconfiguration cannot pass silently.
+        raw_root = ep.get("git_root") or ep.get("path")
+        git_root = Path(raw_root)
         if not git_root.is_absolute():
             git_root = (project_root / git_root).resolve()
         else:

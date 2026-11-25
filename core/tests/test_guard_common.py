@@ -215,6 +215,114 @@ class MultiRepoEndpointTest(unittest.TestCase):
             self.assertEqual(endpoints[1]["track"], "frontend")
             self.assertEqual(endpoints[1]["git_root"], str(frontend.resolve()))
 
+    def test_parse_workspaces_accepts_path_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor = Path(temp_dir) / "backend"
+            frontend = Path(temp_dir) / "frontend"
+            anchor.mkdir()
+            frontend.mkdir()
+            (anchor / ".devflow").mkdir(parents=True)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                '  - track: "frontend"\n'
+                '    path: "../frontend"\n',
+                encoding="utf-8",
+            )
+            endpoints = _parse_workspaces(anchor)
+            self.assertEqual(len(endpoints), 1)
+            self.assertEqual(endpoints[0]["git_root"], str(frontend.resolve()))
+
+    def test_parse_workspaces_git_root_wins_over_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor = Path(temp_dir) / "backend"
+            (anchor / ".devflow").mkdir(parents=True)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                '  - track: "frontend"\n'
+                '    git_root: "./real"\n'
+                '    path: "./alias"\n',
+                encoding="utf-8",
+            )
+            endpoints = _parse_workspaces(anchor)
+            self.assertEqual(endpoints[0]["git_root"], str((anchor / "real").resolve()))
+
+    def test_parse_workspaces_missing_root_skipped_not_raised(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor = Path(temp_dir) / "backend"
+            (anchor / ".devflow").mkdir(parents=True)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                '  - track: "frontend"\n'
+                '    remote: "origin"\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(_parse_workspaces(anchor), [])
+
+    def test_parse_workspaces_remote_first_residue_skipped(self) -> None:
+        # Regression (verifier Round 1): a `- remote: origin` residue item must
+        # not be misread as track='origin'; the valid endpoint still parses.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor = Path(temp_dir) / "backend"
+            frontend = Path(temp_dir) / "frontend"
+            anchor.mkdir()
+            frontend.mkdir()
+            (anchor / ".devflow").mkdir(parents=True)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                '  - remote: "origin"\n'
+                '  - track: "frontend"\n'
+                '    git_root: "../frontend"\n',
+                encoding="utf-8",
+            )
+            endpoints = _parse_workspaces(anchor)
+            self.assertEqual(len(endpoints), 1)
+            self.assertEqual(endpoints[0]["track"], "frontend")
+
+    def test_parse_workspaces_indented_track_after_path(self) -> None:
+        # H1 parity with orchestrator: legacy shape stays skipped, not parsed.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor = Path(temp_dir) / "backend"
+            frontend = Path(temp_dir) / "frontend"
+            anchor.mkdir()
+            frontend.mkdir()
+            (anchor / ".devflow").mkdir(parents=True)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                '  - path: "../frontend"\n'
+                '    track: "frontend"\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(_parse_workspaces(anchor), [])
+
+    def test_parse_workspaces_trailing_comment_in_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor = Path(temp_dir) / "backend"
+            frontend = Path(temp_dir) / "frontend"
+            anchor.mkdir()
+            frontend.mkdir()
+            (anchor / ".devflow").mkdir(parents=True)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                '  - track: "frontend"\n'
+                '    path: "../frontend" # alias\n',
+                encoding="utf-8",
+            )
+            endpoints = _parse_workspaces(anchor)
+            self.assertEqual(len(endpoints), 1)
+            self.assertEqual(endpoints[0]["git_root"], str(frontend.resolve()))
+
+    def test_parse_workspaces_comment_placeholder_root_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor = Path(temp_dir) / "backend"
+            (anchor / ".devflow").mkdir(parents=True)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                '  - track: "frontend"\n'
+                '    git_root:   # to be filled in\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(_parse_workspaces(anchor), [])
+
 
 class UserAgentStateExemptionTest(unittest.TestCase):
     """Memory / Memorant live outside any project but must stay writable."""
