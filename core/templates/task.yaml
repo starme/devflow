@@ -1,6 +1,6 @@
 schema_version: 2
 
-# One requirement or standalone bugfix per task worktree.
+# One requirement or standalone bugfix per task.
 task:
   id: "{{TASK_ID}}"
   slug: "{{TASK_SLUG}}"
@@ -14,7 +14,7 @@ git:
   base_ref: "{{BASE_REF}}"
   base_commit: "{{BASE_COMMIT}}"
   branch: "{{BRANCH}}"
-  worktree: "{{WORKTREE}}"
+  working_dir: "{{WORKING_DIR}}"
 
 # Optional traceability only; these fields do not create a dependency graph.
 parent_task_id: null

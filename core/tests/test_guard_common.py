@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Unit tests for worktree mapping and shell write-target extraction."""
 
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HOOKS = Path(__file__).resolve().parent.parent / "hooks"
 sys.path.insert(0, str(HOOKS))
@@ -14,7 +16,7 @@ from devflow_guard_common import (  # noqa: E402
     _newest_plugin_dir,
     _parse_workspaces,
     detect_worktree,
-    infer_track,
+    is_user_agent_state,
     is_within_boundary,
 )
 
@@ -173,58 +175,24 @@ class ArchiveSignalTest(unittest.TestCase):
 
 
 class MultiRepoEndpointTest(unittest.TestCase):
-    """Endpoint-based track boundary for separated backend/frontend repos."""
+    """Project-root boundary and endpoint path resolution."""
 
-    def _workspace(self, temp_dir, anchor, frontend):
-        anchor = Path(anchor)
-        frontend = Path(frontend)
-        (anchor / ".devflow").mkdir(parents=True, exist_ok=True)
-        (anchor / ".devflow" / "project.yaml").write_text(
-            "workspaces:\n"
-            f'  - track: "backend"\n'
-            f'    git_root: "{anchor}"\n'
-            f'  - track: "frontend"\n'
-            f'    git_root: "{frontend}"\n',
-            encoding="utf-8",
-        )
-        return {
-            "root": str(anchor),
-            "backend": "",
-            "frontend": "",
-            "endpoints": [
-                {"track": "backend", "git_root": str(anchor.resolve())},
-                {"track": "frontend", "git_root": str(frontend.resolve())},
-            ],
-        }
-
-    def test_infer_track_from_endpoint_git_root(self) -> None:
+    def test_is_within_boundary_is_project_root_scoped(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             anchor = Path(temp_dir) / "backend"
             frontend = Path(temp_dir) / "frontend"
             anchor.mkdir()
             frontend.mkdir()
-            workspace = self._workspace(temp_dir, anchor, frontend)
-
-            self.assertEqual(infer_track(str(frontend / "src" / "App.tsx"), workspace), "frontend")
-            self.assertEqual(
-                infer_track(str(anchor / "internal" / "main.go"), workspace), "backend"
-            )
-
-    def test_is_within_boundary_uses_endpoint_root(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            anchor = Path(temp_dir) / "backend"
-            frontend = Path(temp_dir) / "frontend"
-            anchor.mkdir()
-            frontend.mkdir()
-            workspace = self._workspace(temp_dir, anchor, frontend)
-
-            # backend agent may write within the backend repo root
+            # Boundary is the project root: anything beneath it is allowed,
+            # anything outside is refused. There is no per-track gating.
             self.assertTrue(
-                is_within_boundary(str(anchor / "internal" / "x.go"), workspace, "backend")
+                is_within_boundary(str(anchor / "internal" / "x.go"), anchor)
             )
-            # backend agent may NOT write into the frontend repo
             self.assertFalse(
-                is_within_boundary(str(frontend / "src" / "App.tsx"), workspace, "backend")
+                is_within_boundary(str(frontend / "src" / "App.tsx"), anchor)
+            )
+            self.assertTrue(
+                is_within_boundary(str(anchor / "internal" / "x.go"), Path(temp_dir))
             )
 
     def test_parse_workspaces_resolves_relative_git_root(self) -> None:
@@ -246,6 +214,48 @@ class MultiRepoEndpointTest(unittest.TestCase):
             self.assertEqual(len(endpoints), 2)
             self.assertEqual(endpoints[1]["track"], "frontend")
             self.assertEqual(endpoints[1]["git_root"], str(frontend.resolve()))
+
+
+class UserAgentStateExemptionTest(unittest.TestCase):
+    """Memory / Memorant live outside any project but must stay writable."""
+
+    def test_home_claude_memory_is_exempt(self) -> None:
+        home = Path.home()
+        self.assertTrue(
+            is_user_agent_state(
+                home / ".claude" / "projects" / "x" / "memory" / "MEMORY.md"
+            )
+        )
+        self.assertTrue(
+            is_within_boundary(
+                home / ".claude" / "projects" / "x" / "memory" / "MEMORY.md",
+                Path("/some/project"),
+            )
+        )
+
+    def test_memorant_root_from_env_is_exempt(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            vault = Path(td) / "Memorant"
+            with mock.patch.dict(os.environ, {"MEMORANT_ROOT": str(vault)}):
+                self.assertTrue(is_user_agent_state(vault / "memories" / "x.md"))
+
+    def test_memorant_default_root_when_env_unset(self) -> None:
+        with mock.patch.dict(os.environ, {"MEMORANT_ROOT": ""}):
+            self.assertTrue(
+                is_user_agent_state(Path.home() / "Documents" / "Memorant" / "x.md")
+            )
+
+    def test_unrelated_outside_path_is_not_exempt(self) -> None:
+        self.assertFalse(is_user_agent_state(Path("/tmp/scratch.txt")))
+        self.assertFalse(is_user_agent_state(Path.home() / "Sites" / "other" / "x.go"))
+
+    def test_project_local_claude_is_inside_root_anyway(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "proj"
+            (root / ".claude").mkdir(parents=True)
+            self.assertTrue(
+                is_within_boundary(root / ".claude" / "settings.local.json", root)
+            )
 
 
 if __name__ == "__main__":

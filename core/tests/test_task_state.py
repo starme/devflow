@@ -26,7 +26,7 @@ def _record(**overrides):
         "base_ref": "main",
         "base_commit": "fba2bb7",
         "branch": "chore/task-abc123",
-        "worktree": "/tmp/repo",
+        "working_dir": "/tmp/repo",
     }
     kwargs.update(overrides)
     return TaskRecord(**kwargs)

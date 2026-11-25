@@ -1,6 +1,6 @@
 {
   "name": "devflow",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Intent-anchoring, verification-gated lifecycle for AI-assisted development: anchored requirements, executable acceptance criteria, independent verification, and delivery behind explicit approval.",
   "author": {
     "name": "starme",

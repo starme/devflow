@@ -8,6 +8,7 @@ logger going silently dead while every other test still passes.
 import importlib.util
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -59,6 +60,7 @@ class AuditLogTest(unittest.TestCase):
         with (
             mock.patch.object(sys, "argv", ["audit-log.py"]),
             mock.patch("sys.stdin", io.StringIO(payload)),
+            mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(self.root)}),
             self.assertRaises(SystemExit),
         ):
             hook.main()

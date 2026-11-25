@@ -30,13 +30,13 @@ argument-hint: [--base <git-ref>] [--source-task <task-id>] <需求或 bug 描�
 /devflow fix [--base <git-ref>] [--source-task <task-id>] "bug 描述"
 ```
 
-用 `core/orchestrator/worktree_manager.py` 的 `create_task`：
+用 `core/orchestrator/worktree_manager.py` 的 `create_task`，**启动目录**（持有 `.devflow/` 的那个目录）即项目根：
 
-1. 生成唯一 `task_id` 与 slug，定格 `git.base_commit`（`--base` 或当前主分支）。
-2. 建 `feature|fix/<slug>-<short-id>` 分支，写 `<project_root>/.devflow/task.yaml`（`current_phase: qa`，fix 记 `kind: bugfix`）。
-3. **默认 in-place**（主仓库 `checkout -b`）。`project_root` 是持有 `.devflow/` 的目录；普通项目里就是仓库根。
-5. 多仓库：`project.yaml` 声明 `workspaces:` 时每端点同名分支、各自 `base_commit`，交付时各开一个 PR。
-6. 向用户报告 task id、分支、工作区路径、base commit。
+1. `project_root` = 启动目录本身，不向上查找 `.devflow`；从子仓启动而该子仓没有自己的 `.devflow` 时视为未初始化（提示 `/devflow init`）。
+2. 生成唯一 `task_id`、slug 与分支名 `feature|fix/<slug>-<short-id>`，写 `<project_root>/.devflow/task.yaml`（`current_phase: qa`，fix 记 `kind: bugfix`）。
+3. **git 可选**：启动目录是 git 仓时建分支、冻结 `git.base_commit`（`--base` 或当前分支）；不是 git 仓时跳过 git 操作并打印提示（`workspace.git_policy: auto_skip` 可关闭提示）。`git.working_dir` 记录启动目录。
+4. 多仓库：仅当 `project.yaml` 在**启动目录**声明 `workspaces:` 时生效——每端点同名分支、各自 `base_commit`，交付时各开一个 PR。端点必须自身是 git 仓，否则报错；从子仓启动不跨仓。
+5. 向用户报告 task id、分支（无 git 时说明已跳过）、`working_dir`、base commit（无则为空）。
 
 ## 执行
 

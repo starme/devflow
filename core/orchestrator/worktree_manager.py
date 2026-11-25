@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -16,6 +17,11 @@ from task_state import (
     find_task_files,
     render_task_yaml,
 )
+
+# ``core/workspace.py`` owns the single rule for project-root discovery; share
+# it with the hooks so task creation and the guards name the same directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from workspace import resolve_project_root as _discover_project_root
 
 
 class WorktreeError(RuntimeError):
@@ -40,6 +46,33 @@ def _slugify(text: str) -> str:
 
 def _repo_root(path: Path) -> Path:
     return Path(_git(path, "rev-parse", "--show-toplevel")).resolve()
+
+
+def _is_git(path: Path) -> bool:
+    """True when *path* is inside a git work tree; False otherwise.
+
+    Git is optional per directory, so this never raises — a missing repository
+    or a missing ``git`` binary simply means "no version control here".
+    """
+    try:
+        _git(path, "rev-parse", "--show-toplevel")
+        return True
+    except WorktreeError:
+        return False
+
+
+def _is_git_root(path: Path) -> bool:
+    """True when *path* is itself the top level of a git work tree.
+
+    ``_is_git`` is true for any subdirectory of a repository (``rev-parse``
+    walks up); an endpoint must own its repository, so a directory that is
+    merely nested inside another repository is not a usable endpoint.
+    """
+    try:
+        top = Path(_git(path, "rev-parse", "--show-toplevel")).resolve()
+        return top == Path(path).resolve()
+    except WorktreeError:
+        return False
 
 
 # Porcelain XY status characters that mark a *tracked* change.  Untracked
@@ -87,15 +120,16 @@ def _active_in_place_task(root: Path, state_root: Path | None = None) -> bool:
     return False
 
 
-def _resolve_endpoints(repo_root: Path) -> list[dict]:
+def _resolve_endpoints(project_root: Path) -> list[dict]:
     """Resolve the multi-repo endpoints declared in ``project.yaml``.
 
     Returns a list of ``{track, git_root, remote, base_branch}`` dicts, or an
     empty list when the project is single-repo (no ``workspaces:`` section).
-    ``git_root`` is resolved relative to ``repo_root`` so a separated
-    frontend repository referenced as ``../frontend`` lands outside the anchor.
+    ``git_root`` is resolved relative to *project_root* — the workspace that
+    owns ``.devflow/`` — so a frontend repository declared as ``./frontend``
+    lands beside the anchor regardless of which repository started the task.
     """
-    path = repo_root / ".devflow" / "project.yaml"
+    path = project_root / ".devflow" / "project.yaml"
     if not path.is_file():
         return []
     endpoints: list[dict] = []
@@ -141,7 +175,7 @@ def _resolve_endpoints(repo_root: Path) -> list[dict]:
             continue
         git_root = Path(raw_root)
         if not git_root.is_absolute():
-            git_root = repo_root / git_root
+            git_root = project_root / git_root
         resolved.append(
             {
                 "track": track,
@@ -175,28 +209,15 @@ def _seed_task_devflow(dest_devflow: Path, record: TaskRecord) -> None:
 def resolve_project_root(repo_root: Path) -> Path:
     """Return the directory that owns ``.devflow/`` for *repo_root*.
 
-    The project root is the archive authority — it is the same directory only
-    when the git repository sits at the top of the project. A project that keeps
-    its repository in a subdirectory (a "self-hosted" layout) declares the
-    owning directory in ``workspace.root`` of its nearest ``project.yaml``.
-
-    Walks upward from *repo_root* so a nested repository finds the ancestor that
-    holds the state, and falls back to *repo_root* when no ancestor declares
-    one: an ordinary project must keep working unchanged.
+    Delegates to the shared resolver (``core/workspace.py``) so this agrees with
+    the hooks: the root is *repo_root* itself when it contains ``.devflow/``,
+    and there is no upward search.  A directory without its own ``.devflow/``
+    falls back to itself so task creation still has a working directory; the
+    init decision belongs to the caller, not here.
     """
     repo_root = repo_root.resolve()
-    for candidate in (repo_root, *repo_root.parents):
-        project_file = candidate / ".devflow" / "project.yaml"
-        if not project_file.is_file():
-            continue
-        declared = _read_scalar(project_file.read_text(encoding="utf-8"), "root", "workspace")
-        if not declared:
-            return candidate
-        declared_path = Path(declared)
-        if not declared_path.is_absolute():
-            declared_path = candidate / declared_path
-        return declared_path.resolve()
-    return repo_root
+    root = _discover_project_root(repo_root)
+    return root if root is not None else repo_root
 
 
 def create_task(
@@ -225,19 +246,35 @@ def create_task(
 
     *project_root* is the directory that owns ``.devflow/`` — the archive
     authority that ``artifact_publish`` publishes into. It defaults to
-    ``resolve_project_root(repo_root)``, so a project whose repository is nested
-    inside it writes state and archives in one place instead of two.
+    ``resolve_project_root(repo_root)``.
+
+    Git is optional per repository: neither the root nor an endpoint has to be
+    a git repository.  When a directory is not under version control, branch
+    creation and ``base_commit`` freezing are skipped for it and the task still
+    records that directory as its ``working_dir``.  Skipping is announced via
+    :func:`describe_git_skips` so the caller can surface it unless the project
+    opted into silent skipping (``workspace.git_policy: auto_skip``).
     """
-    root = _repo_root(start_path.resolve())
+    start = start_path.resolve()
+    # The root is the session's launch directory.  Resolve to the repository
+    # top level only when the launch directory *is* that top level; a start
+    # directory merely nested inside a repository is its own root (and has no
+    # git of its own), never the parent repository.
+    root = _repo_root(start) if _is_git_root(start) else start
     state_root = (project_root or resolve_project_root(root)).resolve()
     if _active_in_place_task(root, state_root):
         raise WorktreeError(
             "main workspace already holds an unfinished task; "
             "run /devflow next to finish or archive it before starting another"
         )
-    _ensure_clean(root)
-    ref = base_ref or _git(root, "branch", "--show-current") or "HEAD"
-    base_commit = _git(root, "rev-parse", f"{ref}^{{commit}}")
+    root_is_git = _is_git_root(root)
+    if root_is_git:
+        _ensure_clean(root)
+        ref = base_ref or _git(root, "branch", "--show-current") or "HEAD"
+        base_commit = _git(root, "rev-parse", f"{ref}^{{commit}}")
+    else:
+        ref = base_ref or ""
+        base_commit = ""
     task_id = f"{_slugify(description) or 'task'}-{uuid.uuid4().hex[:6]}"
     branch_prefix = "fix" if kind == "bugfix" else kind
     branch = f"{branch_prefix}/{task_id}"
@@ -251,7 +288,7 @@ def create_task(
         base_ref=ref,
         base_commit=base_commit,
         branch=branch,
-        worktree=str(root.resolve()),
+        working_dir=str(root.resolve()),
         parent_task_id=parent_task_id,
         source_task_id=source_task_id,
         endpoints=tuple(endpoints),
@@ -260,7 +297,8 @@ def create_task(
 
     created_branches: list[tuple[Path, str, str]] = []
     try:
-        _git(root, "checkout", "-b", branch, base_commit)
+        if root_is_git:
+            _git(root, "checkout", "-b", branch, base_commit)
         for ep in endpoints:
             _git(Path(ep.git_root), "checkout", "-b", branch, ep.base_commit)
             created_branches.append((Path(ep.git_root), branch, ep.base_ref))
@@ -270,6 +308,8 @@ def create_task(
         # In-place state belongs to the project root, not the nested repo: it
         # is the same directory artifact_publish archives into.
         _seed_task_devflow(state_root / ".devflow", record)
+        for message in describe_git_skips(state_root):
+            print(f"[DevFlow] {message}")
         return record
     except Exception:
         for ep_root, ep_branch, ep_ref in reversed(created_branches):
@@ -278,13 +318,14 @@ def create_task(
                 _git(ep_root, "branch", "-D", ep_branch)
             except WorktreeError:
                 pass
-        try:
-            current = _git(root, "branch", "--show-current")
-            if current == branch:
-                _git(root, "checkout", "--force", ref)
-            _git(root, "branch", "-D", branch)
-        except WorktreeError:
-            pass
+        if root_is_git:
+            try:
+                current = _git(root, "branch", "--show-current")
+                if current == branch:
+                    _git(root, "checkout", "--force", ref)
+                _git(root, "branch", "-D", branch)
+            except WorktreeError:
+                pass
         raise
 
 
@@ -294,22 +335,26 @@ def _build_endpoints(root: Path, branch: str, base_ref: str | None) -> list[Repo
     The anchor repository itself is not re-listed as an endpoint — endpoints are
     the *additional* repositories a multi-repo task spans. Each endpoint shares
     the task's branch name but freezes its own base commit.
+
+    A declared endpoint that is not a git repository is a configuration error,
+    not an optional-git situation: ``workspaces:`` is an explicit intent to
+    branch that repository, so a missing or broken repository raises rather than
+    silently dropping cross-repo capability.
     """
     endpoints = []
     for ep in _resolve_endpoints(root):
         ep_root = Path(ep["git_root"])
         if ep_root == root:
             continue
-        try:
-            ep_ref = (
-                base_ref
-                or ep.get("base_branch")
-                or _git(ep_root, "branch", "--show-current")
-                or "HEAD"
+        if not _is_git_root(ep_root):
+            raise WorktreeError(
+                f"declared workspace endpoint is not a git repository root: {ep_root}"
             )
-            ep_commit = _git(ep_root, "rev-parse", f"{ep_ref}^{{commit}}")
-        except WorktreeError:
-            raise
+        ep_ref = base_ref or ep.get("base_branch") or _git(
+            ep_root, "branch", "--show-current"
+        )
+        ep_ref = ep_ref or "HEAD"
+        ep_commit = _git(ep_root, "rev-parse", f"{ep_ref}^{{commit}}")
         endpoints.append(
             RepoEndpoint(
                 track=ep["track"],
@@ -322,6 +367,31 @@ def _build_endpoints(root: Path, branch: str, base_ref: str | None) -> list[Repo
     return endpoints
 
 
+def describe_git_skips(project_root: Path) -> list[str]:
+    """Return the messages to surface when git operations were skipped.
+
+    Only the project root can be non-git by design (a pure aggregation
+    directory).  Declared endpoints must be git repositories — ``_build_endpoints``
+    raises for those — so this reports the root only.
+
+    ``workspace.git_policy: auto_skip`` in ``project.yaml`` suppresses the
+    report (explicit opt-in to silence); anything else, including an absent
+    config, defaults to reporting.  The skip is never silent without that
+    opt-in.
+    """
+    root = resolve_project_root(project_root) or Path(project_root).resolve()
+    project_file = root / ".devflow" / "project.yaml"
+    try:
+        policy = _read_scalar(project_file.read_text(encoding="utf-8"), "git_policy", "workspace")
+    except OSError:
+        policy = None
+    if (policy or "").strip().strip("\"'") == "auto_skip":
+        return []
+    if _is_git_root(root):
+        return []
+    return [f"not a git repository: {root} (no branch, no base_commit)"]
+
+
 def discover_tasks(root: Path) -> list[TaskRecord]:
     """Read the live task record(s) for the repository.
 
@@ -331,7 +401,8 @@ def discover_tasks(root: Path) -> list[TaskRecord]:
     Legacy ``.devflow-worktrees/`` task state still appears until it is
     archived (read-only compatibility).
     """
-    repo_root = _repo_root(root.resolve())
+    resolved = root.resolve()
+    repo_root = _repo_root(resolved) if _is_git_root(resolved) else resolved
     records = []
     for path in find_task_files(repo_root, state_root=resolve_project_root(repo_root)):
         try:

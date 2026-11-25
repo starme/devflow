@@ -6,6 +6,26 @@ description: Initialize DevFlow project — detect stack, configure paths, gener
 
 初始化 DevFlow 项目配置。项目长期事实与每个需求的运行状态分离保存。
 
+## Step 0: 指定 workspace 继承来源
+
+初始化前先问一个问题，再动其他配置：
+
+> 这份 `.devflow` 从哪个 workspace 节点继承规则与配置？
+
+选项固定为三个，**不新建目录**：
+
+1. **自己（当前目录）** — 当前目录即完整一份
+2. **直接父级** — 当前目录的直接父目录
+3. **自定义路径** — 手动输入
+
+语义：
+
+- 选中的节点已有 `.devflow/` 配置 → 以其规则与配置为底，在本目录生成并在其上定制。
+- 选中的节点**没有** `.devflow/` 配置 → 本目录这份即最完整的一份，不向上寻找任何其他配置。
+- 继承只发生在初始化这一刻；之后各份 `.devflow` 独立，不自动同步。
+
+`.devflow/` 始终建在**当前目录**（运行 `/devflow init` 的 cwd），不会建到别处。运行时根判定只认当前目录有无 `.devflow`，不向上搜索；从子仓启动时若子仓自身没有 `.devflow`，按未初始化处理。
+
 ## 定位插件目录
 
 按原有方式定位 `$DEVFLOW_ROOT`，确认 `core/templates/project.yaml`、`core/templates/task.yaml`、`core/templates/plan.md` 和 `core/rules/engineering.md` 存在。找不到时提示运行 `bash install.sh`。
@@ -44,7 +64,7 @@ description: Initialize DevFlow project — detect stack, configure paths, gener
 mkdir -p .devflow/contracts docs docs/adr
 ```
 
-新任务由 `/devflow start` 或 `/devflow fix` 创建：一律在主工作区功能分支上写 `.devflow/task.yaml`。主工作区已有未完成 task 时不再新建（拒绝并提示先完成它）；历史遗留的 `.devflow-worktrees/` 仅作只读兼容，不会新写入。`runs/` 属于运行时审计，不应成为共享项目状态。
+新任务由 `/devflow start` 或 `/devflow fix` 创建：一律在**启动目录**（持有 `.devflow/` 的那个目录）写 `.devflow/task.yaml`。该目录是 git 仓时创建功能分支并冻结 base commit；不是 git 仓时跳过 git 操作、在任务卡上显式提示（除非 `workspace.git_policy: auto_skip`）。启动目录已有未完成 task 时不再新建（拒绝并提示先完成它）；历史遗留的 `.devflow-worktrees/` 仅作只读兼容，不会新写入。`runs/` 属于运行时审计，不应成为共享项目状态。
 
 ## Step 5: 兼容说明
 

@@ -105,7 +105,16 @@ TRACKS_BY_CATEGORY = {
 }
 
 SAFE_TEXT_NAMES = {"README", "README.md", "README.rst", "README.txt", "AGENTS.md", "SKILL.md"}
-IGNORED_DIRS = {".git", ".devflow", ".claude", "node_modules", "__pycache__", ".venv", "venv"}
+IGNORED_DIRS = {
+    ".git",
+    ".devflow",
+    ".claude",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".devflow-worktrees",
+}
 SECRET_PATTERNS = (".env", ".pem", ".key", "secrets.", "credentials.")
 
 

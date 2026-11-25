@@ -222,7 +222,7 @@ class DraftArtifactTest(unittest.TestCase):
                 base_ref="main",
                 base_commit="abc",
                 branch="feature/t",
-                worktree="/tmp/t",
+                working_dir="/tmp/t",
             )
         )
         self.assertIn("plan:", rendered)
@@ -241,7 +241,7 @@ class DraftArtifactTest(unittest.TestCase):
                 base_ref="main",
                 base_commit="abc",
                 branch="feature/t",
-                worktree="/tmp/t",
+                working_dir="/tmp/t",
             )
         )
         self.assertNotIn("prd:", rendered)

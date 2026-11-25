@@ -23,6 +23,7 @@ Covered scenarios (per the delivery-report safety matrix):
 """
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -37,15 +38,24 @@ sys.path.insert(0, str(CORE_DIR / "hooks"))
 from devflow_guard_common import check_dangerous_command
 
 
-def _run_hook(project_root, tool_name, tool_input, cwd):
-    """Invoke redline-guard.py and return the subprocess result."""
+def _run_hook(project_root, tool_name, tool_input, cwd, project_dir=None):
+    """Invoke redline-guard.py and return the subprocess result.
+
+    ``project_root`` is the session's launch directory (the process cwd); the
+    guard reads it from ``CLAUDE_PROJECT_DIR`` — the fixed project root — while
+    the payload ``cwd`` is the per-call working directory, which may be a
+    subdirectory.  ``project_dir`` defaults to ``project_root``.
+    """
     payload = {"tool_name": tool_name, "tool_input": tool_input, "cwd": cwd}
+    env = dict(os.environ)
+    env["CLAUDE_PROJECT_DIR"] = str(project_dir if project_dir is not None else project_root)
     return subprocess.run(
         [sys.executable, str(HOOK)],
         input=json.dumps(payload),
         capture_output=True,
         text=True,
         cwd=project_root,
+        env=env,
     )
 
 
@@ -127,21 +137,34 @@ class RedlineGuardBoundaryTest(unittest.TestCase):
         proc = _run_hook(self.root, "Write", {"file_path": str(target)}, str(self.backend))
         self.assertEqual(_decision(proc), "allow")
 
-    def test_backend_writes_frontend_denied(self):
+    def test_backend_writes_frontend_allowed_within_root(self):
+        # No per-track gating: a workspace spans repositories, so writing
+        # another subdirectory under the same project root is allowed.
         self._write_context(self.backend)
         target = self.frontend / "src" / "App.tsx"
         proc = _run_hook(self.root, "Write", {"file_path": str(target)}, str(self.backend))
-        self.assertEqual(_decision(proc), "deny")
+        self.assertEqual(_decision(proc), "allow")
 
-    def test_frontend_writes_backend_denied(self):
-        self._write_context(self.frontend, agent="devflow-frontend-dev")
-        target = self.backend / "internal" / "handler.go"
-        proc = _run_hook(self.root, "Write", {"file_path": str(target)}, str(self.frontend))
-        self.assertEqual(_decision(proc), "deny")
+    def test_write_outside_project_root_denied(self):
+        # The boundary is the session root ("drill down, never up/outside").
+        self._write_context(self.backend)
+        with tempfile.TemporaryDirectory() as outside:
+            target = Path(outside) / "stray.go"
+            proc = _run_hook(self.root, "Write", {"file_path": str(target)}, str(self.backend))
+            self.assertEqual(_decision(proc), "deny")
 
     def test_dev_agent_writes_contract_denied(self):
         self._write_context(self.backend)
         target = self.contracts / "api.yaml"
+        proc = _run_hook(self.root, "Write", {"file_path": str(target)}, str(self.backend))
+        self.assertEqual(_decision(proc), "deny")
+
+    def test_agent_writes_redlines_denied(self):
+        # An agent must never rewrite the redlines that constrain it. This is
+        # inside the project root, so it is caught by the DevFlow-protected
+        # rule, not the boundary rule.
+        self._write_context(self.backend)
+        target = self.root / ".devflow" / "redlines.yaml"
         proc = _run_hook(self.root, "Write", {"file_path": str(target)}, str(self.backend))
         self.assertEqual(_decision(proc), "deny")
 
@@ -179,6 +202,47 @@ class RedlineGuardBoundaryTest(unittest.TestCase):
         patch.write_text("--- a/.env\n+++ b/.env\n@@\n-old\n+new\n", encoding="utf-8")
         proc = _run_hook(self.root, "Bash", {"command": "git apply secret.patch"}, str(self.root))
         self.assertEqual(_decision(proc), "deny")
+
+    # --- Bash channel must match the file-tool boundary ------------------
+
+    def _bash(self, command, cwd=None):
+        self._write_context(self.backend)
+        return _decision(
+            _run_hook(self.root, "Bash", {"command": command}, str(cwd or self.root))
+        )
+
+    def test_bash_redirect_single_gt_to_forbidden_denied(self):
+        # A single ``>`` (not just ``>>``) must be seen, or `.env` slips by.
+        self.assertEqual(self._bash("echo x > .env"), "deny")
+
+    def test_bash_redirect_outside_root_denied(self):
+        # Same boundary as the Write tool: out-of-root is refused.
+        with tempfile.TemporaryDirectory() as outside:
+            target = Path(outside) / "stray.txt"
+            self.assertEqual(self._bash(f"echo x > {target}"), "deny")
+
+    def test_bash_cp_outside_root_denied(self):
+        with tempfile.TemporaryDirectory() as outside:
+            self.assertEqual(self._bash(f"cp notes.txt {outside}/x"), "deny")
+
+    def test_bash_tee_outside_root_denied(self):
+        with tempfile.TemporaryDirectory() as outside:
+            self.assertEqual(self._bash(f"echo x | tee {outside}/y"), "deny")
+
+    def test_bash_rewrite_devflow_config_denied(self):
+        # The guard's own rules and state are not shell-writable either.
+        self.assertEqual(self._bash("echo x > .devflow/redlines.yaml"), "deny")
+        self.assertEqual(self._bash("echo x > .devflow/task.yaml"), "deny")
+
+    def test_bash_write_devflow_artifact_allowed(self):
+        self.assertEqual(self._bash("echo x > .devflow/plan.md"), "allow")
+
+    def test_bash_in_root_write_allowed(self):
+        self.assertEqual(self._bash(f"echo x > {self.backend}/internal/x.go"), "allow")
+
+    def test_bash_redirect_to_user_memory_allowed(self):
+        memory = Path.home() / ".claude" / "projects" / "probe" / "memory" / "M.md"
+        self.assertEqual(self._bash(f"echo x > {memory}"), "allow")
 
     def test_forbidden_file_read_denied(self):
         self._write_context(self.backend)
@@ -287,12 +351,12 @@ class WorktreeGuardTest(unittest.TestCase):
         proc = _run_hook(self.root, "Write", {"file_path": str(target)}, str(self.wt_backend))
         self.assertEqual(_decision(proc), "allow")
 
-    def test_worktree_backend_writes_frontend_denied(self):
-        """Backend agent in worktree cannot write to worktree's web/ dir."""
+    def test_worktree_backend_writes_frontend_allowed(self):
+        """Within the worktree's project root, cross-directory writes are allowed."""
         self._write_context(self.wt_backend)
         target = self.wt_frontend / "src" / "App.tsx"
         proc = _run_hook(self.root, "Write", {"file_path": str(target)}, str(self.wt_backend))
-        self.assertEqual(_decision(proc), "deny")
+        self.assertEqual(_decision(proc), "allow")
 
     def test_worktree_dev_agent_writes_devflow_artifact_allowed(self):
         """Dev agent in worktree can write .devflow/ task report."""
@@ -771,6 +835,116 @@ class TempCleanupTest(unittest.TestCase):
                     check_dangerous_command(command),
                     f"dangerous wipe was not blocked: {command}",
                 )
+
+
+class WorkspaceRootGuardTest(unittest.TestCase):
+    """Multi-repo workspace: the session root is the boundary, drilled down."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="devflow-ws-test-")
+        cls.ws = _make_ws(Path(cls.tmp) / "ws")
+        cls.repo_a = _make_child(cls.ws, "repo-a")
+        cls.repo_b = _make_child(cls.ws, "repo-b")
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def _decide(self, project_dir, target, cwd=None):
+        return _decision(
+            _run_hook(
+                self.ws,
+                "Write",
+                {"file_path": str(target)},
+                str(cwd if cwd is not None else project_dir),
+                project_dir=project_dir,
+            )
+        )
+
+    def test_workspace_root_can_write_across_repos(self):
+        # Session at ws root: both child repos are under the root → allowed.
+        self.assertEqual(self._decide(self.ws, self.repo_a / "src/main.go"), "allow")
+        self.assertEqual(self._decide(self.ws, self.repo_b / "src/App.tsx"), "allow")
+
+    def test_child_repo_root_cannot_write_sibling_repo(self):
+        # Session at repo-a: repo-b is outside repo-a → denied.
+        self.assertEqual(
+            self._decide(self.repo_a, self.repo_b / "src/App.tsx"), "deny"
+        )
+
+    def test_child_repo_root_can_write_itself(self):
+        self.assertEqual(
+            self._decide(self.repo_a, self.repo_a / "src/main.go"), "allow"
+        )
+
+    def test_cwd_drift_does_not_move_the_root(self):
+        # cwd drifted deep into repo-a, but launch dir is ws → still ws root,
+        # so a redline file anywhere under ws is still enforced and a sibling
+        # repo write is allowed.
+        drifted = self.repo_a / "src/deep"
+        drifted.mkdir(parents=True, exist_ok=True)
+        self.assertEqual(
+            self._decide(self.ws, self.repo_b / "src/App.tsx", cwd=drifted), "allow"
+        )
+
+    def test_redline_still_enforced_within_root(self):
+        self.assertEqual(self._decide(self.ws, self.repo_a / ".env"), "deny")
+
+    def test_agent_cannot_edit_devflow_config(self):
+        # Inside the root, but DevFlow's own machinery → denied.
+        self.assertEqual(self._decide(self.ws, self.ws / ".devflow/redlines.yaml"), "deny")
+        self.assertEqual(self._decide(self.ws, self.ws / ".devflow/task.yaml"), "deny")
+
+    def test_agent_can_write_devflow_artifact(self):
+        self.assertEqual(self._decide(self.ws, self.ws / ".devflow/plan.md"), "allow")
+
+    def test_uninitialised_dir_is_transparent(self):
+        # repo-b has no .devflow; a session launched there is uninitialised.
+        with tempfile.TemporaryDirectory() as td:
+            plain = Path(td) / "plain"
+            plain.mkdir()
+            self.assertEqual(
+                _decision(
+                    _run_hook(plain, "Write", {"file_path": str(plain / "x.go")}, str(plain),
+                              project_dir=plain)
+                ),
+                "allow",
+            )
+
+    def test_user_level_memory_write_allowed(self):
+        # auto-memory / Memorant live outside the project root but must stay
+        # writable — they are user-level infrastructure, not project files.
+        memory = Path.home() / ".claude" / "projects" / "probe" / "memory" / "MEMORY.md"
+        self.assertEqual(self._decide(self.ws, memory), "allow")
+
+    def test_redline_still_applies_in_exempt_root(self):
+        # The boundary exemption must not bypass the forbidden-file rule.
+        secret = Path.home() / ".claude" / "projects" / "probe" / "memory" / ".env"
+        self.assertEqual(self._decide(self.ws, secret), "deny")
+
+
+def _make_ws(ws: Path) -> Path:
+    (ws / ".devflow").mkdir(parents=True, exist_ok=True)
+    (ws / ".devflow/project.yaml").write_text(
+        'project:\n  name: ws\nworkspace:\n  root: "."\n', encoding="utf-8"
+    )
+    (ws / ".devflow/redlines.yaml").write_text(
+        'forbidden:\n  - ".env"\nprotected: []\napproval_required: []\n', encoding="utf-8"
+    )
+    return ws
+
+
+def _make_child(ws: Path, name: str) -> Path:
+    child = ws / name
+    (child / ".devflow").mkdir(parents=True, exist_ok=True)
+    (child / "src").mkdir(parents=True, exist_ok=True)
+    (child / ".devflow/redlines.yaml").write_text(
+        'forbidden:\n  - ".env"\nprotected: []\napproval_required: []\n', encoding="utf-8"
+    )
+    return child
 
 
 if __name__ == "__main__":

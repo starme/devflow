@@ -7,45 +7,48 @@ defaults rather than raising, so hooks never block the user on internal errors.
 
 import os
 import re
+import sys
 from pathlib import Path
+
+# ``core/workspace.py`` is the single authority for project-root discovery.
+# Load it by file location so the guard works both from the plugin checkout and
+# from an installed cache path, where ``core`` is not an importable package.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from workspace import (  # noqa: E402
+        resolve_project_root,
+        resolve_session_project_root,
+    )
+except ImportError:  # pragma: no cover - defensive: fall back to local search
+    resolve_project_root = None
+    resolve_session_project_root = None
 
 # ---------------------------------------------------------------------------
 # Project root / context discovery
 # ---------------------------------------------------------------------------
 
 
-def find_project_root(cwd=None):
-    """Walk up from *cwd* to find a directory containing ``.devflow/``.
+def find_project_root(payload_cwd=None):
+    """Return the session's authoritative project root, or ``None``.
 
-    Returns the project root as a :class:`Path`, or ``None``.
-
-    Worktree-aware: when *cwd* is inside a Claude Code isolated worktree,
-    any ``.devflow/`` that the agent may have created *inside* the worktree
-    is skipped — the authoritative project root is the main workspace
-    (which contains the real manifest, redlines, and context).
+    The hook stdin ``cwd`` follows the agent: it changes after a ``cd`` or after
+    entering a worktree.  The project root must not drift that way, so the
+    fixed ``CLAUDE_PROJECT_DIR`` is tried first (see
+    ``core/workspace.resolve_session_project_root``), with the payload ``cwd``
+    only as a fallback for hosts that do not set it.  A candidate is a root only
+    when it owns ``.devflow/`` itself; no ancestor is ever consulted.
     """
+    if resolve_session_project_root is not None:
+        try:
+            return resolve_session_project_root(payload_cwd)
+        except Exception:
+            return None
     try:
-        start = Path(cwd) if cwd else Path.cwd()
-        if not start.is_absolute():
-            start = start.resolve()
-
-        # A DevFlow task worktree is itself an authoritative project root. Its
-        # task state must never fall back to another worktree's context.
-        for parent in [start, *list(start.parents)]:
-            if (parent / ".devflow" / "task.yaml").is_file():
-                return parent
-
-        # In a Claude subagent worktree, the main workspace root is known directly.
-        wt_root, main_root = detect_worktree(str(start))
-        if wt_root and main_root and (main_root / ".devflow").is_dir():
-            return main_root
-
-        for parent in [start, *list(start.parents)]:
-            if (parent / ".devflow").is_dir():
-                return parent
+        raw = os.environ.get("CLAUDE_PROJECT_DIR") or payload_cwd or os.getcwd()
+        start = Path(raw).resolve()
+        return start if (start / ".devflow").is_dir() else None
     except Exception:
-        pass
-    return None
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +265,16 @@ def _parse_workspaces(project_root):
     multi-repo counterpart of ``_parse_workspace_yaml``: each endpoint maps a
     track to an independent git repository rather than a subdirectory of the
     anchor root.
+
+    Relative ``git_root`` values resolve against *project_root* — the directory
+    that owns the ``.devflow/`` being read.
+
+    Multi-repo capability belongs to the directory that *declares* the list.
+    Callers pass the root the session actually started in, so a child
+    repository's own ``project.yaml`` is read as its own project: if it
+    declares ``workspaces:`` those endpoints are the child's, not an ancestor's,
+    and cross-repo behaviour is a property of where the session runs, not of an
+    upward search.
     """
     manifest = project_root / ".devflow" / "project.yaml"
     if not manifest.is_file():
@@ -695,6 +708,20 @@ def is_devflow_artifact(rel_path):
     return False
 
 
+def is_devflow_protected(rel_path):
+    """Return ``True`` when *rel_path* is DevFlow's own machinery, not an agent
+    artifact — anything under ``.devflow/`` that is not a permitted artifact.
+
+    Agents must not rewrite the rules that constrain them (``redlines.yaml``),
+    the state that tracks them (``task.yaml``), the project config
+    (``project.yaml``), the rule set (``rules/``) or the contracts.  With the
+    per-track boundary retired, this is the dedicated guard for that area: the
+    boundary rule now allows everything inside the project root, so without
+    this check an agent could edit its own redlines or state.
+    """
+    return rel_path.startswith(".devflow/") and not is_devflow_artifact(rel_path)
+
+
 def to_rel_path(file_path, project_root):
     """Resolve *file_path* against the project root and return a forward-slash
     relative path string."""
@@ -767,7 +794,7 @@ def _compute_rel_path(abs_path, project_root, wt_root=None, main_root=None):
 
 
 # Patterns to detect shell-based file writes.
-_SHELL_REDIRECT = re.compile(r"(?:>>?>)\s*(?P<path>[^\s;|&<>]+)")
+_SHELL_REDIRECT = re.compile(r"(?:&?)>>?\s*(?P<path>[^\s;|&<>]+)")
 _SHELL_TEE = re.compile(r"\btee\s+(?:-[a-zA-Z]+\s+)*(?P<path>[^\s;|&<>]+)")
 _SHELL_SED_I = re.compile(
     r"\bsed\s+-i\b(?:\s+''|\"\"|\s+'[^']*'|\s+\"[^\"]*\")?\s+"
@@ -909,9 +936,11 @@ def _extract_shell_write_targets(command, project_root, cwd=None, wt_root=None, 
             p = Path(raw)
             p = (base / raw).resolve() if not p.is_absolute() else p.resolve()
             rel = _compute_rel_path(str(p), project_root, wt_root, main_root)
-            # Only include targets inside project root
-            if not rel.startswith("/"):
-                yield (rel, str(p))
+            # Yield every target, including ones outside the project root: the
+            # guard's boundary rule must see out-of-root writes (``echo x >
+            # /tmp/f``) so they are denied just like the Write tool's, and the
+            # redline rules still match on the basename of outside paths.
+            yield (rel, str(p))
         except Exception:
             continue
 
@@ -942,113 +971,74 @@ def is_test_file(rel_path):
     return any(path_matches_glob(rel_path, pattern) for pattern in _TEST_FILE_GLOBS)
 
 
-def infer_track(cwd, workspace):
-    """Infer which track an agent is working on based on its cwd.
+def is_user_agent_state(abs_path):
+    """Return ``True`` when *abs_path* is user-level agent state, not project code.
 
-    Returns ``"backend"``, ``"frontend"``, or ``None`` (root / unknown).
+    These stores live outside any single project yet must stay writable by
+    agents: they are cross-project infrastructure, not a project's files.
 
-    Works in both normal and worktree modes: when *cwd* is inside a Claude
-    Code worktree, the worktree prefix is stripped before comparing against
-    workspace paths so that ``.../agent-xxx/server/`` correctly maps to the
-    ``server`` backend directory.
+    * ``~/.claude/`` — auto-memory, global rules, plugin configuration/data.
+    * ``MEMORANT_ROOT`` — Memorant's vault (``memories/``, ``activity/``,
+      ``source_docs/`` …). When unset, Memorant's default
+      ``~/Documents/Memorant`` is used.
 
-    Multi-repo projects declare ``workspace["endpoints"]`` — a list of
-    ``{track, git_root}`` — which is preferred over the legacy backend/frontend
-    subdirectory paths.
+    A project-local ``<root>/.claude`` is inside the root and needs no
+    exemption; that case is handled by the normal boundary check.
     """
-    if not workspace or not cwd:
-        return None
     try:
-        wt_root, main_root = detect_worktree(cwd)
-        cwd_path = Path(cwd).resolve()
-        root = Path(workspace.get("root", "")).resolve()
-
-        # In worktree mode, workspace.root points at the main workspace but
-        # cwd is inside the worktree.  Map cwd to its main-workspace
-        # equivalent before checking track membership.
-        if wt_root and main_root:
-            cwd_path = Path(map_worktree_path(str(cwd_path), wt_root, main_root))
-            root = main_root
-
-        endpoints = workspace.get("endpoints") or []
-        for ep in endpoints:
-            track = ep.get("track")
-            git_root = ep.get("git_root")
-            if not track or not git_root:
-                continue
-            try:
-                cwd_path.relative_to(Path(git_root).resolve())
-                return track
-            except ValueError:
-                pass
-
-        backend = workspace.get("backend", "")
-        frontend = workspace.get("frontend", "")
-
-        if backend:
-            be_path = (
-                (root / backend).resolve()
-                if not Path(backend).is_absolute()
-                else Path(backend).resolve()
-            )
-            try:
-                cwd_path.relative_to(be_path)
-                return "backend"
-            except ValueError:
-                pass
-
-        if frontend:
-            fe_path = (
-                (root / frontend).resolve()
-                if not Path(frontend).is_absolute()
-                else Path(frontend).resolve()
-            )
-            try:
-                cwd_path.relative_to(fe_path)
-                return "frontend"
-            except ValueError:
-                pass
-    except Exception:
-        pass
-    return None
+        target = Path(abs_path).resolve()
+        home = Path.home()
+        roots = {(home / ".claude").resolve()}
+        memorant = os.environ.get("MEMORANT_ROOT", "").strip()
+        roots.add(
+            (Path(memorant).expanduser() if memorant else home / "Documents" / "Memorant")
+            .resolve()
+        )
+        return any(_is_relative_to(target, root) for root in roots)
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
-def is_within_boundary(abs_path, workspace, track, cwd=None):
-    """Check whether *abs_path* is within the allowed workspace boundary for
-    the given *track*.  Returns ``True`` when allowed or when the boundary
-    cannot be determined (fail-open).
+def _is_relative_to(path, root):
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
 
-    When *cwd* is inside a worktree, *abs_path* is mapped to its main-workspace
-    equivalent so that the relative track paths in the workspace config match.
+
+def is_within_boundary(abs_path, project_root, cwd=None):
+    """Return ``True`` when *abs_path* lies inside the session's project root.
+
+    The boundary is the launch directory and everything beneath it ("drill
+    down only, never up"): a workspace may span several repositories, so any
+    path under the root is allowed, and any path outside it is refused.  This
+    replaces the per-track directory checks — the model has no per-repo track
+    gating, so there is no ``track`` argument.
+
+    User-level agent state (``~/.claude`` for memory/rules/plugins, and
+    Memorant's ``MEMORANT_ROOT`` vault) is exempt — it is cross-project
+    infrastructure, not a project file, so it is never denied by a project's
+    boundary.
+
+    In a Claude subagent worktree, *abs_path* and the root are both mapped to
+    the main workspace before comparing, so worktree paths match the main tree.
+
+    Fail-open only when the boundary cannot be determined (unresolvable root).
     """
-    if not track or not workspace:
+    if is_user_agent_state(abs_path):
         return True
     try:
         wt_root, main_root = detect_worktree(cwd) if cwd else (None, None)
 
         target = Path(abs_path).resolve()
-        root = Path(workspace.get("root", "")).resolve()
+        root = Path(project_root).resolve()
 
         if wt_root and main_root:
-            target = Path(map_worktree_path(str(target), wt_root, main_root))
-            root = main_root
+            target = Path(map_worktree_path(str(target), wt_root, main_root)).resolve()
+            root = main_root.resolve()
 
-        # Multi-repo: the track maps to an independent git root, not a
-        # subdirectory of the anchor root.
-        for ep in workspace.get("endpoints") or []:
-            if ep.get("track") == track and ep.get("git_root"):
-                target.relative_to(Path(ep["git_root"]).resolve())
-                return True
-
-        track_dir = workspace.get(track, "")
-        if not track_dir:
-            return True
-        track_path = (
-            (root / track_dir).resolve()
-            if not Path(track_dir).is_absolute()
-            else Path(track_dir).resolve()
-        )
-        target.relative_to(track_path)
+        target.relative_to(root)
         return True
     except ValueError:
         return False
