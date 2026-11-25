@@ -31,10 +31,11 @@ workspace:
 # Multi-repo endpoints. Only the project whose ``.devflow/`` declares this list
 # gains cross-repo capability; starting a session inside a child repository
 # operates on that child alone. Relative ``git_root`` resolves against the
-# directory holding this ``.devflow/``.
+# directory holding this ``.devflow/``. ``path:`` is an alias of ``git_root:``
+# (git_root wins when both appear); a named endpoint missing both is an error.
 # workspaces:
 #   - track: "frontend"
-#     git_root: "../fe-app"
+#     git_root: "../fe-app"   # or: path: "../fe-app"
 #     remote: "origin"
 #     base_branch: "main"
 

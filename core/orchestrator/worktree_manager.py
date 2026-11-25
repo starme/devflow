@@ -123,6 +123,22 @@ def _active_in_place_task(root: Path, state_root: Path | None = None) -> bool:
     return False
 
 
+def _scalar(val: str) -> str:
+    """Strip a YAML scalar's surrounding quotes and any trailing comment.
+
+    Both workspaces parsers share this so ``path: ./fe # alias`` and
+    ``git_root:   # to be filled in`` do not turn into bogus paths. A bare
+    ``#``-only value (a placeholder pending configuration) reads as empty,
+    matching how the legacy parser silently skipped unusable entries.
+    """
+    if "#" in val:
+        val = val.split("#", 1)[0]
+    val = val.strip()
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in ("\"", "'"):
+        val = val[1:-1]
+    return val.strip()
+
+
 def _resolve_endpoints(project_root: Path) -> list[dict]:
     """Resolve the multi-repo endpoints declared in ``project.yaml``.
 
@@ -131,6 +147,16 @@ def _resolve_endpoints(project_root: Path) -> list[dict]:
     ``git_root`` is resolved relative to *project_root* — the workspace that
     owns ``.devflow/`` — so a frontend repository declared as ``./frontend``
     lands beside the anchor regardless of which repository started the task.
+
+    ``path:`` is accepted as an alias of ``git_root:`` (the same key name the
+    ``workspace.backend/frontend`` sections use); when both appear, ``git_root``
+    wins. A **first-key** ``- track:`` item with neither root key is a
+    configuration error and raises: that is exactly the shape main could reach,
+    so the user clearly named an endpoint but forgot its location. Items whose
+    track would only come from an indented line are skipped instead — main
+    never parsed those, and turning them into hard failures would be an upgrade
+    regression. The guard hook's parser stays fail-safe (never raises); this
+    orchestrator-side check is the loud gate at task creation.
     """
     path = project_root / ".devflow" / "project.yaml"
     if not path.is_file():
@@ -157,15 +183,25 @@ def _resolve_endpoints(project_root: Path) -> list[dict]:
             if indent == 2 and stripped.startswith("- "):
                 if current:
                     endpoints.append(current)
-                # ``- track: "frontend"`` → track value after the first colon
-                _, _, track_val = stripped[2:].partition(":")
-                current = {"track": track_val.strip().strip("\"'")}
+                # Only a first-key ``- track:`` item names an endpoint. Other
+                # first keys are residue (``- remote: origin``) or a legacy
+                # shape main never parsed; neither may be upgraded to a hard
+                # error. Track ``named_first`` on the item to gate the raise.
+                first_key, _, first_val = stripped[2:].partition(":")
+                if first_key.strip() == "track":
+                    current = {"track": _scalar(first_val), "named_first": "true"}
+                else:
+                    current = {"named_first": "false"}
+                    val = _scalar(first_val)
+                    if first_key.strip() in ("git_root", "path", "remote", "base_branch") and val:
+                        current[first_key.strip()] = val
                 continue
-            if indent >= 4 and current is not None and ":" in stripped:
+            if indent >= 4 and ":" in stripped:
                 key, _, val = stripped.partition(":")
                 key = key.strip()
-                val = val.strip().strip("\"'")
-                if key in ("git_root", "remote", "base_branch") and val:
+                val = _scalar(val)
+                # Indented track: is deliberately NOT recorded (H1).
+                if key in ("git_root", "path", "remote", "base_branch") and val:
                     current[key] = val
     if current:
         endpoints.append(current)
@@ -173,9 +209,16 @@ def _resolve_endpoints(project_root: Path) -> list[dict]:
     resolved = []
     for ep in endpoints:
         track = ep.get("track", "")
-        raw_root = ep.get("git_root", "")
-        if not track or not raw_root:
+        raw_root = ep.get("git_root") or ep.get("path") or ""
+        if not track:
             continue
+        if not raw_root:
+            if ep.get("named_first") != "true":
+                continue
+            raise WorktreeError(
+                f"workspace endpoint {track!r} declares neither git_root: nor path: in {path}; "
+                "add `git_root:` or `path:` pointing at its repository root"
+            )
         git_root = Path(raw_root)
         if not git_root.is_absolute():
             git_root = project_root / git_root
@@ -268,6 +311,10 @@ def create_task(
     # git of its own), never the parent repository.
     root = _repo_root(start) if _is_git_root(start) else start
     state_root = (project_root or resolve_project_root(root)).resolve()
+    # Validate workspace config before the active-task guard: a broken
+    # workspaces: entry must be reported as such, not hidden behind
+    # "unfinished task" and only surfaced after the user finishes the old one.
+    _resolve_endpoints(root)
     if _active_in_place_task(root, state_root):
         raise WorktreeError(
             "main workspace already holds an unfinished task; "

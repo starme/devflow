@@ -350,6 +350,129 @@ class WorktreeManagerTest(unittest.TestCase):
         )
         return anchor, frontend
 
+    def test_multi_repo_accepts_path_alias(self):
+        # path: is an alias of git_root: (same key name as workspace.*.path);
+        # the endpoint must not be silently dropped.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, frontend = self._multi_repo_fixture(temp_dir)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                f'  - track: "frontend"\n'
+                f'    path: "{frontend}"\n',
+                encoding="utf-8",
+            )
+            record = create_task(anchor, "Path alias task", "feature")
+            self.assertEqual(len(record.endpoints), 1)
+            self.assertEqual(record.endpoints[0].track, "frontend")
+            self.assertEqual(record.endpoints[0].git_root, str(frontend.resolve()))
+
+    def test_multi_repo_git_root_wins_over_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, frontend = self._multi_repo_fixture(temp_dir)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                f'  - track: "frontend"\n'
+                f'    git_root: "{frontend}"\n'
+                f'    path: "/nonexistent/alias"\n',
+                encoding="utf-8",
+            )
+            record = create_task(anchor, "Both keys task", "feature")
+            self.assertEqual(record.endpoints[0].git_root, str(frontend.resolve()))
+
+    def test_multi_repo_named_endpoint_missing_root_raises(self):
+        # A named endpoint declaring neither git_root: nor path: is a config
+        # error — raise with track + file context, never silently drop it.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, _frontend = self._multi_repo_fixture(temp_dir)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                '  - track: "frontend"\n'
+                '    remote: "origin"\n',
+                encoding="utf-8",
+            )
+            with self.assertRaises(WorktreeError) as ctx:
+                create_task(anchor, "Broken config task", "feature")
+            message = str(ctx.exception)
+            self.assertIn("frontend", message)
+            self.assertIn("project.yaml", message)
+            self.assertIn("git_root", message)
+
+    def test_multi_repo_trackless_entry_skipped(self):
+        # An entry without a track has nothing to name or fix — skip, not raise.
+        # Regression (verifier Round 1): the natural `- remote: origin` residue
+        # used to be misread as track='origin' and triggered the new loud error.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, frontend = self._multi_repo_fixture(temp_dir)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                '  - remote: "origin"\n'
+                f'  - track: "frontend"\n'
+                f'    git_root: "{frontend}"\n',
+                encoding="utf-8",
+            )
+            record = create_task(anchor, "Trackless residue task", "feature")
+            self.assertEqual(len(record.endpoints), 1)
+            self.assertEqual(record.endpoints[0].track, "frontend")
+
+    def test_multi_repo_first_key_path_with_indented_track_skipped(self) -> None:
+        # H1 (review high): main never parsed an indented `track:` after a
+        # non-track first key. It must stay skipped, NOT become a hard error.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, frontend = self._multi_repo_fixture(temp_dir)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                f'  - path: "{frontend}"\n'
+                '    track: "frontend"\n',
+                encoding="utf-8",
+            )
+            record = create_task(anchor, "Legacy indented track task", "feature")
+            self.assertEqual(len(record.endpoints), 0)
+
+    def test_multi_repo_comment_placeholder_root_skipped(self) -> None:
+        # `git_root:   # to be filled in` is a placeholder, not a broken path.
+        # main silently dropped it; it must not become a hard error.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, _frontend = self._multi_repo_fixture(temp_dir)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                '  - track: "frontend"\n'
+                '    git_root:   # to be filled in\n',
+                encoding="utf-8",
+            )
+            with self.assertRaises(WorktreeError) as ctx:
+                create_task(anchor, "Placeholder task", "feature")
+            # First-key named endpoint still raises (that IS a config error),
+            # but with actionable guidance, not a bogus path.
+            self.assertIn("add `git_root:`", str(ctx.exception))
+
+    def test_multi_repo_trailing_comment_in_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, frontend = self._multi_repo_fixture(temp_dir)
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                f'  - track: "frontend"\n'
+                f'    path: "{frontend}" # alias\n',
+                encoding="utf-8",
+            )
+            record = create_task(anchor, "Trailing comment task", "feature")
+            self.assertEqual(record.endpoints[0].git_root, str(frontend.resolve()))
+
+    def test_multi_repo_config_error_precedes_active_task_guard(self) -> None:
+        # M1: a broken workspaces: config must be reported as itself even when
+        # an unfinished task exists (guard used to shadow it).
+        with tempfile.TemporaryDirectory() as temp_dir:
+            anchor, _frontend = self._multi_repo_fixture(temp_dir)
+            create_task(anchor, "First task", "feature")
+            (anchor / ".devflow" / "project.yaml").write_text(
+                "workspaces:\n"
+                '  - track: "frontend"\n'
+                '    remote: "origin"\n',
+                encoding="utf-8",
+            )
+            with self.assertRaises(WorktreeError) as ctx:
+                create_task(anchor, "Second task", "feature")
+            self.assertIn("declares neither", str(ctx.exception))
+
     def test_multi_repo_defers_endpoint_branch_until_activation(self):
         # Lazy endpoint branches (plan A): create_task branches only the anchor.
         # Endpoints are recorded as candidates (activated=False) with their base
