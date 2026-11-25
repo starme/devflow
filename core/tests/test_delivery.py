@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -81,6 +82,118 @@ class DirtyFilesTest(unittest.TestCase):
     def test_dirty_files_empty_when_git_missing(self):
         with mock.patch.object(delivery, "_run", return_value=None):
             self.assertEqual(delivery.dirty_files(), [])
+
+
+class EndpointHasChangesTest(unittest.TestCase):
+    """Zero-diff activated endpoints must be detectable so delivery skips them."""
+
+    def test_true_when_working_tree_dirty(self):
+        # status non-empty, rev-list clean -> still has changes (uncommitted).
+        with mock.patch.object(delivery, "_git", side_effect=["M a.py", "0"]):
+            self.assertTrue(delivery.endpoint_has_changes(Path("/repo"), "abc123"))
+
+    def test_true_when_commits_ahead_of_base(self):
+        # status clean but rev-list > 0 -> committed, undelivered changes.
+        with mock.patch.object(delivery, "_git", side_effect=["", "2"]):
+            self.assertTrue(delivery.endpoint_has_changes(Path("/repo"), "abc123"))
+
+    def test_false_when_clean_and_no_commits_ahead(self):
+        with mock.patch.object(delivery, "_git", side_effect=["", "0"]):
+            self.assertFalse(delivery.endpoint_has_changes(Path("/repo"), "abc123"))
+
+    def test_fail_safe_true_when_git_unavailable(self):
+        # Probes returning None (git missing / repo broken) must NOT silently
+        # skip a real delivery: unknown state counts as "has changes".
+        with mock.patch.object(delivery, "_git", return_value=None):
+            self.assertTrue(delivery.endpoint_has_changes(Path("/repo"), "abc123"))
+
+    def test_fail_safe_true_when_base_commit_invalid(self):
+        # rev-list fails (bad base ref) while status is clean -> True.
+        with mock.patch.object(delivery, "_git", side_effect=["", None]):
+            self.assertTrue(delivery.endpoint_has_changes(Path("/repo"), "bad-ref"))
+
+    def test_fail_safe_true_when_base_commit_empty(self):
+        with mock.patch.object(delivery, "_git", side_effect=["", "0"]):
+            self.assertTrue(delivery.endpoint_has_changes(Path("/repo"), ""))
+
+
+class EndpointHasChangesRealGitTest(unittest.TestCase):
+    """Real-git fixture: the probe must distinguish the delivery states."""
+
+    def _repository(self, temp_dir: str) -> Path:
+        root = Path(temp_dir) / "repo"
+        root.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+        (root / "README.md").write_text("initial\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=DevFlow", "-c", "user.email=d@example.invalid",
+             "commit", "-qm", "initial"],
+            cwd=root, check=True,
+        )
+        return root
+
+    def _base_commit(self, root: Path) -> str:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=True
+        ).stdout.strip()
+
+    def test_false_when_activated_but_zero_diff(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._repository(temp_dir)
+            base = self._base_commit(root)
+            subprocess.run(["git", "checkout", "-q", "-b", "feature/x"], cwd=root, check=True)
+            self.assertFalse(delivery.endpoint_has_changes(root, base))
+
+    def test_true_after_a_commit(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._repository(temp_dir)
+            base = self._base_commit(root)
+            subprocess.run(["git", "checkout", "-q", "-b", "feature/x"], cwd=root, check=True)
+            (root / "new.py").write_text("x = 1\n", encoding="utf-8")
+            subprocess.run(["git", "add", "new.py"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=DevFlow", "-c", "user.email=d@example.invalid",
+                 "commit", "-qm", "change"],
+                cwd=root, check=True,
+            )
+            self.assertTrue(delivery.endpoint_has_changes(root, base))
+
+    def test_true_with_uncommitted_edit_only(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._repository(temp_dir)
+            base = self._base_commit(root)
+            (root / "README.md").write_text("edited\n", encoding="utf-8")
+            self.assertTrue(delivery.endpoint_has_changes(root, base))
+
+    def test_false_with_untracked_residue_only(self):
+        # ?? residue is not deliverable content (same rule as _ensure_clean):
+        # an activated endpoint holding only untracked leftovers is zero-diff.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._repository(temp_dir)
+            base = self._base_commit(root)
+            subprocess.run(["git", "checkout", "-q", "-b", "feature/x"], cwd=root, check=True)
+            (root / "leftover.log").write_text("residue\n", encoding="utf-8")
+            self.assertFalse(delivery.endpoint_has_changes(root, base))
+
+    def test_false_when_base_reachable_but_unrelated(self):
+        # A base that exists but is not an ancestor of HEAD (e.g. after rebase
+        # onto a divergent line): rev-list --count returns 0 with rc=0, so the
+        # probe reads False — documented behavior, not the fail-safe path.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._repository(temp_dir)
+            subprocess.run(["git", "checkout", "-q", "-b", "side"], cwd=root, check=True)
+            (root / "side.py").write_text("s = 1\n", encoding="utf-8")
+            subprocess.run(["git", "add", "side.py"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=DevFlow", "-c", "user.email=d@example.invalid",
+                 "commit", "-qm", "side"],
+                cwd=root, check=True,
+            )
+            unrelated = self._base_commit(root)
+            subprocess.run(["git", "checkout", "-q", "main"], cwd=root, check=True)
+            subprocess.run(["git", "checkout", "-q", "-b", "feature/x"], cwd=root, check=True)
+            self.assertFalse(delivery.endpoint_has_changes(root, unrelated))
 
 
 class WhitelistConsistencyTest(unittest.TestCase):

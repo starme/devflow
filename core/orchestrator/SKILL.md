@@ -145,7 +145,12 @@ review 报告出来后，**把结论原样摆给用户，由用户决定修还�
 3. 一次询问：待提交清单 + 分支 + remote + PR 预览 + 验证摘要 + review 摘要 + manual 项 +
    待办支线 → 「是否 commit + push + 创建 PR？」
 4. commit（白名单内）→ push → `gh pr create`（codex 走 router 回传）→ 写 `.devflow/delivery.yaml`。
-5. **PR 创建后暂停，永不自动 merge。** 多仓库每个**已激活**端点（`activated: true`）各自 commit/push/PR，逐仓报成败；未激活的候选端点不开 PR。
+5. **PR 创建后暂停，永不自动 merge。** 多仓库每个**已激活**端点（`activated: true`）先探测有无实际改动：
+   `python3 -c "import sys; sys.path.insert(0, '$CLAUDE_PLUGIN_ROOT/core/orchestrator'); from delivery import endpoint_has_changes; from pathlib import Path; print(endpoint_has_changes(Path('<git_root>'), '<base_commit>'))"`
+   （`git_root`/`base_commit` 取 task.yaml 该端点段原值；值含单引号时改用双引号包裹或环境变量传参，勿直接插值）。
+   **有改动**才 commit/push/PR，逐仓报成败；**零 diff** 的端点明确报告跳过（不静默、不开空 PR）；未激活的候选端点不开 PR。
+   探测 fail-safe 返回 True（git 不可用/base 无效时宁可人工介入，不可静默漏交付）。
+   单仓任务同样适用：anchor 零 diff（无 tracked 改动且无新提交）时报告无可交付内容，不开空 PR。
 
 `gh` 缺失或未认证时明确告知用户，不静默跳过、不伪造 PR。
 
