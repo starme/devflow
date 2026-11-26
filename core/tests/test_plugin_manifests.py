@@ -16,8 +16,14 @@ fallback (relative to each package root), so only existence is asserted.
 """
 
 import json
-import unittest
+import re
 from pathlib import Path
+
+
+def subtest(**_kwargs):
+    """Migration stand-in for unittest subTest: a no-op context manager."""
+    from contextlib import nullcontext
+    return nullcontext()
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -37,75 +43,59 @@ def _load(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-class PluginManifestTest(unittest.TestCase):
-    def test_all_plugin_manifests_exist(self):
-        for label, path in PLUGIN_MANIFESTS.items():
-            with self.subTest(manifest=label):
-                self.assertTrue(path.is_file(), f"{label} manifest missing: {path}")
-
-    def test_plugin_names_agree(self):
-        names = {label: _load(p)["name"] for label, p in PLUGIN_MANIFESTS.items()}
-        self.assertEqual(set(names.values()), {"devflow"}, names)
-
-    def test_plugin_versions_agree(self):
-        versions = {label: _load(p)["version"] for label, p in PLUGIN_MANIFESTS.items()}
-        self.assertEqual(
-            len(set(versions.values())),
-            1,
-            f"plugin versions drifted apart: {versions}",
-        )
-
-    def test_skill_directories_resolve(self):
-        # Root manifests are published from the repo root; the nested fallback
-        # is published from its own package directory.
-        package_roots = {
-            "claude": ROOT,
-            "codex-root": ROOT,
-            "codex-nested": ROOT / "plugins" / "devflow",
-        }
-        for label, path in PLUGIN_MANIFESTS.items():
-            with self.subTest(manifest=label):
-                skills = _load(path).get("skills")
-                if not skills:
-                    continue
-                self.assertTrue(
-                    (package_roots[label] / skills).is_dir(),
-                    f"{label}: skills path {skills!r} does not resolve",
-                )
+def test_all_plugin_manifests_exist():
+    for label, path in PLUGIN_MANIFESTS.items():
+        with subtest(manifest=label):
+            assert path.is_file(), f"{label} manifest missing: {path}"
 
 
-class MarketplaceManifestTest(unittest.TestCase):
-    def test_marketplaces_share_a_name(self):
-        names = {label: _load(p)["name"] for label, p in MARKETPLACES.items()}
-        self.assertEqual(set(names.values()), {"devflow-marketplace"}, names)
-
-    def test_marketplaces_expose_the_devflow_plugin(self):
-        for label, path in MARKETPLACES.items():
-            with self.subTest(marketplace=label):
-                plugins = _load(path)["plugins"]
-                self.assertEqual([p["name"] for p in plugins], ["devflow"])
+def test_plugin_names_agree():
+    names = {label: _load(p)["name"] for label, p in PLUGIN_MANIFESTS.items()}
+    assert set(names.values()) == {"devflow"}
 
 
-class ReadmeVersionTest(unittest.TestCase):
-    """The README states the version in bold at the top.
-
-    Nothing enforced it, so it drifted: after ADR-0006 and the dogfood fixes
-    the manifests read 2.1.0 while the installed build was stuck at the
-    pre-fix code under the same number. A version that does not change when
-    the code does defeats the whole point of reading it before an update.
-    """
-
-    def test_readme_version_matches_the_manifests(self):
-        version = _load(PLUGIN_MANIFESTS["claude"])["version"]
-        for name in ("README.md", "README.zh-CN.md"):
-            with self.subTest(readme=name):
-                text = (ROOT / name).read_text(encoding="utf-8")
-                self.assertIn(
-                    version,
-                    text.split("\n\n")[1],
-                    f"{name} does not state version {version} in its header",
-                )
+def test_plugin_versions_agree():
+    versions = {label: _load(p)["version"] for label, p in PLUGIN_MANIFESTS.items()}
+    # pyproject carries the same release version; a bump must touch it too.
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    m = re.search(r'^version = "([^"]+)"', text, flags=re.MULTILINE)
+    assert m is not None, "pyproject.toml has no parseable project version"
+    versions["pyproject"] = m.group(1)
+    assert len(set(versions.values())) == 1, f"plugin versions drifted apart: {versions}"
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_skill_directories_resolve():
+    # Root manifests are published from the repo root; the nested fallback
+    # is published from its own package directory.
+    package_roots = {
+        "claude": ROOT,
+        "codex-root": ROOT,
+        "codex-nested": ROOT / "plugins" / "devflow",
+    }
+    for label, path in PLUGIN_MANIFESTS.items():
+        with subtest(manifest=label):
+            skills = _load(path).get("skills")
+            if not skills:
+                continue
+            assert (package_roots[label] / skills).is_dir(), f"{label}: skills path {skills!r} does not resolve"
+
+
+def test_marketplaces_share_a_name():
+    names = {label: _load(p)["name"] for label, p in MARKETPLACES.items()}
+    assert set(names.values()) == {"devflow-marketplace"}
+
+
+def test_marketplaces_expose_the_devflow_plugin():
+    for label, path in MARKETPLACES.items():
+        with subtest(marketplace=label):
+            plugins = _load(path)["plugins"]
+            assert [p["name"] for p in plugins] == ["devflow"]
+
+
+def test_readme_version_matches_the_manifests():
+    version = _load(PLUGIN_MANIFESTS["claude"])["version"]
+    for name in ("README.md", "README.zh-CN.md"):
+        with subtest(readme=name):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            assert version in text.split("\n\n")[1], f"{name} does not state version {version} in its header"
+

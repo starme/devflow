@@ -7,14 +7,13 @@ advertising fields the code never writes (the pre-v2 ``title:`` gap).
 
 import re
 import sys
-import unittest
 from pathlib import Path
 
 ORCH_DIR = Path(__file__).resolve().parent.parent / "orchestrator"
 TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "task.yaml"
 sys.path.insert(0, str(ORCH_DIR))
 
-from task_state import TaskRecord, render_task_yaml  # noqa: E402
+from task_state import TaskRecord, render_task_yaml
 
 
 def _record(**overrides):
@@ -52,35 +51,29 @@ def _rendered_task_fields(rendered):
     }
 
 
-class RenderTaskYamlTest(unittest.TestCase):
-    def test_template_fields_match_renderer_output(self):
-        self.assertEqual(
-            _template_task_fields(),
-            _rendered_task_fields(render_task_yaml(_record())),
-        )
-
-    def test_rendered_fields_are_placeholders_only(self):
-        # Every field the template advertises must be populated, not a
-        # leftover "{{...}}" placeholder.
-        self.assertNotIn("{{", render_task_yaml(_record()))
-
-    def test_title_defaults_to_first_description_line(self):
-        rendered = render_task_yaml(_record(description="line one\nline two"))
-        self.assertIn('  title: "line one"', rendered)
-
-    def test_explicit_title_wins(self):
-        rendered = render_task_yaml(_record(title="Explicit Card Title"))
-        self.assertIn('  title: "Explicit Card Title"', rendered)
-
-    def test_phase_defaults_to_qa_and_stays_in_five_values(self):
-        rendered = render_task_yaml(_record())
-        phase = re.search(r'current_phase: "(.*?)"', rendered).group(1)
-        self.assertIn(
-            phase,
-            {"qa", "plan_review", "working", "deliver_confirm", "done"},
-        )
-        self.assertEqual(phase, "qa")
+def test_template_fields_match_renderer_output():
+    assert _template_task_fields() == _rendered_task_fields(render_task_yaml(_record()))
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_rendered_fields_are_placeholders_only():
+    # Every field the template advertises must be populated, not a
+    # leftover "{{...}}" placeholder.
+    assert "{{" not in render_task_yaml(_record())
+
+
+def test_title_defaults_to_first_description_line():
+    rendered = render_task_yaml(_record(description="line one\nline two"))
+    assert '  title: "line one"' in rendered
+
+
+def test_explicit_title_wins():
+    rendered = render_task_yaml(_record(title="Explicit Card Title"))
+    assert '  title: "Explicit Card Title"' in rendered
+
+
+def test_phase_defaults_to_qa_and_stays_in_five_values():
+    rendered = render_task_yaml(_record())
+    phase = re.search(r'current_phase: "(.*?)"', rendered).group(1)
+    assert phase in {"qa", "plan_review", "working", "deliver_confirm", "done"}
+    assert phase == "qa"
+

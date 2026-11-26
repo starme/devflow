@@ -139,6 +139,53 @@ def _scalar(val: str) -> str:
     return val.strip()
 
 
+def _parse_workspace_items(lines: list[str]) -> list[dict]:
+    """Scan the ``workspaces:`` list into raw item dicts (no path resolution).
+
+    Only a first-key ``- track:`` item names an endpoint; other first keys are
+    residue or legacy shapes main never parsed. ``named_first`` gates the loud
+    error later — indented ``track:`` lines are deliberately not recorded, so
+    those legacy shapes stay skipped instead of becoming hard failures.
+    """
+    items: list[dict] = []
+    in_workspaces = False
+    current: dict = {}
+    for raw in lines:
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        if indent == 0 and stripped == "workspaces:":
+            in_workspaces = True
+            current = {}
+            continue
+        if in_workspaces:
+            if indent == 0 and stripped.endswith(":"):
+                break
+            if indent == 2 and stripped.startswith("- "):
+                if current:
+                    items.append(current)
+                first_key, _, first_val = stripped[2:].partition(":")
+                if first_key.strip() == "track":
+                    current = {"track": _scalar(first_val), "named_first": "true"}
+                else:
+                    current = {"named_first": "false"}
+                    val = _scalar(first_val)
+                    if first_key.strip() in ("git_root", "path", "remote", "base_branch") and val:
+                        current[first_key.strip()] = val
+                continue
+            if indent >= 4 and ":" in stripped:
+                key, _, val = stripped.partition(":")
+                key = key.strip()
+                val = _scalar(val)
+                # Indented track: is deliberately NOT recorded (H1).
+                if key in ("git_root", "path", "remote", "base_branch") and val:
+                    current[key] = val
+    if current:
+        items.append(current)
+    return items
+
+
 def _resolve_endpoints(project_root: Path) -> list[dict]:
     """Resolve the multi-repo endpoints declared in ``project.yaml``.
 
@@ -161,53 +208,13 @@ def _resolve_endpoints(project_root: Path) -> list[dict]:
     path = project_root / ".devflow" / "project.yaml"
     if not path.is_file():
         return []
-    endpoints: list[dict] = []
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return []
-    in_workspaces = False
-    current: dict = {}
-    for raw in lines:
-        stripped = raw.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        indent = len(raw) - len(raw.lstrip())
-        if indent == 0 and stripped == "workspaces:":
-            in_workspaces = True
-            current = {}
-            continue
-        if in_workspaces:
-            if indent == 0 and stripped.endswith(":"):
-                break
-            if indent == 2 and stripped.startswith("- "):
-                if current:
-                    endpoints.append(current)
-                # Only a first-key ``- track:`` item names an endpoint. Other
-                # first keys are residue (``- remote: origin``) or a legacy
-                # shape main never parsed; neither may be upgraded to a hard
-                # error. Track ``named_first`` on the item to gate the raise.
-                first_key, _, first_val = stripped[2:].partition(":")
-                if first_key.strip() == "track":
-                    current = {"track": _scalar(first_val), "named_first": "true"}
-                else:
-                    current = {"named_first": "false"}
-                    val = _scalar(first_val)
-                    if first_key.strip() in ("git_root", "path", "remote", "base_branch") and val:
-                        current[first_key.strip()] = val
-                continue
-            if indent >= 4 and ":" in stripped:
-                key, _, val = stripped.partition(":")
-                key = key.strip()
-                val = _scalar(val)
-                # Indented track: is deliberately NOT recorded (H1).
-                if key in ("git_root", "path", "remote", "base_branch") and val:
-                    current[key] = val
-    if current:
-        endpoints.append(current)
 
     resolved = []
-    for ep in endpoints:
+    for ep in _parse_workspace_items(lines):
         track = ep.get("track", "")
         raw_root = ep.get("git_root") or ep.get("path")
         if not track:

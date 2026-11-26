@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import sys
 import tempfile
-import unittest
 from pathlib import Path
+
+import pytest
 
 ORCHESTRATOR = Path(__file__).resolve().parents[1] / "orchestrator"
 sys.path.insert(0, str(ORCHESTRATOR))
 
-import archive_migration as am  # noqa: E402
+import archive_migration as am
 
 
 def _manifest(prd_path: str = ".devflow/agent-plugin-compatibility-prd.md") -> str:
@@ -57,95 +58,84 @@ class _Fixture:
         return path
 
 
-class LegacyPrdMigrationTest(unittest.TestCase):
-    def test_migrates_prd_with_pointer_and_manifest_sync(self):
-        f = _Fixture(tempfile.mkdtemp())
-        f.write_manifest(_manifest())
-        f.write(".devflow/agent-plugin-compatibility-prd.md", "legacy prd body")
+def test_migrates_prd_with_pointer_and_manifest_sync():
+    f = _Fixture(tempfile.mkdtemp())
+    f.write_manifest(_manifest())
+    f.write(".devflow/agent-plugin-compatibility-prd.md", "legacy prd body")
 
-        result = am.migrate_legacy_archive(f.root)
+    result = am.migrate_legacy_archive(f.root)
 
-        self.assertEqual(result["status"], "migrated")
-        # Target holds the original PRD content.
-        target = f.root / ".devflow" / "tasks" / "legacy" / "prd-agent-plugin-compatibility.md"
-        self.assertEqual(target.read_text(encoding="utf-8"), "legacy prd body")
-        # Original position is now a pointer to the migrated path, not the body.
-        pointer = f.root / ".devflow" / "agent-plugin-compatibility-prd.md"
-        pointer_text = pointer.read_text(encoding="utf-8")
-        self.assertIn("prd-agent-plugin-compatibility.md", pointer_text)
-        self.assertNotIn("legacy prd body", pointer_text)
-        # Manifest rewrite: prd_writing.prd_path and artifacts.prd now point at
-        # the migrated path.
-        manifest = (f.root / ".devflow" / "manifest.yaml").read_text(encoding="utf-8")
-        self.assertIn(
-            'prd_path: ".devflow/tasks/legacy/prd-agent-plugin-compatibility.md"',
-            manifest,
-        )
-        self.assertIn('prd: ".devflow/tasks/legacy/prd-agent-plugin-compatibility.md"', manifest)
+    assert result["status"] == "migrated"
+    # Target holds the original PRD content.
+    target = f.root / ".devflow" / "tasks" / "legacy" / "prd-agent-plugin-compatibility.md"
+    assert target.read_text(encoding="utf-8") == "legacy prd body"
+    # Original position is now a pointer to the migrated path, not the body.
+    pointer = f.root / ".devflow" / "agent-plugin-compatibility-prd.md"
+    pointer_text = pointer.read_text(encoding="utf-8")
+    assert "prd-agent-plugin-compatibility.md" in pointer_text
+    assert "legacy prd body" not in pointer_text
+    # Manifest rewrite: prd_writing.prd_path and artifacts.prd now point at
+    # the migrated path.
+    manifest = (f.root / ".devflow" / "manifest.yaml").read_text(encoding="utf-8")
+    assert 'prd_path: ".devflow/tasks/legacy/prd-agent-plugin-compatibility.md"' in manifest
+    assert 'prd: ".devflow/tasks/legacy/prd-agent-plugin-compatibility.md"' in manifest
 
 
-class FlatArtifactMigrationTest(unittest.TestCase):
-    def test_migrates_flat_artifacts_into_semantic_dirs(self):
-        f = _Fixture(tempfile.mkdtemp())
-        f.write_manifest(_manifest())
-        f.write("PRD-DevFlow.md", "prd v1")
-        f.write("review-report.md", "review")
-        f.write("docs/architecture.md", "arch v2")
-        f.write("docs/delivery-report.md", "delivery v2")
+def test_migrates_flat_artifacts_into_semantic_dirs():
+    f = _Fixture(tempfile.mkdtemp())
+    f.write_manifest(_manifest())
+    f.write("PRD-DevFlow.md", "prd v1")
+    f.write("review-report.md", "review")
+    f.write("docs/architecture.md", "arch v2")
+    f.write("docs/delivery-report.md", "delivery v2")
 
-        result = am.migrate_legacy_archive(f.root)
+    result = am.migrate_legacy_archive(f.root)
 
-        self.assertEqual(result["status"], "migrated")
-        cases = [
-            (".devflow/tasks/legacy-v01-prd/PRD-DevFlow.md", "prd v1"),
-            (".devflow/tasks/legacy-doc-review/review-report.md", "review"),
-            (".devflow/tasks/legacy-v02-arch/architecture.md", "arch v2"),
-            (".devflow/tasks/legacy-v02-delivery/delivery-report.md", "delivery v2"),
-        ]
-        for rel, expected in cases:
-            path = f.root / rel
-            self.assertTrue(path.is_file(), rel)
-            self.assertEqual(path.read_text(encoding="utf-8"), expected)
-        # Each semantic dir carries a minimal README source index.
-        for rel, _ in cases:
-            readme = f.root / rel.removesuffix(Path(rel).name) / "README.md"
-            self.assertTrue(readme.is_file(), f"README missing for {rel}")
-        # Original files are preserved (copy2, never deleted).
-        self.assertTrue((f.root / "PRD-DevFlow.md").is_file())
-        self.assertTrue((f.root / "docs" / "architecture.md").is_file())
-        # architecture_doc_path re-pointed off docs/architecture.md.
-        manifest = (f.root / ".devflow" / "manifest.yaml").read_text(encoding="utf-8")
-        self.assertIn(
-            'architecture_doc_path: ".devflow/tasks/legacy-v02-arch/architecture.md"',
-            manifest,
-        )
+    assert result["status"] == "migrated"
+    cases = [
+        (".devflow/tasks/legacy-v01-prd/PRD-DevFlow.md", "prd v1"),
+        (".devflow/tasks/legacy-doc-review/review-report.md", "review"),
+        (".devflow/tasks/legacy-v02-arch/architecture.md", "arch v2"),
+        (".devflow/tasks/legacy-v02-delivery/delivery-report.md", "delivery v2"),
+    ]
+    for rel, expected in cases:
+        path = f.root / rel
+        assert path.is_file()
+        assert path.read_text(encoding="utf-8") == expected
+    # Each semantic dir carries a minimal README source index.
+    for rel, _ in cases:
+        readme = f.root / rel.removesuffix(Path(rel).name) / "README.md"
+        assert readme.is_file(), f"README missing for {rel}"
+    # Original files are preserved (copy2, never deleted).
+    assert (f.root / "PRD-DevFlow.md").is_file()
+    assert (f.root / "docs" / "architecture.md").is_file()
+    # architecture_doc_path re-pointed off docs/architecture.md.
+    manifest = (f.root / ".devflow" / "manifest.yaml").read_text(encoding="utf-8")
+    assert 'architecture_doc_path: ".devflow/tasks/legacy-v02-arch/architecture.md"' in manifest
 
 
-class IdempotencyTest(unittest.TestCase):
-    def test_second_run_skips_and_keeps_content(self):
-        f = _Fixture(tempfile.mkdtemp())
-        f.write_manifest(_manifest())
-        f.write(".devflow/agent-plugin-compatibility-prd.md", "prd")
-        f.write("PRD-DevFlow.md", "flat")
-        self.assertEqual(am.migrate_legacy_archive(f.root)["status"], "migrated")
+def test_second_run_skips_and_keeps_content():
+    f = _Fixture(tempfile.mkdtemp())
+    f.write_manifest(_manifest())
+    f.write(".devflow/agent-plugin-compatibility-prd.md", "prd")
+    f.write("PRD-DevFlow.md", "flat")
+    assert am.migrate_legacy_archive(f.root)["status"] == "migrated"
 
-        second = am.migrate_legacy_archive(f.root)
+    second = am.migrate_legacy_archive(f.root)
 
-        self.assertEqual(second["status"], "already_migrated")
-        target = f.root / ".devflow" / "tasks" / "legacy" / "prd-agent-plugin-compatibility.md"
-        self.assertEqual(target.read_text(encoding="utf-8"), "prd")
-
-    def test_conflict_on_differing_target_raises(self):
-        f = _Fixture(tempfile.mkdtemp())
-        f.write_manifest(_manifest())
-        f.write(".devflow/agent-plugin-compatibility-prd.md", "new prd")
-        target = f.root / ".devflow" / "tasks" / "legacy" / "prd-agent-plugin-compatibility.md"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("stale prd", encoding="utf-8")
-
-        with self.assertRaises(am.ArchiveMigrationConflict):
-            am.migrate_legacy_archive(f.root)
+    assert second["status"] == "already_migrated"
+    target = f.root / ".devflow" / "tasks" / "legacy" / "prd-agent-plugin-compatibility.md"
+    assert target.read_text(encoding="utf-8") == "prd"
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_conflict_on_differing_target_raises():
+    f = _Fixture(tempfile.mkdtemp())
+    f.write_manifest(_manifest())
+    f.write(".devflow/agent-plugin-compatibility-prd.md", "new prd")
+    target = f.root / ".devflow" / "tasks" / "legacy" / "prd-agent-plugin-compatibility.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("stale prd", encoding="utf-8")
+
+    with pytest.raises(am.ArchiveMigrationConflict):
+        am.migrate_legacy_archive(f.root)
+
