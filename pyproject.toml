@@ -1,0 +1,25 @@
+[project]
+name = "devflow"
+version = "2.3.1"
+description = "DevFlow lifecycle orchestration plugin for Claude Code (commands, agents, hooks, YAML contracts)."
+# Runtime floor is 3.9: hooks must run on the system python3 shipped with
+# macOS/CI images (observed 3.9.6). The style guide's 3.10+ baseline applies
+# to application code, not to this standard-library-only plugin runtime.
+requires-python = ">=3.9"
+# Runtime is standard-library only by design (hooks run under python3 -B -S).
+dependencies = []
+
+[project.optional-dependencies]
+# Dev-only test runner. Not imported by any runtime code or hook.
+dev = ["pytest>=8,<9"]
+
+[tool.ruff]
+# Tests insert core/orchestrator on sys.path before importing local modules;
+# E402 is inherent to that pattern (same as the pre-migration noqa markers).
+[tool.ruff.lint.per-file-ignores]
+"core/tests/*" = ["E402"]
+"adapters/codex/tests/*" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["core/tests", "adapters/codex/tests"]
+addopts = "-q"

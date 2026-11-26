@@ -38,11 +38,17 @@ Set Codex sandbox and approval policy according to the host's security requireme
 
 ## Verification
 
+Install the dev dependency first (pytest is dev-only; the plugin runtime stays standard-library):
+
+```bash
+pip install -e '.[dev]'
+```
+
 Run:
 
 ```bash
-python3 -m unittest discover -s core/tests -v
-python3 -m unittest discover -s adapters/codex/tests -v
+pytest -q core/tests
+pytest -q adapters/codex/tests
 ```
 
 A live app-server check is `BLOCKED` when Codex is not installed or authenticated; do not report it as a passing integration test.
