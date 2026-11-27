@@ -13,6 +13,8 @@ so that rewording is free while removal is caught.
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SKILL = ROOT / "core" / "orchestrator" / "SKILL.md"
 PLAN = ROOT / "core" / "templates" / "plan.md"
@@ -20,10 +22,6 @@ WORKFLOW = ROOT / "commands" / "workflow.md"
 COMMANDS = ROOT / "commands"
 
 
-def subtest(**_kwargs):
-    """Migration stand-in for unittest subTest: a no-op context manager."""
-    from contextlib import nullcontext
-    return nullcontext()
 
 def test_skill_defines_both_recall_timings():
     text = SKILL.read_text(encoding="utf-8")
@@ -32,11 +30,10 @@ def test_skill_defines_both_recall_timings():
     assert "memorant_recall" in text
 
 
-def test_skill_pins_the_four_development_triggers():
+@pytest.mark.parametrize("trigger", ("测试", "verifier", "首次修改", "新依赖"))
+def test_skill_pins_the_four_development_triggers(trigger):
     text = SKILL.read_text(encoding="utf-8")
-    for trigger in ("测试", "verifier", "首次修改", "新依赖"):
-        with subtest(trigger=trigger):
-            assert trigger in text, f"recall trigger missing from SKILL: {trigger}"
+    assert trigger in text, f"recall trigger missing from SKILL: {trigger}"
 
 
 def test_skill_requires_trust_tier_to_be_shown():
@@ -131,20 +128,18 @@ def test_start_and_fix_share_one_command_file():
     assert "bugfix" in text
 
 
-def test_retired_templates_announce_their_successor():
-    for name in ("prd.md", "task-card.md"):
-        with subtest(name=name):
-            text = (ROOT / "core" / "templates" / name).read_text(encoding="utf-8")
-            head = text[:600]
-            assert "已退役" in head, f"{name} does not announce retirement"
-            assert "plan.md" in head, f"{name} does not point at plan.md"
+@pytest.mark.parametrize("name", ("prd.md", "task-card.md"))
+def test_retired_templates_announce_their_successor(name):
+    text = (ROOT / "core" / "templates" / name).read_text(encoding="utf-8")
+    head = text[:600]
+    assert "已退役" in head, f"{name} does not announce retirement"
+    assert "plan.md" in head, f"{name} does not point at plan.md"
 
 
-def test_flow_points_at_plan_template():
-    for rel in ("core/orchestrator/SKILL.md", "commands/workflow.md"):
-        with subtest(rel=rel):
-            text = (ROOT / rel).read_text(encoding="utf-8")
-            assert "core/templates/plan.md" in text
+@pytest.mark.parametrize("rel", ("core/orchestrator/SKILL.md", "commands/workflow.md"))
+def test_flow_points_at_plan_template(rel):
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    assert "core/templates/plan.md" in text
 
 
 def test_init_checks_the_live_template():
@@ -152,12 +147,11 @@ def test_init_checks_the_live_template():
     assert "core/templates/plan.md" in text
 
 
-def test_dispatch_uses_the_namespaced_agent_name():
-    for rel in ("core/orchestrator/SKILL.md", "commands/workflow.md"):
-        text = (ROOT / rel).read_text(encoding="utf-8")
-        for agent in ("verifier", "reviewer"):
-            with subtest(rel=rel, agent=agent):
-                assert f"devflow:devflow-{agent}" in text, f"{rel} must dispatch by namespace"
+@pytest.mark.parametrize("rel", ("core/orchestrator/SKILL.md", "commands/workflow.md"))
+@pytest.mark.parametrize("agent", ("verifier", "reviewer"))
+def test_dispatch_uses_the_namespaced_agent_name(rel, agent):
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    assert f"devflow:devflow-{agent}" in text, f"{rel} must dispatch by namespace"
 
 
 def test_flow_states_artifacts_live_beside_task_yaml():
@@ -228,23 +222,21 @@ def test_status_covers_project_root_devflow():
     assert text.count("--report") >= 3, "expect workspace, project root and archive"
 
 
-def test_delivery_and_guard_whitelists_agree_on_new_artifacts():
+@pytest.mark.parametrize("entry", (".devflow/plan.md", ".devflow/review-report.md"))
+def test_delivery_and_guard_whitelists_agree_on_new_artifacts(entry):
     sys.path.insert(0, str(ROOT / "core" / "orchestrator"))
     sys.path.insert(0, str(ROOT / "core" / "hooks"))
     from delivery import DELIVERY_ARTIFACT_FILES
     from devflow_guard_common import _DEVFLOW_ARTIFACT_FILES
 
-    for entry in (".devflow/plan.md", ".devflow/review-report.md"):
-        with subtest(entry=entry):
-            assert entry in DELIVERY_ARTIFACT_FILES
-            assert entry in _DEVFLOW_ARTIFACT_FILES
+    assert entry in DELIVERY_ARTIFACT_FILES
+    assert entry in _DEVFLOW_ARTIFACT_FILES
 
 
-def test_publish_whitelist_includes_plan_and_review():
+@pytest.mark.parametrize("name", ("plan.md", "review-report.md"))
+def test_publish_whitelist_includes_plan_and_review(name):
     sys.path.insert(0, str(ROOT / "core" / "orchestrator"))
     from artifact_publish import PUBLISHABLE_ARTIFACTS
 
-    for name in ("plan.md", "review-report.md"):
-        with subtest(name=name):
-            assert name in PUBLISHABLE_ARTIFACTS
+    assert name in PUBLISHABLE_ARTIFACTS
 

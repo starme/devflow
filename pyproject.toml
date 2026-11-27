@@ -11,7 +11,8 @@ dependencies = []
 
 [project.optional-dependencies]
 # Dev-only test runner. Not imported by any runtime code or hook.
-dev = ["pytest>=8,<9"]
+# Pinned snapshot lives in requirements-dev.txt — keep the two in sync.
+dev = ["pytest>=8,<9", "pytest-cov>=6,<7"]
 
 [tool.ruff]
 # Tests insert core/orchestrator on sys.path before importing local modules;
@@ -23,3 +24,16 @@ dev = ["pytest>=8,<9"]
 [tool.pytest.ini_options]
 testpaths = ["core/tests", "adapters/codex/tests"]
 addopts = "-q"
+
+# Coverage gate applies to the orchestration layer (the core business logic).
+# Hooks are a fail-safe boundary layer whose defensive branches are inherently
+# hard to cover (devflow_guard_common measured 56%); they are reported, not gated.
+[tool.coverage.run]
+source = ["core/orchestrator", "core/workspace.py", "core/project_analyzer.py"]
+# keep artifacts inside the already-ignored .devflow/ tree (.gitignore is
+# agent-protected, so this is the sanctioned way to avoid dirtying the tree)
+data_file = ".devflow/.coverage"
+[tool.coverage.report]
+fail_under = 85
+show_missing = false
+omit = ["hooks/*", "core/hooks/*", "core/tests/*", "adapters/*"]

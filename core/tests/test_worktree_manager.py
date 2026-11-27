@@ -18,6 +18,7 @@ sys.path.insert(0, str(ORCHESTRATOR))
 from task_state import RepoEndpoint, TaskRecord, load_task, render_task_yaml
 from worktree_manager import (
     WorktreeError,
+    _parse_workspace_items,
     activate_endpoint,
     create_task,
     describe_git_skips,
@@ -772,3 +773,100 @@ def test_subdirectory_of_repo_is_not_a_git_root():
         # sub is inside a repository but is not its own top level.
         assert describe_git_skips(sub)
 
+
+# --- _parse_workspace_items: direct unit tests for the extracted state machine ---
+# These freeze the shapes the PR #36 compatibility matrix checked once by hand.
+
+
+def test_parse_items_first_key_track_names_the_endpoint():
+    items = _parse_workspace_items([
+        "workspaces:",
+        '  - track: "frontend"',
+        '    git_root: "../fe"',
+    ])
+    assert items == [{"track": "frontend", "named_first": "true", "git_root": "../fe"}]
+
+
+@pytest.mark.parametrize("first_line", [
+    '  - remote: "origin"',
+    '  - path: "../fe"',
+    '  - git_root: "../fe"',
+])
+def test_parse_items_other_first_keys_are_not_named(first_line):
+    items = _parse_workspace_items(["workspaces:", first_line])
+    assert items[0]["named_first"] == "false"
+    assert "track" not in items[0]
+
+
+def test_parse_items_indented_track_is_not_recorded():
+    # H1: main never parsed an indented track:, so it must stay unnamed.
+    items = _parse_workspace_items([
+        "workspaces:",
+        '  - path: "../fe"',
+        '    track: "frontend"',
+    ])
+    assert "track" not in items[0]
+    assert items[0]["path"] == "../fe"
+
+
+def test_parse_items_only_whitelisted_fields_collected():
+    items = _parse_workspace_items([
+        "workspaces:",
+        '  - track: "fe"',
+        '    git_root: "../fe"',
+        '    remote: "upstream"',
+        '    base_branch: "main"',
+        "    unknown: ignored",
+    ])
+    assert items[0] == {
+        "track": "fe", "named_first": "true", "git_root": "../fe",
+        "remote": "upstream", "base_branch": "main",
+    }
+
+
+def test_parse_items_comments_and_blanks_skipped():
+    items = _parse_workspace_items([
+        "# leading comment",
+        "workspaces:",
+        "",
+        "  # inner comment",
+        '  - track: "fe"',
+        '    git_root: "../fe"  # trailing',
+    ])
+    assert items[0]["git_root"] == "../fe"
+
+
+def test_parse_items_stops_at_next_top_level_section():
+    items = _parse_workspace_items([
+        "workspaces:",
+        '  - track: "fe"',
+        '    git_root: "../fe"',
+        "platforms:",
+        '  - track: "ghost"',
+    ])
+    assert len(items) == 1
+    assert items[0]["track"] == "fe"
+
+
+def test_parse_items_bare_dash_yields_unnamed_field_only_item():
+    # A bare `-` line is not a `- ` item, so no named_first marker is set; the
+    # indented field still lands in the (empty) current dict. The resolver skips
+    # it because it has no track — matching main's behaviour.
+    assert _parse_workspace_items(["workspaces:", "  -", '    git_root: "../fe"']) == [
+        {"git_root": "../fe"}
+    ]
+
+
+def test_parse_items_no_workspaces_section_yields_empty():
+    assert _parse_workspace_items(["workspace:", '  root: "."']) == []
+
+
+def test_parse_items_multiple_items_flush_in_order():
+    items = _parse_workspace_items([
+        "workspaces:",
+        '  - track: "a"',
+        '  - track: "b"',
+        '    path: "../b"',
+    ])
+    assert [i["track"] for i in items] == ["a", "b"]
+    assert items[1]["path"] == "../b"

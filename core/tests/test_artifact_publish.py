@@ -28,10 +28,6 @@ import artifact_publish as ap
 from task_state import TaskRecord, load_task, render_task_yaml
 
 
-def subtest(**_kwargs):
-    from contextlib import nullcontext
-    return nullcontext()
-
 def _meta(**overrides) -> dict:
     meta = {
         "task_id": "feature-add-report-abc123",
@@ -369,11 +365,10 @@ def test_missing_task():
     assert not (ap.is_publishable(location))
 
 
-def test_rejects_ids_that_escape_the_archive_roots():
+@pytest.mark.parametrize("unsafe", ("../escape", "..", "a/b"))
+def test_rejects_ids_that_escape_the_archive_roots(unsafe):
     f = _Fixture(tempfile.mkdtemp())
-    for unsafe in ("../escape", "..", "a/b"):
-        with subtest(task_id=unsafe):
-            assert ap.locate_task(f.repo, f.project_root, unsafe).kind == "missing"
+    assert ap.locate_task(f.repo, f.project_root, unsafe).kind == "missing"
 
 
 def test_finished_in_place_task_is_not_publishable():
@@ -387,30 +382,31 @@ def test_finished_in_place_task_is_not_publishable():
     assert not (ap.is_publishable(location))
 
 
-def test_publishable_table():
-    # The rule in one place: live kind + state + not finished.
-    cases = [
-        ("worktree", True, "working", True),
-        ("worktree", True, "done", False),
-        ("worktree", True, None, True),
-        ("in-place", True, "qa", True),
-        ("in-place", True, "done", False),
-        ("in-place", False, None, False),
-        ("archived", True, "done", False),
-        ("archived", False, None, False),
-        ("missing", False, None, False),
-    ]
-    for kind, has_state, phase, expected in cases:
-        with subtest(kind=kind, has_state=has_state, phase=phase):
-            location = ap.TaskLocation(
-                task_id="t",
-                kind=kind,
-                root=Path("/tmp/t"),
-                state_file=Path("/tmp/t/task.yaml") if has_state else None,
-                phase=phase,
-                has_state=has_state,
-            )
-            assert ap.is_publishable(location) is expected
+# The rule in one place: live kind + state + not finished.
+PUBLISHABLE_CASES = [
+    ("worktree", True, "working", True),
+    ("worktree", True, "done", False),
+    ("worktree", True, None, True),
+    ("in-place", True, "qa", True),
+    ("in-place", True, "done", False),
+    ("in-place", False, None, False),
+    ("archived", True, "done", False),
+    ("archived", False, None, False),
+    ("missing", False, None, False),
+]
+
+
+@pytest.mark.parametrize("kind,has_state,phase,expected", PUBLISHABLE_CASES)
+def test_publishable_table(kind, has_state, phase, expected):
+    location = ap.TaskLocation(
+        task_id="t",
+        kind=kind,
+        root=Path("/tmp/t"),
+        state_file=Path("/tmp/t/task.yaml") if has_state else None,
+        phase=phase,
+        has_state=has_state,
+    )
+    assert ap.is_publishable(location) is expected
 
 
 def test_discover_refuses_archived_task():

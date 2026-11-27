@@ -68,9 +68,6 @@ STILL_BLOCKED = (
 )
 
 
-def subtest(**_kwargs):
-    from contextlib import nullcontext
-    return nullcontext()
 
 def _boundary_bash(boundary_state, command, cwd=None):
     _boundary_write_context(boundary_state, boundary_state.backend)
@@ -681,21 +678,20 @@ def test_config_read_is_denied(st_approvaliscontentgatedtest):
     assert _decision(proc) == "deny"
 
 
-def test_shell_read_of_config_is_denied(st_approvaliscontentgatedtest):
+@pytest.mark.parametrize("command", (
+    "cat server/config/app.yaml",
+    "grep token server/config/app.yaml",
+    "head -n 5 server/config/app.yaml",
+    "cat server/config/app.yaml | grep token",
+))
+def test_shell_read_of_config_is_denied(st_approvaliscontentgatedtest, command):
     """``cat config/app.yaml`` names no write target, so the write-target
     extractor misses it and the whole rule would be bypassable."""
     target = st_approvaliscontentgatedtest.root / "server" / "config" / "app.yaml"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("token: abc\n", encoding="utf-8")
-    for command in (
-        "cat server/config/app.yaml",
-        "grep token server/config/app.yaml",
-        "head -n 5 server/config/app.yaml",
-        "cat server/config/app.yaml | grep token",
-    ):
-        with subtest(command=command):
-            proc = _run_hook(st_approvaliscontentgatedtest.root, "Bash", {"command": command}, str(st_approvaliscontentgatedtest.root))
-            assert _decision(proc) == "deny"
+    proc = _run_hook(st_approvaliscontentgatedtest.root, "Bash", {"command": command}, str(st_approvaliscontentgatedtest.root))
+    assert _decision(proc) == "deny"
 
 
 def test_shell_read_of_ordinary_file_is_allowed(st_approvaliscontentgatedtest):
@@ -773,42 +769,38 @@ def test_forbidden_file_still_denied(st_approvaliscontentgatedtest):
 # Bulk-destructive commands destroy work in one shot and matched none of
 # the original danger patterns (which only caught ``rm -rf /``, ``mkfs``,
 # force-push and friends).
-def test_bulk_destructive_commands_are_blocked():
-    for command in BULK:
-        with subtest(command=command):
-            assert check_dangerous_command(command) is not None
+@pytest.mark.parametrize("command", BULK)
+def test_bulk_destructive_commands_are_blocked(command):
+    assert check_dangerous_command(command) is not None
 
 
-def test_routine_commands_still_pass():
-    for command in ROUTINE:
-        with subtest(command=command):
-            assert check_dangerous_command(command) is None
+@pytest.mark.parametrize("command", ROUTINE)
+def test_routine_commands_still_pass(command):
+    assert check_dangerous_command(command) is None
 
 
-def test_command_names_inside_a_commit_message_are_allowed():
+@pytest.mark.parametrize("command", (
+    'git commit -m "fix: stop using git reset --hard"',
+    'git commit -m "docs: explain git clean -fd"',
+    'echo "git checkout ." > notes.md',
+    "git status  # not git clean -fd",
+))
+def test_command_names_inside_a_commit_message_are_allowed(command):
     """The words appear as text, not as an invocation. Blocking here made
     the guard reject its own commit message."""
-    for command in (
-        'git commit -m "fix: stop using git reset --hard"',
-        'git commit -m "docs: explain git clean -fd"',
-        'echo "git checkout ." > notes.md',
-        "git status  # not git clean -fd",
-    ):
-        with subtest(command=command):
-            assert check_dangerous_command(command) is None
+    assert check_dangerous_command(command) is None
 
 
-def test_chained_bulk_command_is_still_blocked():
+@pytest.mark.parametrize("command", (
+    "echo hi && git reset --hard",
+    "ls; git clean -fdx",
+    "cd /tmp && find . -name '*.tmp' -delete",
+    "sudo git branch -D main",
+))
+def test_chained_bulk_command_is_still_blocked(command):
     """A real invocation after a chain operator must not slip through the
     segment split."""
-    for command in (
-        "echo hi && git reset --hard",
-        "ls; git clean -fdx",
-        "cd /tmp && find . -name '*.tmp' -delete",
-        "sudo git branch -D main",
-    ):
-        with subtest(command=command):
-            assert check_dangerous_command(command) is not None
+    assert check_dangerous_command(command) is not None
 
 
 def test_heredoc_body_is_not_scanned_as_a_command():
@@ -858,16 +850,14 @@ def test_backticks_outside_a_heredoc_still_execute():
 # 2026-11 dogfood, worked around it in memory, and reported it as friction —
 # which is exactly the kind of thing that should become a test rather than a
 # workaround.
-def test_scratch_cleanup_is_allowed():
-    for command in ALLOWED:
-        with subtest(command=command):
-            assert check_dangerous_command(command) is None
+@pytest.mark.parametrize("command", ALLOWED)
+def test_scratch_cleanup_is_allowed(command):
+    assert check_dangerous_command(command) is None
 
 
-def test_root_and_home_wipes_are_still_blocked():
-    for command in STILL_BLOCKED:
-        with subtest(command=command):
-            assert check_dangerous_command(command) is not None
+@pytest.mark.parametrize("command", STILL_BLOCKED)
+def test_root_and_home_wipes_are_still_blocked(command):
+    assert check_dangerous_command(command) is not None
 
 
 @pytest.fixture(scope="module")

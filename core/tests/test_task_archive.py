@@ -23,11 +23,6 @@ from task_state import (
 )
 
 
-def subtest(**_kwargs):
-    """Migration stand-in for unittest subTest: a no-op context manager."""
-    from contextlib import nullcontext
-    return nullcontext()
-
 @pytest.fixture(autouse=True)
 def st():
     from types import SimpleNamespace
@@ -95,16 +90,15 @@ def test_missing_task_id_is_skipped(st):
     assert archive_task_state(st.task_file) is None
 
 
-def test_ids_that_could_escape_the_tasks_directory_are_rejected(st):
-    for unsafe in ("../escape", "a/b", ".."):
-        with subtest(task_id=unsafe):
-            path = Path(st._tmp.name) / "unsafe"
-            path.mkdir(exist_ok=True)
-            target = path / "task.yaml"
-            target.write_text(
-                render_task_yaml(_record(task_id=unsafe)),
-                encoding="utf-8",
-            )
-            assert archive_task_state(target) is None
-            assert not ((path / "tasks").exists())
+@pytest.mark.parametrize("unsafe", ("../escape", "a/b", ".."))
+def test_ids_that_could_escape_the_tasks_directory_are_rejected(unsafe, st):
+    path = Path(st._tmp.name) / "unsafe"
+    path.mkdir(exist_ok=True)
+    target = path / "task.yaml"
+    target.write_text(
+        render_task_yaml(_record(task_id=unsafe)),
+        encoding="utf-8",
+    )
+    assert archive_task_state(target) is None
+    assert not ((path / "tasks").exists())
 
