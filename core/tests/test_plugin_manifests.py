@@ -19,11 +19,7 @@ import json
 import re
 from pathlib import Path
 
-
-def subtest(**_kwargs):
-    """Migration stand-in for unittest subTest: a no-op context manager."""
-    from contextlib import nullcontext
-    return nullcontext()
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -43,10 +39,9 @@ def _load(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_all_plugin_manifests_exist():
-    for label, path in PLUGIN_MANIFESTS.items():
-        with subtest(manifest=label):
-            assert path.is_file(), f"{label} manifest missing: {path}"
+@pytest.mark.parametrize("label,path", PLUGIN_MANIFESTS.items())
+def test_all_plugin_manifests_exist(label, path):
+    assert path.is_file(), f"{label} manifest missing: {path}"
 
 
 def test_plugin_names_agree():
@@ -64,7 +59,8 @@ def test_plugin_versions_agree():
     assert len(set(versions.values())) == 1, f"plugin versions drifted apart: {versions}"
 
 
-def test_skill_directories_resolve():
+@pytest.mark.parametrize("label,path", PLUGIN_MANIFESTS.items())
+def test_skill_directories_resolve(label, path):
     # Root manifests are published from the repo root; the nested fallback
     # is published from its own package directory.
     package_roots = {
@@ -72,12 +68,10 @@ def test_skill_directories_resolve():
         "codex-root": ROOT,
         "codex-nested": ROOT / "plugins" / "devflow",
     }
-    for label, path in PLUGIN_MANIFESTS.items():
-        with subtest(manifest=label):
-            skills = _load(path).get("skills")
-            if not skills:
-                continue
-            assert (package_roots[label] / skills).is_dir(), f"{label}: skills path {skills!r} does not resolve"
+    skills = _load(path).get("skills")
+    if not skills:
+        return  # nothing declared to resolve (main used `continue`)
+    assert (package_roots[label] / skills).is_dir(), f"{label}: skills path {skills!r} does not resolve"
 
 
 def test_marketplaces_share_a_name():
@@ -85,17 +79,15 @@ def test_marketplaces_share_a_name():
     assert set(names.values()) == {"devflow-marketplace"}
 
 
-def test_marketplaces_expose_the_devflow_plugin():
-    for label, path in MARKETPLACES.items():
-        with subtest(marketplace=label):
-            plugins = _load(path)["plugins"]
-            assert [p["name"] for p in plugins] == ["devflow"]
+@pytest.mark.parametrize("label,path", MARKETPLACES.items())
+def test_marketplaces_expose_the_devflow_plugin(label, path):
+    plugins = _load(path)["plugins"]
+    assert [p["name"] for p in plugins] == ["devflow"]
 
 
-def test_readme_version_matches_the_manifests():
+@pytest.mark.parametrize("name", ("README.md", "README.zh-CN.md"))
+def test_readme_version_matches_the_manifests(name):
     version = _load(PLUGIN_MANIFESTS["claude"])["version"]
-    for name in ("README.md", "README.zh-CN.md"):
-        with subtest(readme=name):
-            text = (ROOT / name).read_text(encoding="utf-8")
-            assert version in text.split("\n\n")[1], f"{name} does not state version {version} in its header"
+    text = (ROOT / name).read_text(encoding="utf-8")
+    assert version in text.split("\n\n")[1], f"{name} does not state version {version} in its header"
 

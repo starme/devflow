@@ -1,0 +1,6 @@
+# Dev-only test dependencies, pinned for reproducible local runs.
+# The plugin runtime itself has zero dependencies (standard library only).
+# Install: pip install -r requirements-dev.txt
+# Equivalent: pip install -e '.[dev]' (unpinned ranges; keep in sync with pyproject [dev]).
+pytest==8.4.2
+pytest-cov==6.3.0

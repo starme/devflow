@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Regression tests for DevFlow lifecycle hook hint behavior.
 
 v2 (ADR-0005): hooks inform, never block. The Stop event is not registered
@@ -12,13 +11,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 HOOK = Path(__file__).resolve().parents[2] / "hooks" / "devflow_hook.py"
 
 
-def subtest(**_kwargs):
-    """Migration stand-in for unittest subTest: a no-op context manager."""
-    from contextlib import nullcontext
-    return nullcontext()
 
 def run_event(root: Path, event: str, project_dir=None, **extra) -> subprocess.CompletedProcess:
     payload = {
@@ -282,37 +279,46 @@ def test_other_gate_phases_keep_the_plain_notice():
 
 
 
-def test_development_requests_are_candidates():
-    for prompt in (
-        "分析需求进行开发",
-        "把这个 bug 修了",
-        "帮我实现一个导出功能",
-        "这个接口报错了",
-        "refactor the auth module",
-        "fix the flaky test",
-    ):
-        with subtest(prompt=prompt):
-            assert _HOOK.detect_intent_candidate(prompt)
+DEV_REQUESTS = (
+    "分析需求进行开发",
+    "把这个 bug 修了",
+    "帮我实现一个导出功能",
+    "这个接口报错了",
+    "refactor the auth module",
+    "fix the flaky test",
+)
 
 
-def test_ordinary_conversation_is_not_a_candidate():
-    for prompt in (
-        "今天几号",
-        "解释一下这段历史",
-        "what does this repo do",
-        "",
-        "   ",
-    ):
-        with subtest(prompt=prompt):
-            assert not (_HOOK.detect_intent_candidate(prompt))
+@pytest.mark.parametrize(
+    "prompt", DEV_REQUESTS,
+    ids=["dev-cn-1", "dev-cn-2", "dev-cn-3", "dev-cn-4", "dev-en", "fix-flaky"],
+)
+def test_development_requests_are_candidates(prompt):
+    assert _HOOK.detect_intent_candidate(prompt)
 
 
-def test_explicit_slash_command_is_never_prefiltered():
+ORDINARY_PROMPTS = (
+    "今天几号",
+    "解释一下这段历史",
+    "what does this repo do",
+    "",
+    "   ",
+)
+
+
+@pytest.mark.parametrize(
+    "prompt", ORDINARY_PROMPTS,
+    ids=["cn-date", "cn-history", "en-what", "empty", "spaces"],
+)
+def test_ordinary_conversation_is_not_a_candidate(prompt):
+    assert not (_HOOK.detect_intent_candidate(prompt))
+
+
+@pytest.mark.parametrize("prompt", ("/devflow start 做点事", "/plan 重构一下", "/fix bug"))
+def test_explicit_slash_command_is_never_prefiltered(prompt):
     """The user already chose a command; guessing on top of it would add
     a confirmation prompt to an intentional action."""
-    for prompt in ("/devflow start 做点事", "/plan 重构一下", "/fix bug"):
-        with subtest(prompt=prompt):
-            assert not (_HOOK.detect_intent_candidate(prompt))
+    assert not (_HOOK.detect_intent_candidate(prompt))
 
 
 def test_intent_notice_demands_confirmation_before_starting():
