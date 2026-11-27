@@ -1,6 +1,6 @@
 [project]
 name = "devflow"
-version = "2.3.1"
+version = "2.4.0"
 description = "DevFlow lifecycle orchestration plugin for Claude Code (commands, agents, hooks, YAML contracts)."
 # Runtime floor is 3.9: hooks must run on the system python3 shipped with
 # macOS/CI images (observed 3.9.6). The style guide's 3.10+ baseline applies
